@@ -80,7 +80,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │                           ┌────────────────────────┐   │
                 │ Email Routing fallback ──►│ apaar.farmaha@thoropass│   │
                 │ (forwarded when           │ .com (catch-all bucket)│   │
-                │  attachments or >100 KB)  └────────────────────────┘   │
+                │  attachments or >1 MB)    └────────────────────────┘   │
                 └────────────────────────────────────────────────────────┘
 ```
 
@@ -128,7 +128,7 @@ sender ──► *@oob.example
               ├─ read message.raw stream → rawText (string)
               ├─ parsed = postal-mime.parse(rawText)
               ├─ hasAttachments = parsed.attachments.length > 0
-              ├─ tooBig = message.rawSize > 100 KiB
+              ├─ tooBig = message.rawSize > 1 MiB
               │
               ├─ if (hasAttachments OR tooBig):
               │     ├─ forward(message → FALLBACK_ADDRESS)         } in parallel
@@ -248,7 +248,7 @@ Steps:
 5. Extract `subject` from parsed headers (preferred) or `parsed.subject`.
 6. Decide:
    - `hasAttachments = parsed?.attachments?.length > 0`
-   - `tooBig = rawSize > 102400` (100 KiB)
+   - `tooBig = rawSize > 1048576` (1 MiB)
    - `shouldForward = hasAttachments || tooBig`
 7. **If shouldForward:**
    - Start `message.forward(env.FALLBACK_ADDRESS)`
@@ -329,7 +329,7 @@ File responsibilities:
 
 - **`tabs.jsx`** — the three list tabs and their detail modals.
   - `ListView` — generic search + paginated list wrapper used by all three tabs.
-  - `EndpointsTab` + `EndpointModal` — URI-only list. Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation.
+  - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens.
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
   - `EmailsTab` + `EmailModal` — branches on `data.raw_eml === "sent_to_fallback"`. The "real" view (`ParsedEmailView`) lazy-loads postal-mime, parses the EML, and renders headers, body (HTML in a strictly-sandboxed iframe; plain-text in a `<pre>`), and attachment metadata. The fallback view shows a notice + the basic fields.
   - `adaptPostalMime(p)` — reshapes postal-mime's output into the shape the rest of the component expects. postal-mime returns `from: {address, name}` and `to: [{address, name}, …]`; we flatten to display strings. Attachments are surfaced as `{filename, mime, size}` only — we don't expose attachment content in the dashboard.
@@ -649,9 +649,9 @@ Run these after any non-trivial deploy.
 1. **Schema applied** — `wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote` lists `endpoints`, `requests`, `emails`.
 2. **HTTP 404 + capture** — `curl https://oob.example/test` returns `404! Not Found`. A row appears in `requests`.
 3. **HTTP endpoint serving** — Create an endpoint via the dashboard for `/health` returning `200 ok`. `curl https://oob.example/health` returns it. A request row is logged.
-4. **Email basic** — Send a plain text email under 100 KB to `anything@oob.example`. A row with full raw EML appears in `emails`. No forward.
+4. **Email basic** — Send a plain text email under 1 MB to `anything@oob.example`. A row with full raw EML appears in `emails`. No forward.
 5. **Email with attachment** — Send an email with any attachment. A row with `raw_eml = "sent_to_fallback"` appears; the original lands in the fallback inbox.
-6. **Email oversized** — Send a >100 KB email (no attachment). Same outcome as #5.
+6. **Email oversized** — Send a >1 MB email (no attachment). Same outcome as #5.
 7. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on `oob.example` updates immediately.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
@@ -680,7 +680,7 @@ Run these after any non-trivial deploy.
 
 ## 14. Known constraints & caveats
 
-- **D1 row size limit: 2 MB.** Mitigated for emails by the 100 KB forward threshold. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
+- **D1 row size limit: 2 MB.** The 1 MB email forward threshold leaves headroom below this; pentest emails larger than 1 MB go to the fallback inbox instead of D1. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
 - **D1 storage limit: 500 MB on Free tier.** Purge regularly. No automatic eviction.
 - **Search is full-table scan.** `LIKE '%query%'` doesn't use indexes. Fine at thousands of rows; switch to FTS5 if volume grows.
 - **Pagination is best-effort during writes.** Cursor pagination is stable only as long as the data between pages doesn't change. New emails arriving during a scroll won't appear until you re-search/refresh.
@@ -707,9 +707,14 @@ The textbook fix is a separate `counters` table updated by `AFTER INSERT/DELETE`
 
 If you bring counts back, do it via counters + triggers, not COUNT(*).
 
-### 15.2 Endpoints list is URI-only
+### 15.2 Endpoints list shows URI + status (and only those)
 
-The original design showed status, header count, and body length per row, with an N+1 lazy fetch per row to populate them. We collapsed to URI-only — one column, one query for the whole list. Click a row to see the full data in the modal.
+The original design showed URI, status, header count, and body length per row, populated via N+1 lazy fetches. We re-shaped that: the list endpoint returns just `{uri, status}` (two columns), the row renders status using the same color-coded `status-2xx/3xx/4xx/5xx` tags as the Requests tab, and the full headers/body are fetched only when the modal opens.
+
+Why this shape:
+- **Status is high-signal at-a-glance** (lets you spot a misconfigured 500 or an unintentional 200 OK at a glance).
+- **Headers count and body length aren't** — both require either an extra round-trip per row or fattening the list payload, and neither tells you anything that the modal doesn't show better.
+- One query per page (10 rows) instead of 11 (1 list + 10 lazy details).
 
 ### 15.3 Purge banner doesn't show a row delete count
 

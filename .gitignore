@@ -1,6 +1,9 @@
 # Internal design docs — not for the public repo
 pre-context.md
 
+# Worker config with real D1 ID — copy from wrangler.toml.example, keep ID local
+worker/wrangler.toml
+
 # Node
 node_modules/
 npm-debug.log*

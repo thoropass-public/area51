@@ -270,6 +270,8 @@ In `worker/wrangler.toml`:
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
 | `FALLBACK_ADDRESS` (var) | Email forward target for oversized / attachment / failure cases. Currently `apaar.farmaha@thoropass.com` |
 | `routes` | Custom Domain entry binds the worker to `0r0.us` (Cloudflare auto-manages DNS) |
+| `workers_dev = false` | Disables the auto-generated `area51-worker.<account-subdomain>.workers.dev` URL — the worker is reachable only via `0r0.us` |
+| `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
 
 **Email Routing is configured in the Cloudflare dashboard, not `wrangler.toml`.** Wrangler v4 deprecated the `[triggers] email` config. The worker exports an `email` handler; the dashboard's Email Routing → "Send to a Worker" feature is what actually delivers inbound mail to it. See the deployment steps in [§9](#9-deployment-from-a-clean-slate).
 
@@ -455,11 +457,16 @@ The `headers` round-trip is asymmetric on purpose:
 Configured **manually** in the Cloudflare dashboard. Not part of the code deliverables. To set up:
 
 1. Cloudflare → Zero Trust → Access → Applications → **Add an application** → Self-hosted.
-2. Application domain: `area51.thoropentests.com` (include all subpaths).
+2. **Application domains** — add **all three**, each as a separate "Application domain" row in the same app:
+   - `area51.thoropentests.com` (primary custom domain)
+   - `area51-dnt.pages.dev` (Pages production URL — always exposed by Cloudflare)
+   - `*.area51-dnt.pages.dev` (Pages per-deployment preview URLs)
+
+   Without all three, the dashboard is reachable unprotected via the raw `pages.dev` URLs even after you've set Access on the custom domain.
 3. Add **two policies, both required** (set to "Allow" with rule grouping such that both must match):
    - **Rule 1 — IP allowlist:** action Allow, include: IP in range = VPN egress IP(s).
    - **Rule 2 — Email OTP:** action Allow, include: Emails ending in `@thoropass.com`. Auth method: One-time PIN.
-4. Save. Pages Functions inherit the policy automatically — `/api/*` is gated too.
+4. Save. Pages Functions (`/api/*`) inherit the policy automatically.
 
 If a teammate joins the team and can't get in, they need: VPN access AND a `@thoropass.com` mailbox that can receive the OTP.
 
@@ -560,6 +567,8 @@ Redeploy once after adding the binding so the new env is picked up: `npx wrangle
 ### Step 7 — Configure Cloudflare Access
 
 Follow [§8](#8-cloudflare-access). Without this, `area51.thoropentests.com` is open to the world.
+
+**Also cover the Pages-generated URLs.** Pages always exposes the dashboard at `area51-dnt.pages.dev` (production) and `<hash>.area51-dnt.pages.dev` (per-deployment previews) regardless of any wrangler.toml setting. Make sure your Access application includes these hostnames so they're locked behind the same IP + OTP policies — see [§8](#8-cloudflare-access) for the exact hostnames to add.
 
 ### Step 8 — Smoke
 

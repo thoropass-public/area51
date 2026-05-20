@@ -5,7 +5,7 @@ async function listEndpoints({ request, env }) {
   const cursor = url.searchParams.get('cursor');
   const search = url.searchParams.get('search');
 
-  let query = 'SELECT uri, status, headers, body FROM endpoints';
+  let query = 'SELECT uri, status FROM endpoints';
   const conditions = [];
   const params = [];
 

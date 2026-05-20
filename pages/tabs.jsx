@@ -20,9 +20,6 @@ function ListView({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          {search && (
-            <button className="clear" onClick={() => setSearch("")}>esc</button>
-          )}
         </div>
         {rightToolbar}
         <div className="toolbar-meta">
@@ -149,6 +146,7 @@ function EndpointsTab() {
         header={<>
           <span></span>
           <span>URI</span>
+          <span>Status</span>
         </>}
         emptyText={search ? "no endpoints match that pattern" : "no endpoints configured"}
         rightToolbar={
@@ -164,6 +162,7 @@ function EndpointsTab() {
           >
             <span className="row-icon"><Icon.link/></span>
             <span className="mono cell-trunc" title={r.uri}>{r.uri}</span>
+            <span><span className={`status-tag ${statusClass(r.status)}`}>{r.status}</span></span>
           </div>
         )}
       />

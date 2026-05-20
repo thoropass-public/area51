@@ -415,7 +415,7 @@ textarea {
 
 /* Endpoints columns */
 .endpoint-grid {
-  grid-template-columns: 24px 1fr;
+  grid-template-columns: 24px 1fr 90px;
 }
 
 /* Requests columns */

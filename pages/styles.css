@@ -237,6 +237,20 @@ textarea {
   color: var(--n4);
 }
 
+.topbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--n4);
+  transition: color 0.1s ease, background 0.1s ease;
+}
+.topbar-action:hover { color: var(--s1); background: var(--n2); }
+.topbar-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.topbar-action.spinning svg { animation: spin 0.6s linear; }
+
 .status-dot {
   width: 7px;
   height: 7px;

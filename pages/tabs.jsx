@@ -58,7 +58,7 @@ function ListView({
 // Endpoints
 // ----------------------------------------------------------------
 
-function EndpointsTab() {
+function EndpointsTab({ refreshKey }) {
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -86,7 +86,7 @@ function EndpointsTab() {
     }
   }, [dq, toast]);
 
-  useEffect(() => { fetchFirst(); }, [fetchFirst]);
+  useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
 
   const loadMore = async () => {
     if (rows.length === 0) return;
@@ -310,7 +310,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
 // Requests
 // ----------------------------------------------------------------
 
-function RequestsTab() {
+function RequestsTab({ refreshKey }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
@@ -334,7 +334,7 @@ function RequestsTab() {
     }
   }, [dq, toast]);
 
-  useEffect(() => { fetchFirst(); }, [fetchFirst]);
+  useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
 
   const loadMore = async () => {
     if (rows.length === 0) return;
@@ -452,7 +452,7 @@ function RequestModal({ id, onClose }) {
 // Emails
 // ----------------------------------------------------------------
 
-function EmailsTab() {
+function EmailsTab({ refreshKey }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
@@ -476,7 +476,7 @@ function EmailsTab() {
     }
   }, [dq, toast]);
 
-  useEffect(() => { fetchFirst(); }, [fetchFirst]);
+  useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
 
   const loadMore = async () => {
     if (rows.length === 0) return;

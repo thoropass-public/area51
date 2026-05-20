@@ -1,0 +1,32 @@
+# Template for worker/wrangler.toml.
+#
+# To deploy:
+#   1. Copy this file to worker/wrangler.toml (the real file is gitignored)
+#   2. Replace REPLACE_AFTER_WRANGLER_D1_CREATE with the database_id printed
+#      by `wrangler d1 create area51`
+#   3. cd worker && npx wrangler deploy
+#
+# The Custom Domain entry in `routes` tells Cloudflare to bind the worker
+# directly to 0r0.us (DNS handled automatically). The `0r0.us` zone must
+# already exist in your Cloudflare account.
+
+name = "area51-worker"
+main = "src/index.js"
+compatibility_date = "2024-10-11"
+compatibility_flags = ["nodejs_compat"]
+
+routes = [
+  { pattern = "0r0.us", custom_domain = true }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "area51"
+database_id = "REPLACE_AFTER_WRANGLER_D1_CREATE"
+
+[vars]
+FALLBACK_ADDRESS = "apaar.farmaha@thoropass.com"
+
+# Email Routing is configured in the Cloudflare dashboard:
+#   0r0.us zone → Email → Email Routing → enable → catch-all "Send to a Worker" → area51-worker
+# Wrangler v4 does not support email triggers in this file.

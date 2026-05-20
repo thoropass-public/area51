@@ -269,9 +269,11 @@ In `worker/wrangler.toml`:
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
 | `FALLBACK_ADDRESS` (var) | Email forward target for oversized / attachment / failure cases. Currently `apaar.farmaha@thoropass.com` |
-| `[triggers].email` | Set to `*@0r0.us` so Email Routing catch-all delivers all addresses to the worker |
+| `routes` | Custom Domain entry binds the worker to `0r0.us` (Cloudflare auto-manages DNS) |
 
-The HTTP route (`0r0.us/*`) is configured via the Cloudflare dashboard, not `wrangler.toml`.
+**Email Routing is configured in the Cloudflare dashboard, not `wrangler.toml`.** Wrangler v4 deprecated the `[triggers] email` config. The worker exports an `email` handler; the dashboard's Email Routing → "Send to a Worker" feature is what actually delivers inbound mail to it. See the deployment steps in [§9](#9-deployment-from-a-clean-slate).
+
+The real `worker/wrangler.toml` (with the live D1 ID) is gitignored. The committed template is `worker/wrangler.toml.example` — copy it and paste the `database_id` from `wrangler d1 create area51`.
 
 ### 4.4 Logging
 
@@ -465,71 +467,101 @@ If a teammate joins the team and can't get in, they need: VPN access AND a `@tho
 
 ## 9. Deployment from a clean slate
 
-Prereqs: Cloudflare account, `wrangler` CLI authenticated (`wrangler login`), Node.js installed, `0r0.us` and `thoropentests.com` zones already on Cloudflare.
+Prereqs:
+- Cloudflare account with both `0r0.us` and `thoropentests.com` already added as zones.
+- Node.js 18+ and `npm`. On Kali / Debian-derived: `sudo apt install nodejs npm`.
+- A **Cloudflare API token** with permissions for: Workers Scripts (Edit), D1 (Edit), Pages (Edit), Workers Routes (Edit, both account- and zone-level for the `0r0.us` and `area51.thoropentests.com` zones). The "Edit Cloudflare Workers" template covers most of these — confirm the **Zone Resources** include both target zones, not just the account.
+- Export the token: `export CLOUDFLARE_API_TOKEN='cfut_...'`. All `wrangler` commands below assume it's in the environment.
 
-### Step 1 — Create the D1 database
+### Step 1 — Install worker dependencies
 
 ```sh
-wrangler d1 create area51
+cd worker
+npm install
 ```
 
-Note the `database_id` in the output. Paste it into `worker/wrangler.toml` (replace `REPLACE_AFTER_WRANGLER_D1_CREATE`). Keep the binding name as `DB`.
+This pulls in `postal-mime` and `wrangler` (v4+). Verify with `npx wrangler whoami` — should print the account name `Pentest Operations` (or whatever account the token belongs to).
 
-### Step 2 — Apply the schema
+### Step 2 — Create the D1 database
 
 ```sh
-wrangler d1 execute area51 --file=schema.sql --remote
+npx wrangler d1 create area51
+```
+
+Copy the printed `database_id`. Then **copy the template** to the live config and paste the ID:
+
+```sh
+cp wrangler.toml.example wrangler.toml
+# edit wrangler.toml, paste the database_id
+```
+
+`worker/wrangler.toml` is **gitignored** — the live ID stays local. The template stays in the repo with the placeholder.
+
+### Step 3 — Apply the schema
+
+From the repo root:
+
+```sh
+npx wrangler d1 execute area51 --file=schema.sql --remote
 ```
 
 Verify:
 
 ```sh
-wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote
+npx wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote
 ```
 
-Should list `endpoints`, `requests`, `emails`.
+Should list `endpoints`, `requests`, `emails` (and `_cf_KV`, which is Cloudflare's internal D1 metadata table — ignore it).
 
-### Step 3 — Deploy the Worker
+### Step 4 — Deploy the Worker
 
 ```sh
 cd worker
-npm install
-wrangler deploy
+npx wrangler deploy
 ```
 
-In the Cloudflare dashboard:
-- **Workers → area51-worker → Triggers → Routes** → add `0r0.us/*` (or `*0r0.us/*` for all subdomains if desired).
-- **Email → Email Routing** on the `0r0.us` zone → enable → set the catch-all destination to **the Worker** (`area51-worker`).
+The `routes = [{ pattern = "0r0.us", custom_domain = true }]` entry in `wrangler.toml` makes Wrangler create the **Custom Domain** binding for `0r0.us` automatically. Cloudflare manages the DNS A/AAAA records for you — no manual DNS step.
 
-### Step 4 — Deploy Pages
+> **If you get `Authentication error [code: 10000]` on the routes API:** the API token is missing zone-level permissions for the `0r0.us` zone. Two ways out:
+> 1. Add `Zone → Workers Routes → Edit` for the `0r0.us` zone to the token, then re-run `npx wrangler deploy`.
+> 2. Or, comment out the `routes` block in `wrangler.toml` and bind the Custom Domain manually: **Workers → area51-worker → Settings → Domains & Routes → Add → Custom Domain → `0r0.us`**.
 
-Two options:
-
-**a) From CLI:**
+Verify with `curl https://0r0.us/anything` — should return `404! Not Found` (no endpoints configured yet, but the worker is responding). Then check that the hit was logged:
 
 ```sh
-wrangler pages deploy pages --project-name area51
+npx wrangler d1 execute area51 --command "SELECT ts, method, url, ip FROM requests ORDER BY ts DESC LIMIT 5" --remote
 ```
 
-**b) From Git (recommended for the long term):** Connect the repo via the Cloudflare dashboard, set the production branch and build output directory to `pages`. No build command.
+### Step 5 — Enable Email Routing (dashboard only)
 
-After the first deploy, add the D1 binding:
+Wrangler v4 does not configure email triggers. Do this in the Cloudflare dashboard:
 
-- Cloudflare → Pages → `area51` → **Settings → Functions → D1 database bindings**
-- Add a binding named `DB` → database `area51` for both Production and Preview environments.
+1. **Cloudflare → `0r0.us` zone → Email → Email Routing → Get Started** (if not already enabled).
+2. Once enabled, go to **Routing rules → Catch-all address → Edit**.
+3. Action: **Send to a Worker** → pick `area51-worker`.
+4. Save.
 
-Bind a custom domain: **Settings → Custom domains** → `area51.thoropentests.com`.
+After this, any email to `*@0r0.us` invokes the worker's `email` handler.
 
-### Step 5 — Configure Access
+### Step 6 — Deploy Pages
 
-Follow [§8](#8-cloudflare-access).
+```sh
+cd ..
+npx wrangler pages deploy pages --project-name area51
+```
 
-### Step 6 — DNS / zone sanity
+The first deploy creates the Pages project. Then in the dashboard, two things only the dashboard handles:
 
-- `0r0.us` zone: orange-cloud on (proxied through Cloudflare); Email Routing enabled.
-- `area51.thoropentests.com`: CNAME (or alias) pointing to the Pages project; orange-cloud on.
+- **Cloudflare → Pages → area51 → Settings → Functions → D1 database bindings:** add a binding `DB` → `area51` for **both Production and Preview**. ⚠️ Without this, every `/api/*` call returns 500.
+- **Cloudflare → Pages → area51 → Custom domains:** add `area51.thoropentests.com`.
 
-### Step 7 — Smoke
+Redeploy once after adding the binding so the new env is picked up: `npx wrangler pages deploy pages --project-name area51`.
+
+### Step 7 — Configure Cloudflare Access
+
+Follow [§8](#8-cloudflare-access). Without this, `area51.thoropentests.com` is open to the world.
+
+### Step 8 — Smoke
 
 Run the tests in [§12](#12-smoke-tests).
 
@@ -635,7 +667,7 @@ Run these after any non-trivial deploy.
 |---|---|---|
 | Dashboard returns 401 / Access page loops | Access policy misconfigured | Cloudflare → Zero Trust → Access → app for `area51.thoropentests.com`. Confirm IP rule matches your egress; confirm OTP rule targets `@thoropass.com`. |
 | `/api/*` returns HTML instead of JSON | D1 binding missing | Cloudflare → Pages → area51 → Settings → Functions → D1 bindings. Add `DB` → `area51` for both Production and Preview. Redeploy. |
-| `0r0.us` returns 404 for everything | Worker not routed, OR endpoint table empty | Confirm `0r0.us/*` route is bound to the worker. Confirm `SELECT * FROM endpoints` returns rows. |
+| `0r0.us` returns 404 for everything | Custom Domain not bound to worker, OR endpoint table empty | In the dashboard: Workers → area51-worker → Settings → Domains & Routes should show `0r0.us` as a Custom Domain. Confirm `SELECT * FROM endpoints` returns rows. |
 | Endpoint exists but worker returns 404 | URI mismatch (case, trailing slash, query) | `endpoints.uri` matches `url.pathname` **exactly**. Re-check the path stored. |
 | Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → 0r0.us zone → Email → Email Routing. Catch-all destination must be the worker. |
 | Email arrives but body is empty / parse fails | postal-mime parse threw | Tail the worker (`wrangler tail`), look for `email_parse_failed`. The row still gets stored — the dashboard will just have no parsed fields in the modal. |

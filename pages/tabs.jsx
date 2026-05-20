@@ -543,16 +543,16 @@ function EmailModal({ id, onClose }) {
     return () => { live = false; };
   }, [id, toast]);
 
+  const forwarded = data && data.html === "sent_to_fallback";
+
   return (
     <Modal open onClose={onClose} wide>
       <ModalHead title="EMAIL" id={data ? data.id : null} onClose={onClose}/>
       <div className="modal-body">
         {!data ? (
           <div className="loading"><span className="spinner"/> loading…</div>
-        ) : data.raw_eml === "sent_to_fallback" ? (
-          <FallbackEmailView data={data}/>
         ) : (
-          <ParsedEmailView data={data}/>
+          <EmailView data={data} forwarded={forwarded}/>
         )}
       </div>
       <div className="modal-foot">
@@ -563,14 +563,25 @@ function EmailModal({ id, onClose }) {
   );
 }
 
-function FallbackEmailView({ data }) {
+function EmailView({ data, forwarded }) {
+  const headers = Array.isArray(data.headers) ? data.headers : [];
+  const attachments = Array.isArray(data.attachments) ? data.attachments : [];
+  const text = data.text || "";
+  const html = forwarded ? "" : (data.html || "");
+  const hasText = !!text;
+  const hasHtml = !!html;
+  const [view, setView] = useState(hasHtml ? "html" : "text");
+
   return (
     <>
-      <div className="notice">
-        <span className="glyph">!</span>
-        <span>This email was forwarded to the fallback inbox due to attachments or size. Raw MIME is not available here — check the fallback mailbox.</span>
-      </div>
-      <div className="section">
+      {forwarded && (
+        <div className="notice">
+          <span className="glyph">!</span>
+          <span>This email was forwarded to the fallback inbox due to attachments or size. The full message body is not stored here — check the fallback mailbox for the original.</span>
+        </div>
+      )}
+
+      <div className={forwarded ? "section" : ""}>
         <dl className="detail-grid">
           <dt>From</dt><dd>{data.from_addr}</dd>
           <dt>To</dt><dd>{data.to_addr}</dd>
@@ -578,92 +589,20 @@ function FallbackEmailView({ data }) {
           <dt>Received</dt><dd>{fmtTimeFull(data.ts)}</dd>
         </dl>
       </div>
-    </>
-  );
-}
 
-function adaptPostalMime(p) {
-  const addr = (x) => x && (x.name ? `${x.name} <${x.address}>` : x.address) || '';
-  const fromDisplay = p.from ? addr(p.from) : '';
-  const toDisplay = Array.isArray(p.to)
-    ? p.to.map(addr).filter(Boolean).join(', ')
-    : (p.to ? addr(p.to) : '');
-  return {
-    fromDisplay,
-    toDisplay,
-    subject: p.subject || '',
-    headers: p.headers || [],
-    text: p.text || '',
-    html: p.html || '',
-    attachments: (p.attachments || []).map((a) => ({
-      filename: a.filename || '',
-      mime: a.mimeType || a.contentType || 'application/octet-stream',
-      size: a.content ? (a.content.byteLength || a.content.length || 0) : 0,
-    })),
-  };
-}
-
-function ParsedEmailView({ data }) {
-  const [parsed, setParsed] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      try {
-        const PostalMime = await loadPostalMime();
-        const raw = await PostalMime.parse(data.raw_eml);
-        if (live) setParsed(adaptPostalMime(raw));
-      } catch (e) {
-        if (live) setError(e.message || String(e));
-      }
-    })();
-    return () => { live = false; };
-  }, [data.raw_eml]);
-
-  if (error) {
-    return (
-      <div className="notice">
-        <span className="glyph">!</span>
-        <span>Failed to parse email: {error}</span>
-      </div>
-    );
-  }
-  if (!parsed) {
-    return <div className="loading"><span className="spinner"/> parsing…</div>;
-  }
-
-  const hasHtml = !!parsed.html;
-  const hasText = !!parsed.text;
-
-  return (
-    <ParsedEmailBody parsed={parsed} data={data} hasHtml={hasHtml} hasText={hasText}/>
-  );
-}
-
-function ParsedEmailBody({ parsed, data, hasHtml, hasText }) {
-  const [view, setView] = useState(hasHtml ? "html" : "text");
-
-  return (
-    <>
-      <dl className="detail-grid">
-        <dt>From</dt><dd>{parsed.fromDisplay || data.from_addr}</dd>
-        <dt>To</dt><dd>{parsed.toDisplay || data.to_addr}</dd>
-        <dt>Subject</dt><dd style={{color:"var(--s2)"}}>{parsed.subject || data.subject}</dd>
-        <dt>Received</dt><dd>{fmtTimeFull(data.ts)}</dd>
-      </dl>
-
-      <div className="section">
-        <details className="headers-collapse">
-          <summary>
-            <span className="caret"><Icon.chevron/></span>
-            Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {parsed.headers.length}</span>
-          </summary>
-          <pre className="code-block">
-            {parsed.headers.map((h) => `${h.key}: ${h.value}`).join("\n")}
-          </pre>
-        </details>
-      </div>
+      {headers.length > 0 && (
+        <div className="section">
+          <details className="headers-collapse">
+            <summary>
+              <span className="caret"><Icon.chevron/></span>
+              Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {headers.length}</span>
+            </summary>
+            <pre className="code-block">
+              {headers.map((h) => `${h.key}: ${h.value}`).join("\n")}
+            </pre>
+          </details>
+        </div>
+      )}
 
       {(hasHtml || hasText) && (
         <div className="section">
@@ -680,22 +619,22 @@ function ParsedEmailBody({ parsed, data, hasHtml, hasText }) {
             <div className="iframe-wrap">
               <iframe
                 sandbox=""
-                srcDoc={parsed.html}
+                srcDoc={html}
                 title="email html"
               />
             </div>
           )}
           {view === "text" && hasText && (
-            <pre className="code-block wrap">{parsed.text}</pre>
+            <pre className="code-block wrap">{text}</pre>
           )}
         </div>
       )}
 
-      {parsed.attachments.length > 0 && (
+      {attachments.length > 0 && (
         <div className="section">
-          <div className="section-title">Attachments <span style={{color:"var(--n4)", fontWeight:400}}>· {parsed.attachments.length}</span></div>
+          <div className="section-title">Attachments <span style={{color:"var(--n4)", fontWeight:400}}>· {attachments.length}</span></div>
           <div className="attachment-list">
-            {parsed.attachments.map((a, i) => (
+            {attachments.map((a, i) => (
               <div className="attachment" key={i}>
                 <span className="ico"><Icon.paper/></span>
                 <span className="name">{a.filename || "(unnamed)"}</span>

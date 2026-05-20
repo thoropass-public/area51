@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS emails (
   from_addr TEXT NOT NULL,
   to_addr TEXT NOT NULL,
   subject TEXT,
-  raw_eml TEXT NOT NULL
+  headers TEXT,        -- JSON-stringified array [{key, value}, ...] from postal-mime
+  text TEXT,           -- postal-mime parsed.text (plain body); NULL on fallback rows
+  html TEXT,           -- postal-mime parsed.html (rendered body); literal "sent_to_fallback" on fallback rows
+  attachments TEXT     -- JSON-stringified [{filename, mime, size}, ...]; metadata only, no content bytes
 );
 CREATE INDEX IF NOT EXISTS idx_emails_ts ON emails(ts DESC);

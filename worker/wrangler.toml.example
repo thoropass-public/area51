@@ -20,6 +20,12 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 preview_urls = false
 
+# Persist Workers Logs so they're queryable via the Cloudflare dashboard
+# (Workers & Pages → area51-worker → Logs). Without this, console.log /
+# console.error are only visible while `wrangler tail` is streaming.
+[observability]
+enabled = true
+
 routes = [
   { pattern = "0r0.us", custom_domain = true }
 ]

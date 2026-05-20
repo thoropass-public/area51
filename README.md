@@ -338,6 +338,7 @@ File responsibilities:
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
   - `EmailsTab` + `EmailModal` — modal hands off to a single `EmailView` component that reads the structured fields directly from the API response (`data.headers`, `data.text`, `data.html`, `data.attachments`). No postal-mime in the browser any more — the worker parses once on write, the dashboard reads parsed columns on read. The yellow "forwarded to fallback" notice fires when `data.html === "sent_to_fallback"`; all other fields are still shown alongside the notice.
   - HTML body is rendered in a strict-sandbox `<iframe sandbox="" srcDoc={...}>`. Plain-text body in a `<pre>`. Attachments are surfaced as `{filename, mime, size}` rows — content bytes are never stored or exposed.
+  - `decodeMimeWord(s)` (in `ui.jsx`) decodes RFC 2047 encoded-words (`=?charset?B?...?=` / `=?charset?Q?...?=`) before display. Applied to `from_addr`, `to_addr`, `subject`, and rendered header values. Worker-side extraction prefers postal-mime's already-decoded `parsed.subject` over the raw header value, so new rows arrive decoded; `decodeMimeWord` is a defense-in-depth pass for any encoded-word that slips through (older rows, display names in envelope fields, header values).
 
 - **`app.jsx`** — the shell.
   - `App` — top-level component. Tab state, keyboard shortcut handler (⌘/Ctrl + 1–4 → endpoints/requests/emails/settings), wraps everything in `ConfirmProvider` + `ToastProvider`.

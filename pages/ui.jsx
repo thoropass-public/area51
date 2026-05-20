@@ -99,6 +99,39 @@ function headersObjToLines(obj) {
   return Object.entries(obj).map(([k, v]) => `${k}: ${v}`).join("\n");
 }
 
+// RFC 2047 encoded-word decoder. Handles =?charset?B?...?= and =?charset?Q?...?=
+// in email headers (subject lines, display names, etc.). Linear whitespace between
+// adjacent encoded-words is eaten per the spec. Returns the input unchanged on
+// failure or if there are no encoded-words to decode.
+function decodeMimeWord(s) {
+  if (!s || typeof s !== "string") return s;
+  const stripped = s.replace(/\?=\s+=\?/g, "?==?");
+  return stripped.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (match, charset, encoding, encoded) => {
+    try {
+      let bytes;
+      if (encoding.toUpperCase() === "B") {
+        const bin = atob(encoded);
+        bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      } else {
+        const buf = [];
+        for (let i = 0; i < encoded.length;) {
+          const ch = encoded[i];
+          if (ch === "_") { buf.push(0x20); i++; }
+          else if (ch === "=" && i + 2 < encoded.length) {
+            buf.push(parseInt(encoded.slice(i + 1, i + 3), 16));
+            i += 3;
+          } else { buf.push(encoded.charCodeAt(i)); i++; }
+        }
+        bytes = new Uint8Array(buf);
+      }
+      return new TextDecoder(charset).decode(bytes);
+    } catch {
+      return match;
+    }
+  });
+}
+
 function highlightJson(str) {
   if (!str) return null;
   const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -257,7 +290,7 @@ const Icon = {
 Object.assign(window, {
   React, useState, useEffect, useRef, useCallback, useMemo,
   API,
-  fmtTime, fmtTimeFull, statusClass, headersObjToLines, highlightJson, tryPretty, fmtBytes, stripOrigin,
+  fmtTime, fmtTimeFull, statusClass, headersObjToLines, decodeMimeWord, highlightJson, tryPretty, fmtBytes, stripOrigin,
   ToastProvider, useToast, Modal, ModalHead,
   ConfirmProvider, useConfirm, useDebouncedValue, Icon,
 });

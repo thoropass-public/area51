@@ -2,6 +2,8 @@
 
 function App() {
   const [tab, setTab] = useState("home");
+  const [refreshTick, setRefreshTick] = useState(0);
+  const triggerRefresh = useCallback(() => setRefreshTick((n) => n + 1), []);
 
   // Keyboard tab switching: ⌘/ctrl + 1..4
   useEffect(() => {
@@ -20,12 +22,12 @@ function App() {
     <ConfirmProvider>
       <ToastProvider>
         <div className="app">
-          <TopBar tab={tab} setTab={setTab}/>
+          <TopBar tab={tab} setTab={setTab} onRefresh={triggerRefresh}/>
           <div className="workspace">
             {tab === "home" && <Home setTab={setTab}/>}
-            {tab === "endpoints" && <EndpointsTab/>}
-            {tab === "requests" && <RequestsTab/>}
-            {tab === "emails" && <EmailsTab/>}
+            {tab === "endpoints" && <EndpointsTab refreshKey={refreshTick}/>}
+            {tab === "requests" && <RequestsTab refreshKey={refreshTick}/>}
+            {tab === "emails" && <EmailsTab refreshKey={refreshTick}/>}
             {tab === "settings" && <Settings/>}
           </div>
         </div>
@@ -38,13 +40,20 @@ function App() {
 // TopBar
 // ----------------------------------------------------------------
 
-function TopBar({ tab, setTab }) {
+function TopBar({ tab, setTab, onRefresh }) {
   const TABS = [
     { id: "endpoints", label: "Endpoints" },
     { id: "requests", label: "Requests" },
     { id: "emails", label: "Emails" },
     { id: "settings", label: "Settings" },
   ];
+  const isListTab = tab === "endpoints" || tab === "requests" || tab === "emails";
+  const [spinning, setSpinning] = useState(false);
+  const handleRefresh = () => {
+    setSpinning(true);
+    onRefresh();
+    setTimeout(() => setSpinning(false), 600);
+  };
   return (
     <div className="topbar">
       <button className="brand" onClick={() => setTab("home")} title="Home" aria-label="Home">
@@ -65,6 +74,18 @@ function TopBar({ tab, setTab }) {
           </button>
         ))}
       </div>
+      {isListTab && (
+        <div className="topbar-right">
+          <button
+            className={`topbar-action ${spinning ? "spinning" : ""}`}
+            onClick={handleRefresh}
+            title={`Refresh ${tab}`}
+            aria-label={`Refresh ${tab}`}
+          >
+            <Icon.refresh/>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

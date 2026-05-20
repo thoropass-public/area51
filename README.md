@@ -80,7 +80,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │                           ┌────────────────────────┐   │
                 │ Email Routing fallback ──►│ apaar.farmaha@thoropass│   │
                 │ (forwarded when           │ .com (catch-all bucket)│   │
-                │  attachments or >1 MB)    └────────────────────────┘   │
+                │  attachments or >100 KB)  └────────────────────────┘   │
                 └────────────────────────────────────────────────────────┘
 ```
 
@@ -128,7 +128,7 @@ sender ──► *@0r0.us
               ├─ read message.raw stream → rawText (string)
               ├─ parsed = postal-mime.parse(rawText)
               ├─ hasAttachments = parsed.attachments.length > 0
-              ├─ tooBig = message.rawSize > 1 MiB
+              ├─ tooBig = message.rawSize > 100 KiB
               │
               ├─ if (hasAttachments OR tooBig):
               │     ├─ forward(message → FALLBACK_ADDRESS)         } in parallel
@@ -247,8 +247,8 @@ Steps:
 4. `parsed = await PostalMime.parse(rawText)` — parse on the **string** (not the stream — already consumed). Parse failures are caught and `parsed` stays `null`, but processing continues so the row is still stored.
 5. Extract `subject` from parsed headers (preferred) or `parsed.subject`.
 6. Decide:
-   - `hasAttachments = parsed?.attachments?.length > 0`
-   - `tooBig = rawSize > 1048576` (1 MiB)
+   - `hasAttachments = parsed.attachments.filter(a => a.disposition !== 'inline').length > 0` — **filter out inline (cid:-referenced) parts**; postal-mime puts signature logos and other inline images in the same `attachments` array as real attachments, which would otherwise trip the fallback path unnecessarily.
+   - `tooBig = rawSize > 102400` (100 KiB)
    - `shouldForward = hasAttachments || tooBig`
 7. **If shouldForward:**
    - Start `message.forward(env.FALLBACK_ADDRESS)`
@@ -658,9 +658,9 @@ Run these after any non-trivial deploy.
 1. **Schema applied** — `wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote` lists `endpoints`, `requests`, `emails`.
 2. **HTTP 404 + capture** — `curl https://0r0.us/test` returns `404! Not Found`. A row appears in `requests`.
 3. **HTTP endpoint serving** — Create an endpoint via the dashboard for `/health` returning `200 ok`. `curl https://0r0.us/health` returns it. A request row is logged.
-4. **Email basic** — Send a plain text email under 1 MB to `anything@0r0.us`. A row with full raw EML appears in `emails`. No forward.
+4. **Email basic** — Send a plain text email under 100 KB to `anything@0r0.us`. A row with full raw EML appears in `emails`. No forward.
 5. **Email with attachment** — Send an email with any attachment. A row with `raw_eml = "sent_to_fallback"` appears; the original lands in the fallback inbox.
-6. **Email oversized** — Send a >1 MB email (no attachment). Same outcome as #5.
+6. **Email oversized** — Send a >100 KB email (no attachment). Same outcome as #5.
 7. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on `0r0.us` updates immediately.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
@@ -689,7 +689,7 @@ Run these after any non-trivial deploy.
 
 ## 14. Known constraints & caveats
 
-- **D1 row size limit: 2 MB.** The 1 MB email forward threshold leaves headroom below this; pentest emails larger than 1 MB go to the fallback inbox instead of D1. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
+- **D1 row size limit: 2 MB.** Mitigated for emails by the 100 KB forward threshold (well under D1's limit). Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
 - **D1 storage limit: 500 MB on Free tier.** Purge regularly. No automatic eviction.
 - **Search is full-table scan.** `LIKE '%query%'` doesn't use indexes. Fine at thousands of rows; switch to FTS5 if volume grows.
 - **Pagination is best-effort during writes.** Cursor pagination is stable only as long as the data between pages doesn't change. New emails arriving during a scroll won't appear until you re-search/refresh.

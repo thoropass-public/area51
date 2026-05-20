@@ -1,6 +1,6 @@
 import PostalMime from 'postal-mime';
 
-const FORWARD_THRESHOLD_BYTES = 1048576;
+const FORWARD_THRESHOLD_BYTES = 102400;
 
 const log = (event, fields = {}) => {
   try { console.log(JSON.stringify({ event, ...fields })); } catch { /* never crash on logging */ }
@@ -107,7 +107,10 @@ async function handleEmail(message, env, ctx) {
 
     const subject = (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
                     (parsed && parsed.subject) || '';
-    const hasAttachments = !!(parsed && parsed.attachments && parsed.attachments.length > 0);
+    // postal-mime returns inline (cid-referenced) parts in `attachments` too — most often
+    // signature logos. Filter them out so they don't get treated as "real" attachments.
+    const realAttachments = (parsed && parsed.attachments || []).filter((a) => a && a.disposition !== 'inline');
+    const hasAttachments = realAttachments.length > 0;
     const tooBig = rawSize > FORWARD_THRESHOLD_BYTES;
     const shouldForward = hasAttachments || tooBig;
 

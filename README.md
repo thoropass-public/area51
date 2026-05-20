@@ -80,7 +80,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │                           ┌────────────────────────┐   │
                 │ Email Routing fallback ──►│ apaar.farmaha@thoropass│   │
                 │ (forwarded when           │ .com (catch-all bucket)│   │
-                │  attachments or >100 KB)  └────────────────────────┘   │
+                │  rawSize >100 KB)         └────────────────────────┘   │
                 └────────────────────────────────────────────────────────┘
 ```
 
@@ -126,11 +126,10 @@ sender ──► *@0r0.us
               │
               ├─ id = uuid, ts = now
               ├─ read message.raw stream → rawText (string)
-              ├─ parsed = postal-mime.parse(rawText)
-              ├─ hasAttachments = parsed.attachments.length > 0
+              ├─ parsed = postal-mime.parse(rawText)         (for subject only)
               ├─ tooBig = message.rawSize > 100 KiB
               │
-              ├─ if (hasAttachments OR tooBig):
+              ├─ if tooBig:
               │     ├─ forward(message → FALLBACK_ADDRESS)         } in parallel
               │     └─ INSERT into emails (raw_eml = "sent_to_fallback")
               │   await both via Promise.allSettled
@@ -244,13 +243,10 @@ Steps:
 1. `id = uuid`, `ts = now()`, `fromAddr = message.from`, `toAddr = message.to`.
 2. `rawSize = Number(message.rawSize)` — coerced through `Number()` to defend against a known Cloudflare bug where `rawSize` returns a `BigInt` despite type declarations.
 3. Read the raw EML: `rawText = await new Response(message.raw).text()`. This consumes the `message.raw` stream, so it can only happen once.
-4. `parsed = await PostalMime.parse(rawText)` — parse on the **string** (not the stream — already consumed). Parse failures are caught and `parsed` stays `null`, but processing continues so the row is still stored.
+4. `parsed = await PostalMime.parse(rawText)` — parse on the **string** (not the stream — already consumed). Used only to extract the subject for the D1 row; not used for any routing decision. Parse failures are caught and `parsed` stays `null`, but processing continues so the row is still stored.
 5. Extract `subject` from parsed headers (preferred) or `parsed.subject`.
-6. Decide:
-   - `hasAttachments = parsed.attachments.filter(a => a.disposition !== 'inline').length > 0` — **filter out inline (cid:-referenced) parts**; postal-mime puts signature logos and other inline images in the same `attachments` array as real attachments, which would otherwise trip the fallback path unnecessarily.
-   - `tooBig = rawSize > 102400` (100 KiB)
-   - `shouldForward = hasAttachments || tooBig`
-7. **If shouldForward:**
+6. Decide: `tooBig = rawSize > 102400` (100 KiB). **That's the entire fallback-trigger condition** — no attachment check. Even an email with 20 attachments stores normally as long as it's under the size cap. (Earlier versions attempted an attachment check via `parsed.attachments`, but postal-mime's classification of inline (cid:-referenced) signature logos as attachments made the rule misfire on common Gmail-forwarded mail, so the check was removed.)
+7. **If `tooBig`:**
    - Start `message.forward(env.FALLBACK_ADDRESS)`
    - Start `INSERT into emails` with `raw_eml = "sent_to_fallback"` (literal string marker)
    - `await Promise.allSettled([forwardP, insertP])` — neither blocks the other.
@@ -268,7 +264,7 @@ In `worker/wrangler.toml`:
 | Binding / Var | Purpose |
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
-| `FALLBACK_ADDRESS` (var) | Email forward target for oversized / attachment / failure cases. Currently `apaar.farmaha@thoropass.com` |
+| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>100 KB) and failure cases. Currently `apaar.farmaha@thoropass.com` |
 | `routes` | Custom Domain entry binds the worker to `0r0.us` (Cloudflare auto-manages DNS) |
 | `workers_dev = false` | Disables the auto-generated `area51-worker.<account-subdomain>.workers.dev` URL — the worker is reachable only via `0r0.us` |
 | `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
@@ -297,7 +293,7 @@ Event names emitted:
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the `ctx.waitUntil` request log |
 | `email_received` | top of email handler |
 | `email_parse_failed` | postal-mime threw |
-| `email_oversized_or_has_attachments` | decision to forward |
+| `email_oversized` | decision to forward (rawSize > 100 KB) |
 | `email_d1_insert_ok` / `email_d1_insert_failed` | emails table INSERT result |
 | `email_forward_ok` / `email_forward_failed` | message.forward result |
 | `email_unhandled_error` | top-level catch fired — last-resort forward attempted |
@@ -659,14 +655,13 @@ Run these after any non-trivial deploy.
 2. **HTTP 404 + capture** — `curl https://0r0.us/test` returns `404! Not Found`. A row appears in `requests`.
 3. **HTTP endpoint serving** — Create an endpoint via the dashboard for `/health` returning `200 ok`. `curl https://0r0.us/health` returns it. A request row is logged.
 4. **Email basic** — Send a plain text email under 100 KB to `anything@0r0.us`. A row with full raw EML appears in `emails`. No forward.
-5. **Email with attachment** — Send an email with any attachment. A row with `raw_eml = "sent_to_fallback"` appears; the original lands in the fallback inbox.
-6. **Email oversized** — Send a >100 KB email (no attachment). Same outcome as #5.
-7. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on `0r0.us` updates immediately.
-8. **Search** — Filter each tab; results match.
-9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
-10. **Purge** — With ≥15 rows in `requests`, purge with keep=10; only the 10 most recent remain.
-11. **Access (negative)** — From outside VPN: blocked.
-12. **Access (positive)** — On VPN, with a `@thoropass.com` email: OTP challenge → access granted.
+5. **Email oversized** — Send a >100 KB email to `anything@0r0.us`. A row with `raw_eml = "sent_to_fallback"` appears; the original lands in the fallback inbox. (Attachments alone do not trigger the fallback any more — only size does.)
+6. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on `0r0.us` updates immediately.
+7. **Search** — Filter each tab; results match.
+8. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
+9. **Purge** — With ≥15 rows in `requests`, purge with keep=10; only the 10 most recent remain.
+10. **Access (negative)** — From outside VPN: blocked.
+11. **Access (positive)** — On VPN, with a `@thoropass.com` email: OTP challenge → access granted.
 
 ---
 

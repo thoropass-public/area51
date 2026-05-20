@@ -107,16 +107,11 @@ async function handleEmail(message, env, ctx) {
 
     const subject = (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
                     (parsed && parsed.subject) || '';
-    // postal-mime returns inline (cid-referenced) parts in `attachments` too — most often
-    // signature logos. Filter them out so they don't get treated as "real" attachments.
-    const realAttachments = (parsed && parsed.attachments || []).filter((a) => a && a.disposition !== 'inline');
-    const hasAttachments = realAttachments.length > 0;
     const tooBig = rawSize > FORWARD_THRESHOLD_BYTES;
-    const shouldForward = hasAttachments || tooBig;
 
-    if (shouldForward) {
-      log('email_oversized_or_has_attachments', { id, hasAttachments, tooBig, rawSize });
-      const forwardP = forwardToFallback(message, env, id, tooBig ? 'oversize' : 'attachments');
+    if (tooBig) {
+      log('email_oversized', { id, rawSize });
+      const forwardP = forwardToFallback(message, env, id, 'oversize');
       const insertP = insertEmail(env, id, ts, fromAddr, toAddr, subject, 'sent_to_fallback')
         .then(() => log('email_d1_insert_ok', { id, marker: true }))
         .catch((err) => logErr('email_d1_insert_failed', { id, marker: true, error: String(err && err.message || err) }));

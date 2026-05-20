@@ -517,9 +517,9 @@ function EmailsTab({ refreshKey }) {
           >
             <span className="row-icon"><Icon.mail/></span>
             <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(r.ts)}</span>
-            <span className="mono cell-trunc" style={{color:"var(--s0)"}} title={r.from_addr}>{r.from_addr}</span>
-            <span className="mono cell-trunc" style={{color:"var(--n4)"}} title={r.to_addr}>{r.to_addr}</span>
-            <span className="cell-trunc" style={{color:"var(--s1)"}} title={r.subject}>{r.subject}</span>
+            <span className="mono cell-trunc" style={{color:"var(--s0)"}} title={decodeMimeWord(r.from_addr)}>{decodeMimeWord(r.from_addr)}</span>
+            <span className="mono cell-trunc" style={{color:"var(--n4)"}} title={decodeMimeWord(r.to_addr)}>{decodeMimeWord(r.to_addr)}</span>
+            <span className="cell-trunc" style={{color:"var(--s1)"}} title={decodeMimeWord(r.subject)}>{decodeMimeWord(r.subject)}</span>
           </div>
         )}
       />
@@ -583,9 +583,9 @@ function EmailView({ data, forwarded }) {
 
       <div className={forwarded ? "section" : ""}>
         <dl className="detail-grid">
-          <dt>From</dt><dd>{data.from_addr}</dd>
-          <dt>To</dt><dd>{data.to_addr}</dd>
-          <dt>Subject</dt><dd style={{color:"var(--s2)"}}>{data.subject}</dd>
+          <dt>From</dt><dd>{decodeMimeWord(data.from_addr)}</dd>
+          <dt>To</dt><dd>{decodeMimeWord(data.to_addr)}</dd>
+          <dt>Subject</dt><dd style={{color:"var(--s2)"}}>{decodeMimeWord(data.subject)}</dd>
           <dt>Received</dt><dd>{fmtTimeFull(data.ts)}</dd>
         </dl>
       </div>
@@ -598,7 +598,7 @@ function EmailView({ data, forwarded }) {
               Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {headers.length}</span>
             </summary>
             <pre className="code-block">
-              {headers.map((h) => `${h.key}: ${h.value}`).join("\n")}
+              {headers.map((h) => `${h.key}: ${decodeMimeWord(h.value)}`).join("\n")}
             </pre>
           </details>
         </div>

@@ -108,8 +108,11 @@ async function handleEmail(message, env, ctx) {
       logErr('email_parse_failed', { id, error: String(err && err.message || err) });
     }
 
-    const subject = (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
-                    (parsed && parsed.subject) || '';
+    // postal-mime's parsed.subject is already decoded from RFC 2047 encoded-words
+    // (=?UTF-8?Q?...?=). The raw value in parsed.headers is not. Prefer the decoded one.
+    const subject = (parsed && parsed.subject) ||
+                    (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
+                    '';
     const headersJson = parsed && parsed.headers ? JSON.stringify(parsed.headers) : null;
     const attachmentsMeta = parsed && parsed.attachments
       ? parsed.attachments.map((a) => ({

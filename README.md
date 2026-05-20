@@ -80,7 +80,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │                           ┌────────────────────────┐   │
                 │ Email Routing fallback ──►│ apaar.farmaha@thoropass│   │
                 │ (forwarded when           │ .com (catch-all bucket)│   │
-                │  rawSize >100 KB)         └────────────────────────┘   │
+                │  rawSize >1 MB)           └────────────────────────┘   │
                 └────────────────────────────────────────────────────────┘
 ```
 
@@ -127,7 +127,7 @@ sender ──► *@0r0.us
               ├─ id = uuid, ts = now
               ├─ read message.raw stream → rawText (string)
               ├─ parsed = postal-mime.parse(rawText)         (for subject only)
-              ├─ tooBig = message.rawSize > 100 KiB
+              ├─ tooBig = message.rawSize > 1 MiB
               │
               ├─ if tooBig:
               │     ├─ forward(message → FALLBACK_ADDRESS)         } in parallel
@@ -245,7 +245,7 @@ Steps:
 3. Read the raw EML: `rawText = await new Response(message.raw).text()`. This consumes the `message.raw` stream, so it can only happen once.
 4. `parsed = await PostalMime.parse(rawText)` — parse on the **string** (not the stream — already consumed). Used only to extract the subject for the D1 row; not used for any routing decision. Parse failures are caught and `parsed` stays `null`, but processing continues so the row is still stored.
 5. Extract `subject` from parsed headers (preferred) or `parsed.subject`.
-6. Decide: `tooBig = rawSize > 102400` (100 KiB). **That's the entire fallback-trigger condition** — no attachment check. Even an email with 20 attachments stores normally as long as it's under the size cap. (Earlier versions attempted an attachment check via `parsed.attachments`, but postal-mime's classification of inline (cid:-referenced) signature logos as attachments made the rule misfire on common Gmail-forwarded mail, so the check was removed.)
+6. Decide: `tooBig = rawSize > 1048576` (1 MiB). **That's the entire fallback-trigger condition** — no attachment check. Even an email with 20 attachments stores normally as long as it's under the size cap. (Earlier versions attempted an attachment check via `parsed.attachments`, but postal-mime's classification of inline (cid:-referenced) signature logos as attachments made the rule misfire on common Gmail-forwarded mail, so the check was removed.) Note: `message.rawSize` is what Cloudflare reports — that value tends to be several times larger than the EML body length we read out of `message.raw`, because it includes SMTP envelope / routing metadata. The 1 MB cap is set against `message.rawSize`, not the body length, and is comfortable for routine Gmail-forwarded mail (including signatures with inline images).
 7. **If `tooBig`:**
    - Start `message.forward(env.FALLBACK_ADDRESS)`
    - Start `INSERT into emails` with `raw_eml = "sent_to_fallback"` (literal string marker)
@@ -264,7 +264,7 @@ In `worker/wrangler.toml`:
 | Binding / Var | Purpose |
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
-| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>100 KB) and failure cases. Currently `apaar.farmaha@thoropass.com` |
+| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>1 MB) and failure cases. Currently `apaar.farmaha@thoropass.com` |
 | `routes` | Custom Domain entry binds the worker to `0r0.us` (Cloudflare auto-manages DNS) |
 | `workers_dev = false` | Disables the auto-generated `area51-worker.<account-subdomain>.workers.dev` URL — the worker is reachable only via `0r0.us` |
 | `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
@@ -293,7 +293,7 @@ Event names emitted:
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the `ctx.waitUntil` request log |
 | `email_received` | top of email handler |
 | `email_parse_failed` | postal-mime threw |
-| `email_oversized` | decision to forward (rawSize > 100 KB) |
+| `email_oversized` | decision to forward (rawSize > 1 MB) |
 | `email_d1_insert_ok` / `email_d1_insert_failed` | emails table INSERT result |
 | `email_forward_ok` / `email_forward_failed` | message.forward result |
 | `email_unhandled_error` | top-level catch fired — last-resort forward attempted |
@@ -654,8 +654,8 @@ Run these after any non-trivial deploy.
 1. **Schema applied** — `wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote` lists `endpoints`, `requests`, `emails`.
 2. **HTTP 404 + capture** — `curl https://0r0.us/test` returns `404! Not Found`. A row appears in `requests`.
 3. **HTTP endpoint serving** — Create an endpoint via the dashboard for `/health` returning `200 ok`. `curl https://0r0.us/health` returns it. A request row is logged.
-4. **Email basic** — Send a plain text email under 100 KB to `anything@0r0.us`. A row with full raw EML appears in `emails`. No forward.
-5. **Email oversized** — Send a >100 KB email to `anything@0r0.us`. A row with `raw_eml = "sent_to_fallback"` appears; the original lands in the fallback inbox. (Attachments alone do not trigger the fallback any more — only size does.)
+4. **Email basic** — Send a plain text email under 1 MB to `anything@0r0.us`. A row with full raw EML appears in `emails`. No forward.
+5. **Email oversized** — Send a >1 MB email to `anything@0r0.us`. A row with `raw_eml = "sent_to_fallback"` appears; the original lands in the fallback inbox. (Attachments alone do not trigger the fallback any more — only size does.)
 6. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on `0r0.us` updates immediately.
 7. **Search** — Filter each tab; results match.
 8. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
@@ -684,7 +684,7 @@ Run these after any non-trivial deploy.
 
 ## 14. Known constraints & caveats
 
-- **D1 row size limit: 2 MB.** Mitigated for emails by the 100 KB forward threshold (well under D1's limit). Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
+- **D1 row size limit: 2 MB.** Mitigated for emails by the 1 MB forward threshold; the actual body length we write to D1 is typically a fraction of `message.rawSize` (Cloudflare's reported size includes envelope/routing overhead), so 1 MB against `rawSize` leaves comfortable headroom against the 2 MB row cap. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
 - **D1 storage limit: 500 MB on Free tier.** Purge regularly. No automatic eviction.
 - **Search is full-table scan.** `LIKE '%query%'` doesn't use indexes. Fine at thousands of rows; switch to FTS5 if volume grows.
 - **Pagination is best-effort during writes.** Cursor pagination is stable only as long as the data between pages doesn't change. New emails arriving during a scroll won't appear until you re-search/refresh.

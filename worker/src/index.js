@@ -1,6 +1,6 @@
 import PostalMime from 'postal-mime';
 
-const FORWARD_THRESHOLD_BYTES = 102400;
+const FORWARD_THRESHOLD_BYTES = 1048576;
 
 const log = (event, fields = {}) => {
   try { console.log(JSON.stringify({ event, ...fields })); } catch { /* never crash on logging */ }

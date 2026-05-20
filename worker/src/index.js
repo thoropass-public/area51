@@ -79,11 +79,14 @@ async function forwardToFallback(message, env, id, reason) {
   }
 }
 
-async function insertEmail(env, id, ts, fromAddr, toAddr, subject, rawEml) {
+async function insertEmail(env, row) {
   await env.DB.prepare(
-    `INSERT INTO emails (id, ts, from_addr, to_addr, subject, raw_eml)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(id, ts, fromAddr, toAddr, subject, rawEml).run();
+    `INSERT INTO emails (id, ts, from_addr, to_addr, subject, headers, text, html, attachments)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    row.id, row.ts, row.from_addr, row.to_addr, row.subject,
+    row.headers, row.text, row.html, row.attachments,
+  ).run();
 }
 
 async function handleEmail(message, env, ctx) {
@@ -107,12 +110,33 @@ async function handleEmail(message, env, ctx) {
 
     const subject = (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
                     (parsed && parsed.subject) || '';
-    const tooBig = rawSize > FORWARD_THRESHOLD_BYTES;
+    const headersJson = parsed && parsed.headers ? JSON.stringify(parsed.headers) : null;
+    const attachmentsMeta = parsed && parsed.attachments
+      ? parsed.attachments.map((a) => ({
+          filename: a.filename || '',
+          mime: a.mimeType || a.contentType || 'application/octet-stream',
+          size: a.content ? (a.content.byteLength || a.content.length || 0) : 0,
+        }))
+      : [];
+    const attachmentsJson = JSON.stringify(attachmentsMeta);
 
-    if (tooBig) {
-      log('email_oversized', { id, rawSize });
-      const forwardP = forwardToFallback(message, env, id, 'oversize');
-      const insertP = insertEmail(env, id, ts, fromAddr, toAddr, subject, 'sent_to_fallback')
+    const hasAttachments = attachmentsMeta.length > 0;
+    const tooBig = rawSize > FORWARD_THRESHOLD_BYTES;
+    const shouldForward = hasAttachments || tooBig;
+
+    if (shouldForward) {
+      log('email_fallback', { id, reason: tooBig ? 'oversize' : 'attachments', hasAttachments, tooBig, rawSize });
+      const forwardP = forwardToFallback(message, env, id, tooBig ? 'oversize' : 'attachments');
+      const insertP = insertEmail(env, {
+        id, ts,
+        from_addr: fromAddr,
+        to_addr: toAddr,
+        subject,
+        headers: headersJson,
+        text: (parsed && parsed.text) || null,
+        html: 'sent_to_fallback',
+        attachments: attachmentsJson,
+      })
         .then(() => log('email_d1_insert_ok', { id, marker: true }))
         .catch((err) => logErr('email_d1_insert_failed', { id, marker: true, error: String(err && err.message || err) }));
       await Promise.allSettled([forwardP, insertP]);
@@ -120,7 +144,16 @@ async function handleEmail(message, env, ctx) {
     }
 
     try {
-      await insertEmail(env, id, ts, fromAddr, toAddr, subject, rawText);
+      await insertEmail(env, {
+        id, ts,
+        from_addr: fromAddr,
+        to_addr: toAddr,
+        subject,
+        headers: headersJson,
+        text: (parsed && parsed.text) || null,
+        html: (parsed && parsed.html) || null,
+        attachments: attachmentsJson,
+      });
       log('email_d1_insert_ok', { id, marker: false });
     } catch (err) {
       logErr('email_d1_insert_failed', { id, marker: false, error: String(err && err.message || err) });

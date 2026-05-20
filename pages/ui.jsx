@@ -55,16 +55,6 @@ const API = {
     }),
 };
 
-// ---- postal-mime (lazy ESM import, cached) ----
-
-let _postalMimePromise = null;
-function loadPostalMime() {
-  if (!_postalMimePromise) {
-    _postalMimePromise = import('https://esm.sh/postal-mime@2.4.3').then((m) => m.default || m.PostalMime || m);
-  }
-  return _postalMimePromise;
-}
-
 // ---- Helpers ----
 
 function fmtTime(iso) {
@@ -265,7 +255,7 @@ const Icon = {
 // expose
 Object.assign(window, {
   React, useState, useEffect, useRef, useCallback, useMemo,
-  API, loadPostalMime,
+  API,
   fmtTime, fmtTimeFull, statusClass, headersObjToLines, highlightJson, tryPretty, fmtBytes, stripOrigin,
   ToastProvider, useToast, Modal, ModalHead,
   ConfirmProvider, useConfirm, useDebouncedValue, Icon,

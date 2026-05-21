@@ -18,7 +18,7 @@ function ListView({
       e.preventDefault();
       if (canPin && onPin) {
         const ok = onPin(search.trim());
-        if (ok !== false) setSearch("");
+        if (ok) setSearch("");
       }
     } else if (e.key === "Backspace" && search === "" && hasPins) {
       onUnpin && onUnpin(pins[pins.length - 1]);
@@ -58,7 +58,7 @@ function ListView({
               className="pin-add"
               onClick={() => {
                 const ok = onPin(search.trim());
-                if (ok !== false) setSearch("");
+                if (ok) setSearch("");
               }}
               title="Pin this filter (Enter)"
               aria-label="Pin filter"
@@ -113,9 +113,12 @@ function ListView({
 }
 
 // Shared hook: pins state persisted to localStorage under `area51:pins:<tab>`.
-// Returns { pins, addPin, removePin, clearPins }. addPin returns true on success,
-// false if the value was empty or already pinned (so the caller can avoid
-// clearing the input on no-op).
+// Returns { pins, addPin, removePin, clearPins }. addPin returns true if the
+// input was non-empty (so the caller can clear the search field); the dedupe
+// (case-insensitive) happens inside the setPins updater and is a no-op when
+// already pinned. We deliberately do NOT track "was this actually added" via
+// a closure variable — React 18 may run setState updaters lazily, so the
+// closure read can be stale at return time.
 function usePins(tab) {
   const key = `area51:pins:${tab}`;
   const [pins, setPins] = useState(() => {
@@ -126,13 +129,8 @@ function usePins(tab) {
   const addPin = useCallback((value) => {
     const v = String(value || "").trim();
     if (!v) return false;
-    let added = false;
-    setPins((xs) => {
-      if (xs.some((p) => p.toLowerCase() === v.toLowerCase())) return xs;
-      added = true;
-      return [...xs, v];
-    });
-    return added;
+    setPins((xs) => (xs.some((p) => p.toLowerCase() === v.toLowerCase()) ? xs : [...xs, v]));
+    return true;
   }, []);
   const removePin = useCallback((value) => {
     setPins((xs) => xs.filter((x) => x !== value));

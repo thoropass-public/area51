@@ -14,10 +14,19 @@ async function apiFetch(path, init) {
   return body;
 }
 
+// Build a query string. `search` may be a string OR an array of strings; each
+// non-empty term becomes its own ?search=... so the server can AND them.
 const qs = (params) => {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== '') sp.set(k, v);
+    if (v === undefined || v === null || v === '') continue;
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (item !== undefined && item !== null && item !== '') sp.append(k, item);
+      }
+    } else {
+      sp.set(k, v);
+    }
   }
   const s = sp.toString();
   return s ? '?' + s : '';
@@ -54,6 +63,17 @@ const API = {
       body: JSON.stringify({ table, keep: Number(keep) }),
     }),
 };
+
+// localStorage with JSON. Returns fallback on miss / parse error / no localStorage.
+function lsGet(key, fallback) {
+  try {
+    const v = window.localStorage.getItem(key);
+    return v == null ? fallback : JSON.parse(v);
+  } catch { return fallback; }
+}
+function lsSet(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota / private mode */ }
+}
 
 // ---- Helpers ----
 
@@ -284,6 +304,8 @@ const Icon = {
   doc: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M3 1.5h5l3 3v8H3z"/><path d="M8 1.5V5h3"/></svg>,
   paper: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M8.5 3v6a2.5 2.5 0 0 1-5 0V3a1.5 1.5 0 1 1 3 0v6a.5.5 0 0 1-1 0V4"/></svg>,
   refresh: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 6.5A4.5 4.5 0 0 0 3.7 4"/><path d="M2.5 7.5A4.5 4.5 0 0 0 10.3 10"/><path d="M11.5 2.5v4h-4M2.5 11.5v-4h4"/></svg>,
+  pin: () => <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 1.5l3 3M8 3l3 3-3 3-1-1 .5-1.5L5 8.5l-.5-.5 2.5-3L5.5 4.5 6 4l2-1zM5 8.5L2 11.5"/></svg>,
+  x: () => <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M2 2l6 6M8 2l-6 6"/></svg>,
 };
 
 // expose
@@ -291,6 +313,7 @@ Object.assign(window, {
   React, useState, useEffect, useRef, useCallback, useMemo,
   API,
   fmtTime, fmtTimeFull, statusClass, headersObjToLines, decodeMimeWord, highlightJson, tryPretty, fmtBytes, stripOrigin,
+  lsGet, lsSet,
   ToastProvider, useToast, Modal, ModalHead,
   ConfirmProvider, useConfirm, useDebouncedValue, Icon,
 });

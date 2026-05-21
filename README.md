@@ -333,7 +333,7 @@ File responsibilities:
   - Everything exposed on `window` so the other JSX files can use them as globals (Babel-standalone doesn't do module resolution).
 
 - **`tabs.jsx`** — the three list tabs and their detail modals.
-  - `ListView` — generic search + paginated list wrapper used by all three tabs.
+  - `ListView` — generic search + paginated list wrapper used by all three tabs. Owns the search input, the pin button inside it, and the chip row of saved pins below it. Each tab passes in `pins`, `onPin`, `onUnpin` via the `usePins(<tab>)` hook (also in `tabs.jsx`), which loads/saves to `localStorage` under `area51:pins:<tab>` and exposes `{pins, addPin, removePin}`. The effective list of search terms sent to the API is `[<live-input-text>, ...pins]` (joined via `effectiveSearch(input, pins)`) — all ANDed server-side. Pressing **Enter** or clicking the pin icon promotes the current input text to a pin and clears the input.
   - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens.
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
   - `EmailsTab` + `EmailModal` — modal hands off to a single `EmailView` component that reads the structured fields directly from the API response (`data.headers`, `data.text`, `data.html`, `data.attachments`). No postal-mime in the browser any more — the worker parses once on write, the dashboard reads parsed columns on read. The yellow "forwarded to fallback" notice fires when `data.html === "sent_to_fallback"`; all other fields are still shown alongside the notice.
@@ -444,13 +444,13 @@ Base path: `https://area51.thoropentests.com/api/`. All endpoints sit behind Clo
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/endpoints` | List endpoints. Params: `cursor` (last `uri`), `search` (LIKE `%search%` on `uri`). Returns array of `{uri, status, headers (JSON string), body}`. Sorted ASC by `uri`. |
+| `GET` | `/api/endpoints` | List endpoints. Params: `cursor` (last `uri`), `search` (LIKE `%search%` on `uri` — **may be repeated**; multiple values are ANDed). Returns array of `{uri, status}`. Sorted ASC by `uri`. |
 | `POST` | `/api/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `headers` is a line-separated string (`Key: Value\n…`) — server parses to a JSON object before storing. Validates `uri` starts with `/`, `status` is integer 100–599. |
 | `GET` | `/api/endpoints/[uri]` | Detail. `uri` is URL-encoded in the path. 404 if missing. |
 | `DELETE` | `/api/endpoints/[uri]` | Delete. 404 if nothing deleted (via `meta.changes === 0`). |
-| `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url`). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
+| `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url` — **may be repeated**; multiple values are ANDed). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
 | `GET` | `/api/requests/[id]` | Detail. Returns the full row including `headers` (parsed back to an object) and `body`. 404 if missing. |
-| `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr`). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
+| `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ANDed). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
 | `GET` | `/api/emails/[id]` | Detail. Returns `{id, ts, from_addr, to_addr, subject, headers, text, html, attachments}` with `headers` and `attachments` parsed back from JSON into arrays. 404 if missing. |
 | `POST` | `/api/purge` | Body: `{table: "requests"\|"emails", keep: <non-negative int>}`. Deletes all rows in `table` except the most-recent `keep` by `ts`. Returns `{ok: true, deleted: N}`. **`table` is validated against an allowlist before being interpolated into SQL** — don't remove that validation. |
 

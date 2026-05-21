@@ -3,7 +3,7 @@ import { PAGE_SIZE, json, withErrorHandler } from '../_shared.js';
 async function listRequests({ request, env }) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get('cursor');
-  const search = url.searchParams.get('search');
+  const searchTerms = url.searchParams.getAll('search').filter(Boolean);
 
   let query = 'SELECT id, ts, method, url, ip FROM requests';
   const conditions = [];
@@ -13,9 +13,9 @@ async function listRequests({ request, env }) {
     conditions.push('ts < ?');
     params.push(cursor);
   }
-  if (search) {
+  for (const term of searchTerms) {
     conditions.push('url LIKE ?');
-    params.push(`%${search}%`);
+    params.push(`%${term}%`);
   }
   if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
   query += ` ORDER BY ts DESC LIMIT ${PAGE_SIZE}`;

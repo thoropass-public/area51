@@ -5,20 +5,25 @@
 // ----------------------------------------------------------------
 function ListView({
   search, setSearch,
-  pins, onPin, onUnpin,
+  pins, onPin, onUnpin, onClearPins,
+  pinPlaceholder,
   rows, loading, hasMore, onLoadMore, loadingMore,
   header, renderRow, emptyText, gridClass, total,
   rightToolbar,
 }) {
   const canPin = !!(search && search.trim());
-  const handlePin = () => {
-    if (!canPin || !onPin) return;
-    onPin(search.trim());
-  };
-  const onSearchKeyDown = (e) => {
-    if (e.key === "Enter" && canPin && onPin) {
+  const hasPins = Array.isArray(pins) && pins.length > 0;
+  const onKeyDown = (e) => {
+    if (e.key === "Enter") {
       e.preventDefault();
-      handlePin();
+      if (canPin && onPin) {
+        const ok = onPin(search.trim());
+        if (ok !== false) setSearch("");
+      }
+    } else if (e.key === "Backspace" && search === "" && hasPins) {
+      onUnpin && onUnpin(pins[pins.length - 1]);
+    } else if (e.key === "Escape") {
+      setSearch("");
     }
   };
   return (
@@ -26,49 +31,59 @@ function ListView({
       <div className="toolbar">
         <div className="search-wrap">
           <span className="icon"><Icon.search/></span>
-          <input
-            type="text"
-            placeholder="Search…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={onSearchKeyDown}
-            className={onPin ? "has-pin-btn" : ""}
-          />
-          {onPin && (
+          <div className="pin-strip">
+            {hasPins && pins.map((p) => (
+              <span key={p} className="pin-chip" title={`Pinned filter "${p}" — click × to remove`}>
+                <span className="pin-glyph"><Icon.pin/></span>
+                <span className="pin-val">{p}</span>
+                <button
+                  className="pin-x"
+                  onClick={() => onUnpin && onUnpin(p)}
+                  aria-label={`Remove pin ${p}`}
+                >
+                  <Icon.x/>
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              placeholder={hasPins ? "+ filter" : (pinPlaceholder || "Search…  ↵ to pin")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+          {canPin && onPin && (
             <button
-              className="pin-btn"
-              onClick={handlePin}
-              disabled={!canPin}
-              title={canPin ? "Pin this filter (Enter)" : "Type something to pin"}
+              className="pin-add"
+              onClick={() => {
+                const ok = onPin(search.trim());
+                if (ok !== false) setSearch("");
+              }}
+              title="Pin this filter (Enter)"
               aria-label="Pin filter"
             >
               <Icon.pin/>
             </button>
           )}
+          {(search || hasPins) && (
+            <button
+              className="clear"
+              onClick={() => { setSearch(""); if (hasPins && onClearPins) onClearPins(); }}
+              title={hasPins ? "Clear search and pins" : "Clear"}
+            >
+              clear
+            </button>
+          )}
         </div>
         {rightToolbar}
         <div className="toolbar-meta">
+          {hasPins && (
+            <span className="meta-filter">{pins.length} pinned · OR</span>
+          )}
           <span>{total} loaded</span>
         </div>
       </div>
-      {pins && pins.length > 0 && (
-        <div className="pin-row">
-          {pins.map((p) => (
-            <span className="pin-chip" key={p} title={p}>
-              <span className="pin-glyph"><Icon.pin/></span>
-              <span className="pin-text">{p}</span>
-              <button
-                className="pin-remove"
-                onClick={() => onUnpin && onUnpin(p)}
-                title={`Remove pin "${p}"`}
-                aria-label={`Remove pin ${p}`}
-              >
-                <Icon.x/>
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
       <div className="content">
         <div className={`table-header ${gridClass}`}>{header}</div>
         {loading && rows.length === 0 && (
@@ -98,8 +113,9 @@ function ListView({
 }
 
 // Shared hook: pins state persisted to localStorage under `area51:pins:<tab>`.
-// Returns { pins, addPin, removePin }. Initial value comes from localStorage; writes
-// are sync via useEffect so they survive a refresh.
+// Returns { pins, addPin, removePin, clearPins }. addPin returns true on success,
+// false if the value was empty or already pinned (so the caller can avoid
+// clearing the input on no-op).
 function usePins(tab) {
   const key = `area51:pins:${tab}`;
   const [pins, setPins] = useState(() => {
@@ -109,13 +125,20 @@ function usePins(tab) {
   useEffect(() => { lsSet(key, pins); }, [key, pins]);
   const addPin = useCallback((value) => {
     const v = String(value || "").trim();
-    if (!v) return;
-    setPins((xs) => (xs.includes(v) ? xs : [...xs, v]));
+    if (!v) return false;
+    let added = false;
+    setPins((xs) => {
+      if (xs.some((p) => p.toLowerCase() === v.toLowerCase())) return xs;
+      added = true;
+      return [...xs, v];
+    });
+    return added;
   }, []);
   const removePin = useCallback((value) => {
     setPins((xs) => xs.filter((x) => x !== value));
   }, []);
-  return { pins, addPin, removePin };
+  const clearPins = useCallback(() => setPins([]), []);
+  return { pins, addPin, removePin, clearPins };
 }
 
 // Build the effective list of search terms = current input (if any) + pins.
@@ -136,7 +159,7 @@ function EndpointsTab({ refreshKey }) {
 
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
-  const { pins, addPin, removePin } = usePins("endpoints");
+  const { pins, addPin, removePin, clearPins } = usePins("endpoints");
   const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -177,8 +200,6 @@ function EndpointsTab({ refreshKey }) {
     }
   };
 
-  const handlePin = (value) => { addPin(value); setSearch(""); };
-
   const open = (uri) => {
     setActiveId(uri);
     setModal({ mode: "edit", uri });
@@ -215,7 +236,8 @@ function EndpointsTab({ refreshKey }) {
     <>
       <ListView
         search={search} setSearch={setSearch}
-        pins={pins} onPin={handlePin} onUnpin={removePin}
+        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        pinPlaceholder="Search URIs…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="endpoint-grid"
@@ -391,7 +413,7 @@ function RequestsTab({ refreshKey }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
-  const { pins, addPin, removePin } = usePins("requests");
+  const { pins, addPin, removePin, clearPins } = usePins("requests");
   const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -430,13 +452,12 @@ function RequestsTab({ refreshKey }) {
     }
   };
 
-  const handlePin = (value) => { addPin(value); setSearch(""); };
-
   return (
     <>
       <ListView
         search={search} setSearch={setSearch}
-        pins={pins} onPin={handlePin} onUnpin={removePin}
+        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        pinPlaceholder="Search URLs…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="request-grid"
@@ -538,7 +559,7 @@ function EmailsTab({ refreshKey }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
-  const { pins, addPin, removePin } = usePins("emails");
+  const { pins, addPin, removePin, clearPins } = usePins("emails");
   const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -577,13 +598,12 @@ function EmailsTab({ refreshKey }) {
     }
   };
 
-  const handlePin = (value) => { addPin(value); setSearch(""); };
-
   return (
     <>
       <ListView
         search={search} setSearch={setSearch}
-        pins={pins} onPin={handlePin} onUnpin={removePin}
+        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        pinPlaceholder="Search to addresses…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="email-grid"

@@ -1,5 +1,5 @@
 /* ================================================
-   Area 51 — Exploit Server Dashboard
+   AREA 51 — Exploit Server Dashboard
    Nord-inspired dark palette, dense developer UI
    ================================================ */
 
@@ -291,15 +291,41 @@ textarea {
 .toolbar .search-wrap {
   position: relative;
   flex: 1;
-  max-width: 420px;
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--n0);
+  border: 1px solid var(--n3);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px 3px 28px;
+  transition: border-color 0.1s ease;
+  min-height: 30px;
+}
+.toolbar .search-wrap:focus-within { border-color: var(--f2); }
+
+.toolbar .search-wrap .pin-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 1px 0;
 }
 
 .toolbar .search-wrap input {
-  width: 100%;
-  padding-left: 28px;
+  flex: 1;
+  min-width: 100px;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 2px 2px;
   font-family: var(--mono);
   font-size: 12px;
+  color: var(--s1);
 }
+.toolbar .search-wrap input::placeholder { color: var(--n4); }
 
 .toolbar .search-wrap .icon {
   position: absolute;
@@ -310,82 +336,65 @@ textarea {
   pointer-events: none;
 }
 
-.toolbar .search-wrap .clear {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--n4);
-  padding: 2px 4px;
-  font-size: 11px;
-  border-radius: 3px;
-}
-.toolbar .search-wrap .clear:hover { color: var(--s1); background: var(--n2); }
-
-/* Pin button inside the search input (right-aligned). */
-.toolbar .search-wrap .pin-btn {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--n4);
-  padding: 4px;
-  border-radius: 3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.1s ease, background 0.1s ease;
-}
-.toolbar .search-wrap .pin-btn:hover:not(:disabled) { color: var(--f1); background: var(--n2); }
-.toolbar .search-wrap .pin-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.toolbar .search-wrap input.has-pin-btn { padding-right: 28px; }
-
-/* Chip row appears below the search input when at least one pin exists. */
-.pin-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 16px 10px;
-  border-bottom: 1px solid var(--n2);
-  background: var(--n0);
-}
-
 .pin-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   height: 22px;
-  padding: 0 4px 0 9px;
+  padding: 0 4px 0 6px;
+  background: rgba(136, 192, 208, 0.1);
+  border: 1px solid rgba(136, 192, 208, 0.35);
+  border-radius: 3px;
   font-family: var(--mono);
   font-size: 11.5px;
-  color: var(--s1);
-  background: var(--n2);
-  border: 1px solid var(--n3);
-  border-radius: 11px;
-  white-space: nowrap;
-  max-width: 280px;
+  color: var(--f1);
+  max-width: 200px;
 }
 .pin-chip .pin-glyph {
-  color: var(--f1);
-  margin-right: -2px;
   display: inline-flex;
-  align-items: center;
+  color: var(--f1);
+  opacity: 0.85;
 }
-.pin-chip .pin-text {
+.pin-chip .pin-val {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.pin-chip .pin-remove {
+.pin-chip .pin-x {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
   color: var(--n4);
-  transition: color 0.1s ease, background 0.1s ease;
 }
-.pin-chip .pin-remove:hover { color: var(--s2); background: var(--n3); }
+.pin-chip .pin-x:hover { color: var(--red); background: rgba(191, 97, 106, 0.15); }
+
+.pin-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  color: var(--f1);
+  background: transparent;
+  transition: background 0.1s ease;
+}
+.pin-add:hover { background: rgba(136, 192, 208, 0.15); }
+
+.toolbar .search-wrap .clear {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--n4);
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.toolbar .search-wrap .clear:hover { color: var(--s1); background: var(--n2); }
 
 .toolbar-meta {
   font-family: var(--mono);
@@ -395,6 +404,15 @@ textarea {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+.toolbar-meta .meta-filter {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--f1);
+  padding: 2px 6px;
+  background: rgba(136, 192, 208, 0.08);
+  border: 1px solid rgba(136, 192, 208, 0.25);
+  border-radius: 3px;
 }
 
 .btn {

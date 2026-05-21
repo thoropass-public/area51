@@ -13,9 +13,10 @@ async function listEndpoints({ request, env }) {
     conditions.push('uri > ?');
     params.push(cursor);
   }
-  for (const term of searchTerms) {
-    conditions.push('uri LIKE ?');
-    params.push(`%${term}%`);
+  if (searchTerms.length) {
+    const orClauses = searchTerms.map(() => 'uri LIKE ?');
+    conditions.push('(' + orClauses.join(' OR ') + ')');
+    for (const term of searchTerms) params.push(`%${term}%`);
   }
   if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
   query += ` ORDER BY uri ASC LIMIT ${PAGE_SIZE}`;

@@ -5,10 +5,22 @@
 // ----------------------------------------------------------------
 function ListView({
   search, setSearch,
+  pins, onPin, onUnpin,
   rows, loading, hasMore, onLoadMore, loadingMore,
   header, renderRow, emptyText, gridClass, total,
   rightToolbar,
 }) {
+  const canPin = !!(search && search.trim());
+  const handlePin = () => {
+    if (!canPin || !onPin) return;
+    onPin(search.trim());
+  };
+  const onSearchKeyDown = (e) => {
+    if (e.key === "Enter" && canPin && onPin) {
+      e.preventDefault();
+      handlePin();
+    }
+  };
   return (
     <>
       <div className="toolbar">
@@ -19,13 +31,44 @@ function ListView({
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={onSearchKeyDown}
+            className={onPin ? "has-pin-btn" : ""}
           />
+          {onPin && (
+            <button
+              className="pin-btn"
+              onClick={handlePin}
+              disabled={!canPin}
+              title={canPin ? "Pin this filter (Enter)" : "Type something to pin"}
+              aria-label="Pin filter"
+            >
+              <Icon.pin/>
+            </button>
+          )}
         </div>
         {rightToolbar}
         <div className="toolbar-meta">
           <span>{total} loaded</span>
         </div>
       </div>
+      {pins && pins.length > 0 && (
+        <div className="pin-row">
+          {pins.map((p) => (
+            <span className="pin-chip" key={p} title={p}>
+              <span className="pin-glyph"><Icon.pin/></span>
+              <span className="pin-text">{p}</span>
+              <button
+                className="pin-remove"
+                onClick={() => onUnpin && onUnpin(p)}
+                title={`Remove pin "${p}"`}
+                aria-label={`Remove pin ${p}`}
+              >
+                <Icon.x/>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="content">
         <div className={`table-header ${gridClass}`}>{header}</div>
         {loading && rows.length === 0 && (
@@ -54,6 +97,35 @@ function ListView({
   );
 }
 
+// Shared hook: pins state persisted to localStorage under `area51:pins:<tab>`.
+// Returns { pins, addPin, removePin }. Initial value comes from localStorage; writes
+// are sync via useEffect so they survive a refresh.
+function usePins(tab) {
+  const key = `area51:pins:${tab}`;
+  const [pins, setPins] = useState(() => {
+    const raw = lsGet(key, []);
+    return Array.isArray(raw) ? raw.filter((x) => typeof x === "string" && x.length > 0) : [];
+  });
+  useEffect(() => { lsSet(key, pins); }, [key, pins]);
+  const addPin = useCallback((value) => {
+    const v = String(value || "").trim();
+    if (!v) return;
+    setPins((xs) => (xs.includes(v) ? xs : [...xs, v]));
+  }, []);
+  const removePin = useCallback((value) => {
+    setPins((xs) => xs.filter((x) => x !== value));
+  }, []);
+  return { pins, addPin, removePin };
+}
+
+// Build the effective list of search terms = current input (if any) + pins.
+function effectiveSearch(input, pins) {
+  const trimmed = (input || "").trim();
+  const all = [...(pins || [])];
+  if (trimmed && !all.includes(trimmed)) all.push(trimmed);
+  return all;
+}
+
 // ----------------------------------------------------------------
 // Endpoints
 // ----------------------------------------------------------------
@@ -64,6 +136,8 @@ function EndpointsTab({ refreshKey }) {
 
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
+  const { pins, addPin, removePin } = usePins("endpoints");
+  const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -74,7 +148,7 @@ function EndpointsTab({ refreshKey }) {
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEndpoints({ search: dq });
+      const r = await API.listEndpoints({ search: terms });
       setRows(r);
       setHasMore(r.length === 10);
     } catch (e) {
@@ -84,7 +158,7 @@ function EndpointsTab({ refreshKey }) {
     } finally {
       setLoading(false);
     }
-  }, [dq, toast]);
+  }, [terms, toast]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
 
@@ -93,7 +167,7 @@ function EndpointsTab({ refreshKey }) {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].uri;
-      const r = await API.listEndpoints({ search: dq, cursor });
+      const r = await API.listEndpoints({ search: terms, cursor });
       setRows((xs) => [...xs, ...r]);
       setHasMore(r.length === 10);
     } catch (e) {
@@ -102,6 +176,8 @@ function EndpointsTab({ refreshKey }) {
       setLoadingMore(false);
     }
   };
+
+  const handlePin = (value) => { addPin(value); setSearch(""); };
 
   const open = (uri) => {
     setActiveId(uri);
@@ -139,6 +215,7 @@ function EndpointsTab({ refreshKey }) {
     <>
       <ListView
         search={search} setSearch={setSearch}
+        pins={pins} onPin={handlePin} onUnpin={removePin}
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="endpoint-grid"
@@ -314,6 +391,8 @@ function RequestsTab({ refreshKey }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
+  const { pins, addPin, removePin } = usePins("requests");
+  const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -323,7 +402,7 @@ function RequestsTab({ refreshKey }) {
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listRequests({ search: dq });
+      const r = await API.listRequests({ search: terms });
       setRows(r);
       setHasMore(r.length === 10);
     } catch (e) {
@@ -332,7 +411,7 @@ function RequestsTab({ refreshKey }) {
     } finally {
       setLoading(false);
     }
-  }, [dq, toast]);
+  }, [terms, toast]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
 
@@ -341,7 +420,7 @@ function RequestsTab({ refreshKey }) {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].ts;
-      const r = await API.listRequests({ search: dq, cursor });
+      const r = await API.listRequests({ search: terms, cursor });
       setRows((xs) => [...xs, ...r]);
       setHasMore(r.length === 10);
     } catch (e) {
@@ -351,10 +430,13 @@ function RequestsTab({ refreshKey }) {
     }
   };
 
+  const handlePin = (value) => { addPin(value); setSearch(""); };
+
   return (
     <>
       <ListView
         search={search} setSearch={setSearch}
+        pins={pins} onPin={handlePin} onUnpin={removePin}
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="request-grid"
@@ -456,6 +538,8 @@ function EmailsTab({ refreshKey }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
+  const { pins, addPin, removePin } = usePins("emails");
+  const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -465,7 +549,7 @@ function EmailsTab({ refreshKey }) {
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEmails({ search: dq });
+      const r = await API.listEmails({ search: terms });
       setRows(r);
       setHasMore(r.length === 10);
     } catch (e) {
@@ -474,7 +558,7 @@ function EmailsTab({ refreshKey }) {
     } finally {
       setLoading(false);
     }
-  }, [dq, toast]);
+  }, [terms, toast]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
 
@@ -483,7 +567,7 @@ function EmailsTab({ refreshKey }) {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].ts;
-      const r = await API.listEmails({ search: dq, cursor });
+      const r = await API.listEmails({ search: terms, cursor });
       setRows((xs) => [...xs, ...r]);
       setHasMore(r.length === 10);
     } catch (e) {
@@ -493,10 +577,13 @@ function EmailsTab({ refreshKey }) {
     }
   };
 
+  const handlePin = (value) => { addPin(value); setSearch(""); };
+
   return (
     <>
       <ListView
         search={search} setSearch={setSearch}
+        pins={pins} onPin={handlePin} onUnpin={removePin}
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="email-grid"

@@ -3,7 +3,7 @@ import { PAGE_SIZE, json, errResp, withErrorHandler, parseHeaderLines } from '..
 async function listEndpoints({ request, env }) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get('cursor');
-  const search = url.searchParams.get('search');
+  const searchTerms = url.searchParams.getAll('search').filter(Boolean);
 
   let query = 'SELECT uri, status FROM endpoints';
   const conditions = [];
@@ -13,9 +13,9 @@ async function listEndpoints({ request, env }) {
     conditions.push('uri > ?');
     params.push(cursor);
   }
-  if (search) {
+  for (const term of searchTerms) {
     conditions.push('uri LIKE ?');
-    params.push(`%${search}%`);
+    params.push(`%${term}%`);
   }
   if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
   query += ` ORDER BY uri ASC LIMIT ${PAGE_SIZE}`;

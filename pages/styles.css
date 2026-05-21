@@ -322,6 +322,71 @@ textarea {
 }
 .toolbar .search-wrap .clear:hover { color: var(--s1); background: var(--n2); }
 
+/* Pin button inside the search input (right-aligned). */
+.toolbar .search-wrap .pin-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--n4);
+  padding: 4px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.1s ease, background 0.1s ease;
+}
+.toolbar .search-wrap .pin-btn:hover:not(:disabled) { color: var(--f1); background: var(--n2); }
+.toolbar .search-wrap .pin-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.toolbar .search-wrap input.has-pin-btn { padding-right: 28px; }
+
+/* Chip row appears below the search input when at least one pin exists. */
+.pin-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--n2);
+  background: var(--n0);
+}
+
+.pin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 4px 0 9px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--s1);
+  background: var(--n2);
+  border: 1px solid var(--n3);
+  border-radius: 11px;
+  white-space: nowrap;
+  max-width: 280px;
+}
+.pin-chip .pin-glyph {
+  color: var(--f1);
+  margin-right: -2px;
+  display: inline-flex;
+  align-items: center;
+}
+.pin-chip .pin-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pin-chip .pin-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--n4);
+  transition: color 0.1s ease, background 0.1s ease;
+}
+.pin-chip .pin-remove:hover { color: var(--s2); background: var(--n3); }
+
 .toolbar-meta {
   font-family: var(--mono);
   font-size: 11px;

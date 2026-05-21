@@ -1,4 +1,4 @@
-// Area 51 — main app: tab navigation, Home, Settings, shell.
+// AREA 51 — main app: tab navigation, Home, Settings, shell.
 
 function App() {
   const [tab, setTab] = useState("home");
@@ -117,7 +117,7 @@ function Home({ setTab }) {
 
         <div className="home-intro">
           <p className="lede">
-            Welcome to <b>Area 51</b> — otherwise forbidden, but exclusively developed for the
+            Welcome to <b>AREA 51</b> — otherwise forbidden, but exclusively developed for the
             pentest team at <a className="ext" href="https://thoropass.com" target="_blank" rel="noreferrer noopener">Thoropass</a>.
           </p>
           <p>

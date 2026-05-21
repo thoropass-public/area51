@@ -1,4 +1,4 @@
-# Area 51 — Exploit Server
+# AREA 51 — Exploit Server
 
 Internal out-of-band callback infrastructure for the Thoropass security team. Hosted on Cloudflare.
 
@@ -30,7 +30,7 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 
 ## 1. What it is
 
-Area 51 is an **exploit server**: an attacker-controlled HTTP and email endpoint that pentesters point targets at during engagements. Targets that fetch URLs, send webhooks, click email links, or otherwise reach out to "the internet" can be steered to `oob.example`, where:
+AREA 51 is an **exploit server**: an attacker-controlled HTTP and email endpoint that pentesters point targets at during engagements. Targets that fetch URLs, send webhooks, click email links, or otherwise reach out to "the internet" can be steered to `oob.example`, where:
 
 - the **HTTP traffic** is captured (full request, headers, body), and
 - the **server's response** is whatever the pentester has configured for that path.
@@ -333,7 +333,9 @@ File responsibilities:
   - Everything exposed on `window` so the other JSX files can use them as globals (Babel-standalone doesn't do module resolution).
 
 - **`tabs.jsx`** — the three list tabs and their detail modals.
-  - `ListView` — generic search + paginated list wrapper used by all three tabs. Owns the search input, the pin button inside it, and the chip row of saved pins below it. Each tab passes in `pins`, `onPin`, `onUnpin` via the `usePins(<tab>)` hook (also in `tabs.jsx`), which loads/saves to `localStorage` under `area51:pins:<tab>` and exposes `{pins, addPin, removePin}`. The effective list of search terms sent to the API is `[<live-input-text>, ...pins]` (joined via `effectiveSearch(input, pins)`) — all ANDed server-side. Pressing **Enter** or clicking the pin icon promotes the current input text to a pin and clears the input.
+  - `ListView` — generic search + paginated list wrapper used by all three tabs. The whole search field is a single visual unit: pin chips wrap inline alongside the input via flexbox; the field's border lives on the wrapper, not the input. Keyboard: **Enter** pins the current text, **Backspace** on an empty input pops the last pin, **Escape** clears the input. A `pin-add` icon button (frost color) appears at the right of the field when there's text to pin; a `clear` text-button appears whenever there's anything (search text or pins) to clear and wipes both at once. Adjacent to "X loaded" in the toolbar-meta, a small `meta-filter` badge reads "N pinned · OR" when at least one pin exists.
+  - `usePins(<tab>)` in `tabs.jsx` loads/saves to `localStorage` under `area51:pins:<tab>` and returns `{pins, addPin, removePin, clearPins}`. `addPin` returns `false` if the value is empty or already pinned (case-insensitive dupe check), so the caller can avoid clearing the input on a no-op.
+  - The effective list of search terms sent to the API is `[<live-input-text>, ...pins]` (built per-tab via the `effectiveSearch(input, pins)` helper) — all ORed server-side (any term matches → row included).
   - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens.
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
   - `EmailsTab` + `EmailModal` — modal hands off to a single `EmailView` component that reads the structured fields directly from the API response (`data.headers`, `data.text`, `data.html`, `data.attachments`). No postal-mime in the browser any more — the worker parses once on write, the dashboard reads parsed columns on read. The yellow "forwarded to fallback" notice fires when `data.html === "sent_to_fallback"`; all other fields are still shown alongside the notice.
@@ -354,7 +356,7 @@ When `ParsedEmailView` renders an email's HTML body, it does so in:
 <iframe sandbox="" srcDoc={parsed.html} title="email html"/>
 ```
 
-`sandbox=""` (no allowed tokens) is the **strictest** sandbox: no scripts, no same-origin access, no form submission, no top-navigation. Even though Area 51 is internal-only, emails arrive from untrusted senders, so HTML bodies must be treated as hostile. Do not relax this sandbox.
+`sandbox=""` (no allowed tokens) is the **strictest** sandbox: no scripts, no same-origin access, no form submission, no top-navigation. Even though AREA 51 is internal-only, emails arrive from untrusted senders, so HTML bodies must be treated as hostile. Do not relax this sandbox.
 
 ### 5.3 Pages Functions (`/functions/api/*`)
 
@@ -444,13 +446,13 @@ Base path: `https://area51.ops.example/api/`. All endpoints sit behind Cloudflar
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/endpoints` | List endpoints. Params: `cursor` (last `uri`), `search` (LIKE `%search%` on `uri` — **may be repeated**; multiple values are ANDed). Returns array of `{uri, status}`. Sorted ASC by `uri`. |
+| `GET` | `/api/endpoints` | List endpoints. Params: `cursor` (last `uri`), `search` (LIKE `%search%` on `uri` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns array of `{uri, status}`. Sorted ASC by `uri`. |
 | `POST` | `/api/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `headers` is a line-separated string (`Key: Value\n…`) — server parses to a JSON object before storing. Validates `uri` starts with `/`, `status` is integer 100–599. |
 | `GET` | `/api/endpoints/[uri]` | Detail. `uri` is URL-encoded in the path. 404 if missing. |
 | `DELETE` | `/api/endpoints/[uri]` | Delete. 404 if nothing deleted (via `meta.changes === 0`). |
-| `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url` — **may be repeated**; multiple values are ANDed). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
+| `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
 | `GET` | `/api/requests/[id]` | Detail. Returns the full row including `headers` (parsed back to an object) and `body`. 404 if missing. |
-| `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ANDed). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
+| `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
 | `GET` | `/api/emails/[id]` | Detail. Returns `{id, ts, from_addr, to_addr, subject, headers, text, html, attachments}` with `headers` and `attachments` parsed back from JSON into arrays. 404 if missing. |
 | `POST` | `/api/purge` | Body: `{table: "requests"\|"emails", keep: <non-negative int>}`. Deletes all rows in `table` except the most-recent `keep` by `ts`. Returns `{ok: true, deleted: N}`. **`table` is validated against an allowlist before being interpolated into SQL** — don't remove that validation. |
 

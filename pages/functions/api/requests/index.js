@@ -13,9 +13,10 @@ async function listRequests({ request, env }) {
     conditions.push('ts < ?');
     params.push(cursor);
   }
-  for (const term of searchTerms) {
-    conditions.push('url LIKE ?');
-    params.push(`%${term}%`);
+  if (searchTerms.length) {
+    const orClauses = searchTerms.map(() => 'url LIKE ?');
+    conditions.push('(' + orClauses.join(' OR ') + ')');
+    for (const term of searchTerms) params.push(`%${term}%`);
   }
   if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
   query += ` ORDER BY ts DESC LIMIT ${PAGE_SIZE}`;

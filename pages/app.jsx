@@ -225,7 +225,7 @@ function Settings() {
         <div className="settings-section">
           <h2>Blacklists</h2>
           <p className="desc">
-            The worker checks these lists before writing to D1. Anything matching is dropped silently — never logged, never stored. Existing captured rows are not affected; purge separately if you want them gone. Changes take effect within ~60 seconds (edge cache TTL).
+            The worker checks these lists before writing to D1. Anything matching is dropped silently — never logged, never stored. Existing captured rows are not affected; purge separately if you want them gone. <b>Changes take up to 60 minutes to fully propagate</b> (edge cache TTL) — applies to both additions and removals.
           </p>
           <div className="blacklist-grid">
             <BlacklistManager

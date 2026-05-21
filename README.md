@@ -443,7 +443,9 @@ Worker behavior on a match:
 - **IP blacklist hit** → skip `ctx.waitUntil(insertRequestLog(...))`. The target still receives the configured endpoint response — only the D1 write is suppressed.
 - **Email blacklist hit** → silent drop. No D1 row, no fallback forward. Cloudflare's MX has already accepted the message; the worker just discards.
 
-Worker reads each list at most once per 60 seconds per data center (edge-cached via `caches.default`). Dashboard mutations take up to 60s to fully propagate. The cache miss path returns an empty set on D1 error so a transient D1 outage never blocks captures.
+Worker reads each list at most **once per 60 minutes per data center** (edge-cached via `caches.default`). Dashboard mutations take up to **60 minutes** to fully propagate — applies to both adds and removes. The long TTL is intentional: at moderate pentest traffic (~100 callbacks/min), this drops blacklist-related D1 reads from ~8K/day to ~150/day per edge. Acceptable because blacklisting is a noise filter, not a security boundary; the cost of hour-long staleness on an add is "we logged a few more requests from a noisy IP than necessary," and on a remove is "we silently dropped a few legitimate captures for slightly longer than expected."
+
+The cache miss path returns an empty set on D1 error so a transient D1 outage never blocks captures.
 
 ### 6.5 What's not in the schema (and why)
 

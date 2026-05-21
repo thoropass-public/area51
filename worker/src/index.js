@@ -1,7 +1,10 @@
 import PostalMime from 'postal-mime';
 
 const FORWARD_THRESHOLD_BYTES = 1048576;
-const BLACKLIST_CACHE_TTL_SECONDS = 60;
+// 60 minutes. Blacklist changes from the dashboard take up to this long to be
+// enforced (in both directions: adds, and removes). Acceptable for a noise
+// filter — the trade is dramatically fewer D1 lookups on the hot path.
+const BLACKLIST_CACHE_TTL_SECONDS = 3600;
 
 const log = (event, fields = {}) => {
   try { console.log(JSON.stringify({ event, ...fields })); } catch { /* never crash on logging */ }

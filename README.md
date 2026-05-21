@@ -24,7 +24,8 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 12. [Smoke tests](#12-smoke-tests)
 13. [Debugging](#13-debugging-common-issues)
 14. [Known constraints & caveats](#14-known-constraints--caveats)
-15. [Design decisions](#15-design-decision-log)
+15. [Agent API + MCP server](#15-agent-api--mcp-server-agent-a51thoropentestscom)
+16. [Design decisions](#16-design-decision-log)
 
 ---
 
@@ -346,7 +347,7 @@ File responsibilities:
   - `App` — top-level component. Tab state, keyboard shortcut handler (⌘/Ctrl + 1–4 → endpoints/requests/emails/settings), wraps everything in `ConfirmProvider` + `ToastProvider`.
   - `TopBar` — brand mark + tabs + a refresh button on the far right that's visible only on list tabs (endpoints / requests / emails). The button increments an `App`-level `refreshTick` counter that the active list tab consumes as a `refreshKey` prop in its `fetchFirst` `useEffect` dependency array, causing a re-fetch of the first page. The icon spins briefly (~600ms) on click for visual feedback; the spin isn't synced to the actual loading state since each tab already shows its own spinner over the list rows.
   - `Home` — the marketing-style landing tab: AREA 51 hero, intro copy, four navigation tiles.
-  - `Settings` — purge UI. Pick table (requests/emails), pick keep-N, click Purge (red, confirmation-gated). The danger banner reads "will keep the latest N · older rows permanently deleted · no undo" — no live count of what's about to be deleted, because we don't want to query `COUNT(*)` (see [§15](#15-design-decision-log)).
+  - `Settings` — purge UI. Pick table (requests/emails), pick keep-N, click Purge (red, confirmation-gated). The danger banner reads "will keep the latest N · older rows permanently deleted · no undo" — no live count of what's about to be deleted, because we don't want to query `COUNT(*)` (see [§16](#16-design-decision-log)).
 
 ### 5.2 HTML iframe sandbox for email bodies
 
@@ -428,7 +429,7 @@ Note: even on fallback rows, **everything except `html` is written**: `subject`,
 
 ### 6.4 What's not in the schema (and why)
 
-- **No counters table.** Tab badges and stats panels were dropped because counting rows on D1 bills per row scanned. Re-litigate this before adding counters; see [§15](#15-design-decision-log).
+- **No counters table.** Tab badges and stats panels were dropped because counting rows on D1 bills per row scanned. Re-litigate this before adding counters; see [§16](#16-design-decision-log).
 - **No foreign keys.** Endpoints, requests, and emails are independent — request rows are NOT linked to the endpoint that matched. The dashboard treats them as separate logs.
 - **No soft-delete columns.** Delete is delete. Purge is delete-by-position. Recovery is via fallback inbox (for emails) or "we just lost the row" (for requests).
 - **No created_by / actor tracking.** The dashboard is single-tenant from the database's perspective. Access control happens at the Cloudflare Access layer, not in the data model.
@@ -715,11 +716,136 @@ Run these after any non-trivial deploy.
 
 ---
 
-## 15. Design decision log
+## 15. Agent API + MCP server (`agent-a51.ops.example`)
+
+A separate Cloudflare Worker (`agent-a51-worker`, code in `agent-worker/`) exposes the last 5 minutes of captured `requests` and `emails` to authorized Claude Code / Codex agents during pentests. Think of it as a "Burp Collaborator for agents" — a structured, read-only view of the exploit server's recent activity that an LLM-driven agent can poll without any human in the loop.
+
+### 15.1 What it serves
+
+Three endpoints, all behind the same bearer-style header `X-A51-Secret: <secret>`:
+
+| Method | Path | Returns |
+|---|---|---|
+| `GET` | `/requests` | `{served_at, window_minutes: 5, rows: [{id, ts, method, url, ip}, …]}` — newest-first, all rows in the last 5 minutes. |
+| `GET` | `/emails` | `{served_at, window_minutes: 5, rows: [{id, ts, from_addr, to_addr, subject, text}, …]}` — newest-first, all rows in the last 5 minutes. |
+| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Two tools: `requests_recent_5min` and `emails_recent_5min`. |
+
+**No parameters anywhere.** Window (5 min), cache TTL (60 s), result schema — all hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows. The contract is "tell me what's happened in the last 5 minutes, and don't bother me with knobs."
+
+### 15.2 Why a separate worker
+
+- **Different domain semantics.** `oob.example` catches every path as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
+- **Different read pattern.** The exploit-server worker is write-heavy. The agent worker is read-only + heavily cached. Keeping them separate means a runaway agent can't degrade the exploit server.
+- **Different auth model.** The exploit server is wide open (it has to be reachable by targets). The agent worker is locked behind a shared secret. Different surface, different rules.
+
+Both workers share the same D1 binding (`area51` database). Schema doesn't change.
+
+### 15.3 The edge-cache shield
+
+Each list endpoint is wrapped in a `caches.default.match/put` call against a fixed cache key (e.g., `https://agent-cache.local/requests-v1`). The cached `Response` carries `Cache-Control: public, max-age=60`. Concretely:
+
+```
+T+0s    Agent → GET /requests
+        Worker: cache miss → query D1 (reads ~N rows) → store, TTL=60s → return
+T+5s    Agent → GET /requests
+        Worker: cache HIT → return cached, 0 D1 reads
+T+30s   Different agent → GET /requests
+        Worker: cache HIT → return cached, 0 D1 reads
+T+61s   Agent → GET /requests
+        Worker: cache MISS (TTL elapsed) → query D1 again → re-cache
+```
+
+D1 is queried **at most once per 60 seconds per Cloudflare data center per endpoint**, regardless of how many agents call or how fast. This is the lever that gives us deterministic D1 cost no matter what the clients do.
+
+Caveat to know but not worry about: edge cache is per-data-center. Three CF data centers serving the same worker = up to 3 independent D1 queries per 60s. For our scale, irrelevant — we'd land at maybe 4,000–8,000 D1 queries/day worst case across all endpoints, well under the 5M/day free quota.
+
+### 15.4 MCP server (what it is and how Claude Code uses it)
+
+The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Two tools are exposed:
+
+- `requests_recent_5min()` — wraps `GET /requests`.
+- `emails_recent_5min()` — wraps `GET /emails`.
+
+Both have agent-friendly descriptions in the tool schema explaining *when* to use them ("during authorized pentests to detect out-of-band callbacks from SSRF, XXE, email-injection, etc.").
+
+To register the MCP server in Claude Code on a pentester's machine:
+
+```sh
+claude mcp add area51 https://agent-a51.ops.example/mcp \
+  --transport http \
+  --header "X-A51-Secret: <secret-from-.env>"
+```
+
+After that, any Claude Code session on that machine has `mcp__area51__requests_recent_5min` and `mcp__area51__emails_recent_5min` available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
+
+### 15.5 Auth + secret management
+
+- Secret name: `AGENT_SECRET`. Long random hex, generated with `openssl rand -hex 32`.
+- **Header**: clients send `X-A51-Secret: <secret>` on every request (REST and MCP).
+- **Comparison**: constant-time `XOR` byte compare (see `agent-worker/src/index.js` `constantTimeEqual`) — eliminates timing-side-channel info about the secret.
+- **Storage on the worker**: installed via `wrangler secret put AGENT_SECRET`, encrypted in Cloudflare's vault. Never appears in `wrangler.toml` or `[vars]`.
+- **Storage locally**: lives in the repo-root `.env` (gitignored) so `scripts/deploy-agent.sh` can re-install it after rotation without anyone having to remember the value.
+- **Rotation**: `openssl rand -hex 32 > newvalue`, update `.env`, run `./scripts/deploy-agent.sh`. Then teammates re-run `claude mcp add` (or edit their MCP config) with the new value.
+
+### 15.6 Deploying
+
+From a clean clone:
+
+```sh
+cp .env.example .env
+# fill in CLOUDFLARE_API_TOKEN, AGENT_SECRET (openssl rand -hex 32),
+# and all the other values from .env.example's comments
+
+./scripts/deploy-agent.sh
+# → renders agent-worker/wrangler.toml from the template + .env
+# → wrangler secret put AGENT_SECRET (piped, never in argv)
+# → wrangler deploy
+```
+
+Then in the Cloudflare dashboard:
+
+- **Workers → agent-a51-worker → Settings → Domains & Routes** → Add Custom Domain → `agent-a51.ops.example`. (Manual because the current API token doesn't have Zone Resources permissions for `ops.example`; if you ever expand the token's zone scope, you can add a `routes = [...]` block to the template.)
+
+That's it. Two endpoints + an MCP server live behind `https://agent-a51.ops.example/`.
+
+### 15.7 Smoke tests for the agent worker
+
+```sh
+SECRET=$(grep ^AGENT_SECRET .env | cut -d= -f2)
+BASE=https://agent-a51.ops.example
+
+# REST
+curl -sS -H "X-A51-Secret: $SECRET" $BASE/requests | jq .served_at
+curl -sS -H "X-A51-Secret: $SECRET" $BASE/emails   | jq .served_at
+
+# Auth negative
+curl -sS -o /dev/null -w "%{http_code}\n" $BASE/requests   # → 401
+
+# MCP handshake
+curl -sS -H "X-A51-Secret: $SECRET" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  $BASE/mcp | jq .
+
+# MCP tools/list
+curl -sS -H "X-A51-Secret: $SECRET" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  $BASE/mcp | jq '.result.tools[].name'
+
+# MCP tools/call
+curl -sS -H "X-A51-Secret: $SECRET" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"requests_recent_5min","arguments":{}}}' \
+  $BASE/mcp | jq '.result.content[0].text | fromjson | .rows | length'
+```
+
+The expected steady-state cost of all this: a few hundred to a few thousand D1 reads per day. We could run dozens of concurrent pentest agents continuously and still not stress the free tier.
+
+---
+
+## 16. Design decision log
 
 These are the non-obvious choices. Each is here because someone might be tempted to undo it without realizing the cost.
 
-### 15.1 No row counts anywhere in the UI
+### 16.1 No row counts anywhere in the UI
 
 The original design had tab-count badges ("Endpoints 42 · Requests 5,183 · Emails 926") and a Settings stats panel. We removed both. **D1 bills per row scanned** — `SELECT COUNT(*) FROM emails` over 1k rows is 1k row reads, and a dashboard refresh would burn ~6k row reads on counts alone. At our usage that's still well under the Free tier (5M reads/day), but the polish-to-cost ratio is bad: scans grow linearly with table size and offer ~zero user value at this scale.
 
@@ -727,7 +853,7 @@ The textbook fix is a separate `counters` table updated by `AFTER INSERT/DELETE`
 
 If you bring counts back, do it via counters + triggers, not COUNT(*).
 
-### 15.2 Endpoints list shows URI + status (and only those)
+### 16.2 Endpoints list shows URI + status (and only those)
 
 The original design showed URI, status, header count, and body length per row, populated via N+1 lazy fetches. We re-shaped that: the list endpoint returns just `{uri, status}` (two columns), the row renders status using the same color-coded `status-2xx/3xx/4xx/5xx` tags as the Requests tab, and the full headers/body are fetched only when the modal opens.
 
@@ -736,15 +862,15 @@ Why this shape:
 - **Headers count and body length aren't** — both require either an extra round-trip per row or fattening the list payload, and neither tells you anything that the modal doesn't show better.
 - One query per page (10 rows) instead of 11 (1 list + 10 lazy details).
 
-### 15.3 Purge banner doesn't show a row delete count
+### 16.3 Purge banner doesn't show a row delete count
 
 To keep "will delete X of Y rows" accurate, we'd need to fetch the current table count every time the user changes the `keep` input. Same row-scan cost as the counts decision. The simplified banner ("will keep the latest N · older rows permanently deleted · no undo") communicates the action; the user sees the resulting `deleted: N` count via the success toast.
 
-### 15.4 No build pipeline for the frontend
+### 16.4 No build pipeline for the frontend
 
 React + Babel-standalone loaded from unpkg, JSX transpiled in the browser. **Pro:** zero build deps, zero version-skew chores, deploys are pure file uploads. **Con:** ~3 MB of JS on first load, no tree-shaking, no TypeScript. For a 5-person internal tool, the trade is worth it. If the dashboard grows past ~2 k lines of frontend code, revisit Vite + a real build.
 
-### 15.5 Worker parses once; dashboard reads parsed columns
+### 16.5 Worker parses once; dashboard reads parsed columns
 
 The earlier design kept the raw EML in D1 and re-parsed it in the browser on every modal open. We replaced that with worker-side parsing into structured columns (`headers`, `text`, `html`, `attachments`). Tradeoffs:
 
@@ -754,7 +880,7 @@ The earlier design kept the raw EML in D1 and re-parsed it in the browser on eve
 - **No re-parsing on read** — dashboard is a thin renderer of the columns.
 - **Attachment content is never persisted.** Only metadata. Pentest mail attachments stay in the fallback inbox; D1 carries the filename/mime/size for reference.
 
-### 15.6 `html = "sent_to_fallback"` as a sentinel
+### 16.6 `html = "sent_to_fallback"` as a sentinel
 
 We could add a separate `was_forwarded` boolean column. Instead, we overload the `html` column with a literal string marker on rows whose original got forwarded to the fallback inbox (due to size > 1 MB or any attachment present).
 
@@ -766,7 +892,7 @@ We could add a separate `was_forwarded` boolean column. Instead, we overload the
 
 If you change the marker or the column it lives in, change both sites in the same commit.
 
-### 15.7 Endpoints are exact-match, not glob
+### 16.7 Endpoints are exact-match, not glob
 
 The worker matches `url.pathname` against `endpoints.uri` with `WHERE uri = ?`. No wildcards, no regex. A request to `/foo/bar` only matches an endpoint with `uri = '/foo/bar'`. This is intentional for now:
 - Predictability: the table is the source of truth, no precedence rules to reason about.

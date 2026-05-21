@@ -1,0 +1,29 @@
+# Template for agent-worker/wrangler.toml — processed by scripts/render-wrangler.sh.
+# Placeholders (in dollar-brace form) are substituted from the repo-root .env
+# file. DO NOT edit agent-worker/wrangler.toml directly — it's a generated
+# artifact and will be overwritten on the next render. Edit this template
+# or .env.
+
+name = "${AGENT_WORKER_NAME}"
+main = "src/index.js"
+compatibility_date = "2024-10-11"
+
+# Suppress the auto-generated public URLs. Worker is reachable only via the
+# ${AGENT_DOMAIN} Custom Domain bound in the Cloudflare dashboard.
+workers_dev = false
+preview_urls = false
+
+# Persist Workers Logs (queryable in the Cloudflare dashboard).
+[observability]
+enabled = true
+
+# Read-only D1 binding to the same area51 database the main exploit-server
+# worker writes to.
+[[d1_databases]]
+binding = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id = "${D1_DATABASE_ID}"
+
+# AGENT_SECRET is installed as a Worker Secret (encrypted in Cloudflare's
+# vault), not as a [vars] entry. Installed by scripts/deploy-agent.sh via
+# `wrangler secret put AGENT_SECRET`.

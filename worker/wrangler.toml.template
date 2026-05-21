@@ -1,0 +1,38 @@
+# Template for worker/wrangler.toml — processed by scripts/render-wrangler.sh.
+# Placeholders (in dollar-brace form) are substituted from the repo-root .env
+# file. DO NOT edit worker/wrangler.toml directly — it's a generated artifact
+# and will be overwritten on the next render. Edit this template or .env.
+
+name = "${WORKER_NAME}"
+main = "src/index.js"
+compatibility_date = "2024-10-11"
+compatibility_flags = ["nodejs_compat"]
+
+# Suppress the auto-generated public URLs. The worker is only reachable
+# through the ${EXPLOIT_DOMAIN} Custom Domain (bound via the dashboard).
+workers_dev = false
+preview_urls = false
+
+# Custom Domain (${EXPLOIT_DOMAIN} → ${WORKER_NAME}) is currently bound
+# manually via the Cloudflare dashboard. Re-enable this block only if the
+# API token gains Zone Resources permissions for the ${EXPLOIT_DOMAIN} zone.
+# routes = [
+#   { pattern = "${EXPLOIT_DOMAIN}", custom_domain = true }
+# ]
+
+# Persist Workers Logs so they're queryable via the Cloudflare dashboard.
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id = "${D1_DATABASE_ID}"
+
+[vars]
+FALLBACK_ADDRESS = "${FALLBACK_ADDRESS}"
+
+# Email Routing is configured in the Cloudflare dashboard:
+#   ${EXPLOIT_DOMAIN} zone → Email → Email Routing → enable → catch-all
+#   "Send to a Worker" → ${WORKER_NAME}
+# Wrangler v4 does not support email triggers in this file.

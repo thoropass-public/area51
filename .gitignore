@@ -1,8 +1,10 @@
 # Internal design docs — not for the public repo
 pre-context.md
 
-# Worker config with real D1 ID — copy from wrangler.toml.example, keep ID local
+# Worker configs are generated artifacts. Source of truth = .env + each
+# directory's wrangler.toml.template. Regenerate via scripts/render-wrangler.sh.
 worker/wrangler.toml
+agent-worker/wrangler.toml
 
 # Node
 node_modules/
@@ -18,6 +20,7 @@ yarn-error.log*
 # Environment
 .env
 .env.*
+!.env.example
 
 # Editor / OS junk
 .DS_Store

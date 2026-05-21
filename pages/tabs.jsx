@@ -494,6 +494,8 @@ function RequestsTab({ refreshKey }) {
 
 function RequestModal({ id, onClose }) {
   const toast = useToast();
+  const confirm = useConfirm();
+  const bl = useBlacklist();
   const [data, setData] = useState(null);
   useEffect(() => {
     let live = true;
@@ -501,6 +503,24 @@ function RequestModal({ id, onClose }) {
       .catch((e) => { if (live) toast("Failed to load request: " + e.message, "error"); });
     return () => { live = false; };
   }, [id, toast]);
+
+  const blockIp = async () => {
+    if (!data) return;
+    const ok = await confirm({
+      title: "Blacklist IP",
+      message: `Drop all future requests from ${data.ip}? The worker will continue serving its configured response but will not write the request to D1. Existing captured rows are not affected.`,
+      confirmLabel: "Blacklist",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await bl.addIp(data.ip);
+      if (!res.ok) { toast("Invalid IP", "error"); return; }
+      toast(res.already ? `${data.ip} already on list` : `${data.ip} blacklisted`, res.already ? "info" : "success");
+    } catch (e) {
+      toast("Blacklist failed: " + e.message, "error");
+    }
+  };
 
   return (
     <Modal open onClose={onClose} wide>
@@ -514,7 +534,19 @@ function RequestModal({ id, onClose }) {
               <dt>Timestamp</dt><dd>{fmtTimeFull(data.ts)}</dd>
               <dt>Method</dt><dd><span className={`method-tag method-${data.method}`}>{data.method}</span></dd>
               <dt>URL</dt><dd>{data.url}</dd>
-              <dt>Remote IP</dt><dd>{data.ip}</dd>
+              <dt>Remote IP</dt>
+              <dd className="dd-with-action">
+                <span>{data.ip}</span>
+                {bl.isIpBlocked(data.ip) ? (
+                  <span className="blocked-tag" title="This IP is currently blacklisted">
+                    <span className="ban-glyph">⊘</span> blacklisted
+                  </span>
+                ) : (
+                  <button className="ban-btn" onClick={blockIp} title="Blacklist this IP">
+                    <span className="ban-glyph">⊘</span> blacklist
+                  </button>
+                )}
+              </dd>
               <dt>User-Agent</dt><dd style={{color:"var(--s0)"}}>{data.ua}</dd>
             </dl>
 
@@ -640,6 +672,8 @@ function EmailsTab({ refreshKey }) {
 
 function EmailModal({ id, onClose }) {
   const toast = useToast();
+  const confirm = useConfirm();
+  const bl = useBlacklist();
   const [data, setData] = useState(null);
   useEffect(() => {
     let live = true;
@@ -650,6 +684,26 @@ function EmailModal({ id, onClose }) {
 
   const forwarded = data && data.html === "sent_to_fallback";
 
+  const blockSender = async () => {
+    if (!data) return;
+    const addr = normalizeEmail(data.from_addr);
+    if (!addr) { toast("Could not parse sender address", "error"); return; }
+    const ok = await confirm({
+      title: "Blacklist sender",
+      message: `Drop all future mail from ${addr}? Cloudflare's MX will continue accepting messages, but the worker will discard them without writing to D1 or forwarding. Existing captured rows are not affected.`,
+      confirmLabel: "Blacklist",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await bl.addEmail(addr);
+      if (!res.ok) { toast("Invalid email address", "error"); return; }
+      toast(res.already ? `${addr} already on list` : `${addr} blacklisted`, res.already ? "info" : "success");
+    } catch (e) {
+      toast("Blacklist failed: " + e.message, "error");
+    }
+  };
+
   return (
     <Modal open onClose={onClose} wide>
       <ModalHead title="EMAIL" id={data ? data.id : null} onClose={onClose}/>
@@ -657,7 +711,7 @@ function EmailModal({ id, onClose }) {
         {!data ? (
           <div className="loading"><span className="spinner"/> loading…</div>
         ) : (
-          <EmailView data={data} forwarded={forwarded}/>
+          <EmailView data={data} forwarded={forwarded} onBlockSender={blockSender}/>
         )}
       </div>
       <div className="modal-foot">
@@ -668,7 +722,8 @@ function EmailModal({ id, onClose }) {
   );
 }
 
-function EmailView({ data, forwarded }) {
+function EmailView({ data, forwarded, onBlockSender }) {
+  const bl = useBlacklist();
   const headers = Array.isArray(data.headers) ? data.headers : [];
   const attachments = Array.isArray(data.attachments) ? data.attachments : [];
   const text = data.text || "";
@@ -676,6 +731,7 @@ function EmailView({ data, forwarded }) {
   const hasText = !!text;
   const hasHtml = !!html;
   const [view, setView] = useState(hasHtml ? "html" : "text");
+  const senderBlocked = bl.isSenderBlocked(data.from_addr);
 
   return (
     <>
@@ -688,7 +744,19 @@ function EmailView({ data, forwarded }) {
 
       <div className={forwarded ? "section" : ""}>
         <dl className="detail-grid">
-          <dt>From</dt><dd>{decodeMimeWord(data.from_addr)}</dd>
+          <dt>From</dt>
+          <dd className="dd-with-action">
+            <span>{decodeMimeWord(data.from_addr)}</span>
+            {senderBlocked ? (
+              <span className="blocked-tag" title="This sender is currently blacklisted">
+                <span className="ban-glyph">⊘</span> blacklisted
+              </span>
+            ) : (
+              <button className="ban-btn" onClick={onBlockSender} title="Blacklist this sender">
+                <span className="ban-glyph">⊘</span> blacklist
+              </button>
+            )}
+          </dd>
           <dt>To</dt><dd>{decodeMimeWord(data.to_addr)}</dd>
           <dt>Subject</dt><dd style={{color:"var(--s2)"}}>{decodeMimeWord(data.subject)}</dd>
           <dt>Received</dt><dd>{fmtTimeFull(data.ts)}</dd>

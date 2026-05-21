@@ -29,3 +29,19 @@ CREATE TABLE IF NOT EXISTS emails (
   attachments TEXT     -- JSON-stringified [{filename, mime, size}, ...]; metadata only, no content bytes
 );
 CREATE INDEX IF NOT EXISTS idx_emails_ts ON emails(ts DESC);
+
+-- Write-filter blacklists. Worker reads these before storing a request or email
+-- and silently drops the D1 write on a match. Exact-match only; no patterns.
+-- Email address is stored lowercase.
+
+CREATE TABLE IF NOT EXISTS ip_blacklist (
+  ip TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,        -- when added (ISO 8601 UTC)
+  note TEXT                -- optional human label (e.g. "shodan scanner")
+);
+
+CREATE TABLE IF NOT EXISTS email_blacklist (
+  email TEXT PRIMARY KEY,  -- stored lowercase
+  ts TEXT NOT NULL,
+  note TEXT
+);

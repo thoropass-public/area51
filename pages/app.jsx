@@ -21,16 +21,18 @@ function App() {
   return (
     <ConfirmProvider>
       <ToastProvider>
-        <div className="app">
-          <TopBar tab={tab} setTab={setTab} onRefresh={triggerRefresh}/>
-          <div className="workspace">
-            {tab === "home" && <Home setTab={setTab}/>}
-            {tab === "endpoints" && <EndpointsTab refreshKey={refreshTick}/>}
-            {tab === "requests" && <RequestsTab refreshKey={refreshTick}/>}
-            {tab === "emails" && <EmailsTab refreshKey={refreshTick}/>}
-            {tab === "settings" && <Settings/>}
+        <BlacklistProvider>
+          <div className="app">
+            <TopBar tab={tab} setTab={setTab} onRefresh={triggerRefresh}/>
+            <div className="workspace">
+              {tab === "home" && <Home setTab={setTab}/>}
+              {tab === "endpoints" && <EndpointsTab refreshKey={refreshTick}/>}
+              {tab === "requests" && <RequestsTab refreshKey={refreshTick}/>}
+              {tab === "emails" && <EmailsTab refreshKey={refreshTick}/>}
+              {tab === "settings" && <Settings/>}
+            </div>
           </div>
-        </div>
+        </BlacklistProvider>
       </ToastProvider>
     </ConfirmProvider>
   );
@@ -179,6 +181,8 @@ function Settings() {
     }
   };
 
+  const bl = useBlacklist();
+
   return (
     <div className="content">
       <div className="settings">
@@ -217,7 +221,116 @@ function Settings() {
             </div>
           </div>
         </div>
+
+        <div className="settings-section">
+          <h2>Blacklists</h2>
+          <p className="desc">
+            The worker checks these lists before writing to D1. Anything matching is dropped silently — never logged, never stored. Existing captured rows are not affected; purge separately if you want them gone. Changes take effect within ~60 seconds (edge cache TTL).
+          </p>
+          <div className="blacklist-grid">
+            <BlacklistManager
+              title="Remote IPs"
+              caption="HTTP requests from these IPs are dropped before D1 write."
+              placeholder="e.g. 203.0.113.42"
+              values={bl.ips.map((r) => r.ip)}
+              onAdd={async (v) => {
+                const trimmed = v.trim();
+                if (!trimmed) return;
+                try {
+                  const res = await bl.addIp(trimmed);
+                  if (!res.ok) { toast("Invalid IP", "error"); return; }
+                  toast(res.already ? `${trimmed} already on list` : `${trimmed} blacklisted`, res.already ? "info" : "success");
+                } catch (e) {
+                  toast("Add failed: " + e.message, "error");
+                }
+              }}
+              onRemove={async (v) => {
+                try {
+                  await bl.removeIp(v);
+                  toast(`${v} removed from blacklist`, "success");
+                } catch (e) {
+                  toast("Remove failed: " + e.message, "error");
+                }
+              }}
+              mono
+            />
+            <BlacklistManager
+              title="Senders"
+              caption="Emails from these senders are accepted by MX but dropped before D1 write."
+              placeholder="e.g. spam@example.com"
+              values={bl.emails.map((r) => r.email)}
+              onAdd={async (v) => {
+                const trimmed = v.trim();
+                if (!trimmed) return;
+                try {
+                  const res = await bl.addEmail(trimmed);
+                  if (!res.ok) { toast("Invalid email", "error"); return; }
+                  const shown = normalizeEmail(trimmed);
+                  toast(res.already ? `${shown} already on list` : `${shown} blacklisted`, res.already ? "info" : "success");
+                } catch (e) {
+                  toast("Add failed: " + e.message, "error");
+                }
+              }}
+              onRemove={async (v) => {
+                try {
+                  await bl.removeEmail(v);
+                  toast(`${v} removed from blacklist`, "success");
+                } catch (e) {
+                  toast("Remove failed: " + e.message, "error");
+                }
+              }}
+              mono
+            />
+          </div>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function BlacklistManager({ title, caption, placeholder, values, onAdd, onRemove, mono }) {
+  const [draft, setDraft] = useState("");
+  const submit = () => {
+    if (!draft.trim()) return;
+    onAdd(draft);
+    setDraft("");
+  };
+  return (
+    <div className="settings-card blacklist-card">
+      <div className="bl-head">
+        <h3>{title}</h3>
+        <span className="bl-count">{values.length}</span>
+      </div>
+      <div className="bl-caption">{caption}</div>
+
+      <div className="bl-add">
+        <input
+          type="text"
+          placeholder={placeholder}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
+          spellCheck={false}
+        />
+        <button className="btn" onClick={submit} disabled={!draft.trim()}>
+          <span className="plus">+</span> Add
+        </button>
+      </div>
+
+      {values.length === 0 ? (
+        <div className="bl-empty">No entries — list is empty.</div>
+      ) : (
+        <ul className="bl-list">
+          {values.map((v) => (
+            <li key={v}>
+              <span className={`bl-val ${mono ? "mono" : ""}`}>{v}</span>
+              <button className="bl-remove" onClick={() => onRemove(v)} title="Remove from blacklist" aria-label={`Remove ${v}`}>
+                <Icon.x/>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

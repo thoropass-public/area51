@@ -130,7 +130,7 @@ const MCP_TOOLS = [
   {
     name: 'requests_recent_5min',
     description: [
-      "Returns HTTP requests captured by the AREA 51 exploit server (0r0.us)",
+      "Returns HTTP requests captured by the AREA 51",
       "in the last 5 minutes. Use this during authorized pentests to detect",
       "out-of-band callbacks — e.g., to confirm whether an SSRF, XXE, blind",
       "command-injection, or other interaction-based payload has triggered a",
@@ -145,8 +145,8 @@ const MCP_TOOLS = [
   {
     name: 'emails_recent_5min',
     description: [
-      "Returns emails received by the AREA 51 exploit server (any address",
-      "@0r0.us) in the last 5 minutes. Use this during authorized pentests to",
+      "Returns emails received by the AREA 51",
+      "in the last 5 minutes. Use this during authorized pentests to",
       "detect email-based out-of-band callbacks — e.g., to confirm an",
       "email-injection or password-reset-redirect payload triggered delivery",
       "to a controlled address. The result is JSON: an object with",

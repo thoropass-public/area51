@@ -427,7 +427,25 @@ The literal `"sent_to_fallback"` marker in the `html` column distinguishes "stor
 
 Note: even on fallback rows, **everything except `html` is written**: `subject`, `from_addr`, `to_addr`, `ts`, `headers`, `text`, and `attachments` (metadata) are populated from what postal-mime parsed before the fallback decision. The yellow notice in the dashboard appears alongside this real metadata — clicking a fallback row still tells you who sent what, when, and what files were attached.
 
-### 6.4 What's not in the schema (and why)
+### 6.4 `ip_blacklist` and `email_blacklist`
+
+Write-filter lists consulted by the worker before storing a captured `request` or `email`. Exact-match only — no patterns, no CIDR ranges.
+
+| Column | Type | Notes |
+|---|---|---|
+| `ip` / `email` | `TEXT PRIMARY KEY` | Exact value. `email` is stored lowercase; the worker lowercases the envelope sender before comparing. |
+| `ts` | `TEXT NOT NULL` | ISO 8601 UTC when added |
+| `note` | `TEXT` | Optional human label (e.g. "shodan scanner"). Not currently surfaced in the UI but available in the API. |
+
+No additional indexes — the PK suffices for both reads (worker checks `WHERE ip = ?`) and writes.
+
+Worker behavior on a match:
+- **IP blacklist hit** → skip `ctx.waitUntil(insertRequestLog(...))`. The target still receives the configured endpoint response — only the D1 write is suppressed.
+- **Email blacklist hit** → silent drop. No D1 row, no fallback forward. Cloudflare's MX has already accepted the message; the worker just discards.
+
+Worker reads each list at most once per 60 seconds per data center (edge-cached via `caches.default`). Dashboard mutations take up to 60s to fully propagate. The cache miss path returns an empty set on D1 error so a transient D1 outage never blocks captures.
+
+### 6.5 What's not in the schema (and why)
 
 - **No counters table.** Tab badges and stats panels were dropped because counting rows on D1 bills per row scanned. Re-litigate this before adding counters; see [§16](#16-design-decision-log).
 - **No foreign keys.** Endpoints, requests, and emails are independent — request rows are NOT linked to the endpoint that matched. The dashboard treats them as separate logs.
@@ -456,6 +474,12 @@ Base path: `https://area51.ops.example/api/`. All endpoints sit behind Cloudflar
 | `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
 | `GET` | `/api/emails/[id]` | Detail. Returns `{id, ts, from_addr, to_addr, subject, headers, text, html, attachments}` with `headers` and `attachments` parsed back from JSON into arrays. 404 if missing. |
 | `POST` | `/api/purge` | Body: `{table: "requests"\|"emails", keep: <non-negative int>}`. Deletes all rows in `table` except the most-recent `keep` by `ts`. Returns `{ok: true, deleted: N}`. **`table` is validated against an allowlist before being interpolated into SQL** — don't remove that validation. |
+| `GET` | `/api/blacklist/ips` | List blacklisted IPs. Returns `[{ip, ts, note}, …]` newest-first. |
+| `POST` | `/api/blacklist/ips` | Body: `{ip, note?}`. IP validated (IPv4 dotted quad, IPv6 with colons, or the literal `unknown`). `INSERT OR IGNORE` semantics — duplicate adds return success without writing. |
+| `DELETE` | `/api/blacklist/ips/[ip]` | Remove. 404 if not present. |
+| `GET` | `/api/blacklist/emails` | List blacklisted senders. Returns `[{email, ts, note}, …]` newest-first. |
+| `POST` | `/api/blacklist/emails` | Body: `{email, note?}`. Accepts bare `addr@host` or angle-bracketed `Display <addr@host>`; stored lowercase. Validated as `^[^@\s]+@[^@\s]+\.[^@\s]+$`. |
+| `DELETE` | `/api/blacklist/emails/[email]` | Remove. Lowercased + URL-decoded path param. 404 if not present. |
 
 The `headers` round-trip is asymmetric on purpose:
 - **Endpoints (write):** dashboard sends a line-separated string; server parses to JSON object before storing.

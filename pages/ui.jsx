@@ -62,7 +62,34 @@ const API = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ table, keep: Number(keep) }),
     }),
+
+  listBlacklistIps: () => apiFetch('/api/blacklist/ips'),
+  addBlacklistIp: (ip) => apiFetch('/api/blacklist/ips', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ip }),
+  }),
+  removeBlacklistIp: (ip) =>
+    apiFetch(`/api/blacklist/ips/${encodeURIComponent(ip)}`, { method: 'DELETE' }),
+
+  listBlacklistEmails: () => apiFetch('/api/blacklist/emails'),
+  addBlacklistEmail: (email) => apiFetch('/api/blacklist/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  }),
+  removeBlacklistEmail: (email) =>
+    apiFetch(`/api/blacklist/emails/${encodeURIComponent(email)}`, { method: 'DELETE' }),
 };
+
+// Email normalizer mirrors the worker + Pages Function logic. Accepts either
+// bare "addr@host" or "Display <addr@host>" form; returns lowercase addr.
+function normalizeEmail(v) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  const m = s.match(/<\s*([^<>\s]+@[^<>\s]+)\s*>/);
+  return (m ? m[1] : s).toLowerCase();
+}
 
 // localStorage with JSON. Returns fallback on miss / parse error / no localStorage.
 function lsGet(key, fallback) {
@@ -282,6 +309,84 @@ function ConfirmProvider({ children }) {
   );
 }
 
+// ---- Blacklist context ----
+//
+// Backed by the D1-backed API rather than localStorage (the worker is the
+// source of truth — the frontend just mirrors the lists for snappy
+// "is this blocked?" checks in modals and the Settings panel). On mount,
+// fetches both lists. Mutations update local state optimistically after a
+// successful API call. Worker propagation lag is up to 60s due to the
+// edge cache; the dashboard's view is instant.
+
+const BlacklistCtx = React.createContext(null);
+function useBlacklist() { return React.useContext(BlacklistCtx); }
+
+function BlacklistProvider({ children }) {
+  // Each list is an array of {ip|email, ts, note}. We also keep a Set of the
+  // bare values for O(1) `isBlocked` checks.
+  const [ips, setIps] = useState([]);
+  const [emails, setEmails] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [ipRows, emailRows] = await Promise.all([
+        API.listBlacklistIps(),
+        API.listBlacklistEmails(),
+      ]);
+      setIps(Array.isArray(ipRows) ? ipRows : []);
+      setEmails(Array.isArray(emailRows) ? emailRows : []);
+    } catch {
+      // Best-effort load. If it fails we just don't show "blacklisted" tags.
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const ipSet = useMemo(() => new Set(ips.map((r) => r.ip)), [ips]);
+  const emailSet = useMemo(() => new Set(emails.map((r) => r.email)), [emails]);
+
+  const addIp = useCallback(async (ip) => {
+    const v = String(ip || '').trim();
+    if (!v) return { ok: false, already: false };
+    if (ipSet.has(v)) return { ok: true, already: true };
+    await API.addBlacklistIp(v);
+    setIps((xs) => xs.some((r) => r.ip === v) ? xs : [{ ip: v, ts: new Date().toISOString(), note: null }, ...xs]);
+    return { ok: true, already: false };
+  }, [ipSet]);
+
+  const removeIp = useCallback(async (ip) => {
+    await API.removeBlacklistIp(ip);
+    setIps((xs) => xs.filter((r) => r.ip !== ip));
+  }, []);
+
+  const addEmail = useCallback(async (email) => {
+    const v = normalizeEmail(email);
+    if (!v) return { ok: false, already: false };
+    if (emailSet.has(v)) return { ok: true, already: true };
+    await API.addBlacklistEmail(v);
+    setEmails((xs) => xs.some((r) => r.email === v) ? xs : [{ email: v, ts: new Date().toISOString(), note: null }, ...xs]);
+    return { ok: true, already: false };
+  }, [emailSet]);
+
+  const removeEmail = useCallback(async (email) => {
+    await API.removeBlacklistEmail(email);
+    setEmails((xs) => xs.filter((r) => r.email !== email));
+  }, []);
+
+  const isIpBlocked = useCallback((ip) => ipSet.has(String(ip || '').trim()), [ipSet]);
+  const isSenderBlocked = useCallback((email) => emailSet.has(normalizeEmail(email)), [emailSet]);
+
+  const value = {
+    loaded,
+    ips, addIp, removeIp, isIpBlocked,
+    emails, addEmail, removeEmail, isSenderBlocked,
+  };
+  return <BlacklistCtx.Provider value={value}>{children}</BlacklistCtx.Provider>;
+}
+
 // ---- Debounce hook ----
 
 function useDebouncedValue(value, ms) {
@@ -312,8 +417,9 @@ const Icon = {
 Object.assign(window, {
   React, useState, useEffect, useRef, useCallback, useMemo,
   API,
-  fmtTime, fmtTimeFull, statusClass, headersObjToLines, decodeMimeWord, highlightJson, tryPretty, fmtBytes, stripOrigin,
+  fmtTime, fmtTimeFull, statusClass, headersObjToLines, decodeMimeWord, normalizeEmail, highlightJson, tryPretty, fmtBytes, stripOrigin,
   lsGet, lsSet,
+  BlacklistProvider, useBlacklist,
   ToastProvider, useToast, Modal, ModalHead,
   ConfirmProvider, useConfirm, useDebouncedValue, Icon,
 });

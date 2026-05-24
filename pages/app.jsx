@@ -172,44 +172,29 @@ function Settings() {
   const [purging, setPurging] = useState(false);
 
   const isAutopilot = table === "autopilot";
+  // Plural noun used in the danger banner, confirm dialog, and toast.
+  // Same shape for all three purge targets so the UI reads uniformly.
+  const tableLabel = isAutopilot ? "autopilot endpoints" : table;
 
   const doPurge = async () => {
-    if (isAutopilot) {
-      const ok = await confirm({
-        title: "Purge autopilot endpoints",
-        message: "Permanently delete every endpoint matching /autopilot/*. Manually-defined endpoints are not affected. This cannot be undone.",
-        confirmLabel: "Purge",
-        danger: true,
-      });
-      if (!ok) return;
-      setPurging(true);
-      try {
-        const res = await API.purgeAutopilot();
-        const n = res.deleted || 0;
-        toast(`Purged ${n.toLocaleString()} autopilot endpoint${n === 1 ? "" : "s"}`, "success");
-      } catch (e) {
-        toast("Purge failed: " + e.message, "error");
-      } finally {
-        setPurging(false);
-      }
-      return;
-    }
     const keepNum = Number(keep);
     if (!Number.isInteger(keepNum) || keepNum < 0) {
       toast("Keep value must be a non-negative integer", "error");
       return;
     }
     const ok = await confirm({
-      title: "Purge " + table,
-      message: `This will keep the latest ${keepNum} ${table} by timestamp and permanently delete all older rows. This cannot be undone.`,
+      title: "Purge " + tableLabel,
+      message: `This will keep the latest ${keepNum} ${tableLabel} and permanently delete all older rows. This cannot be undone.`,
       confirmLabel: "Purge",
       danger: true,
     });
     if (!ok) return;
     setPurging(true);
     try {
-      const res = await API.purge({ table, keep: keepNum });
-      toast(`Purged ${(res.deleted || 0).toLocaleString()} rows from ${table}`, "success");
+      const res = isAutopilot
+        ? await API.purgeAutopilot({ keep: keepNum })
+        : await API.purge({ table, keep: keepNum });
+      toast(`Purged ${(res.deleted || 0).toLocaleString()} ${isAutopilot ? "autopilot endpoints" : "rows from " + table}`, "success");
     } catch (e) {
       toast("Purge failed: " + e.message, "error");
     } finally {
@@ -234,35 +219,27 @@ function Settings() {
                 <select value={table} onChange={(e) => setTable(e.target.value)}>
                   <option value="requests">Requests</option>
                   <option value="emails">Emails</option>
-                  <option value="autopilot">Autopilot endpoints</option>
+                  <option value="autopilot">Autopilot Endpoints</option>
                 </select>
               </div>
-              {!isAutopilot && (
-                <div className="field" style={{marginBottom:0}}>
-                  <label>Keep latest</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={keep}
-                    onChange={(e) => setKeep(e.target.value)}
-                  />
-                </div>
-              )}
+              <div className="field" style={{marginBottom:0}}>
+                <label>Keep latest</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={keep}
+                  onChange={(e) => setKeep(e.target.value)}
+                />
+              </div>
               <button className="btn danger" onClick={doPurge} disabled={purging}>
                 {purging ? <><span className="spinner"/> purging</> : "Purge"}
               </button>
             </div>
             <div className="danger-banner">
               <span className="glyph">!</span>
-              {isAutopilot ? (
-                <span>
-                  will delete every endpoint matching <b style={{color:"var(--s2)", fontFamily:"var(--mono)"}}>/autopilot/*</b> · manually-defined endpoints untouched · no undo
-                </span>
-              ) : (
-                <span>
-                  will keep the latest <b style={{color:"var(--s2)"}}>{keep}</b> {table} · older rows permanently deleted · no undo
-                </span>
-              )}
+              <span>
+                will keep the latest <b style={{color:"var(--s2)"}}>{keep}</b> {tableLabel} · older rows permanently deleted · no undo
+              </span>
             </div>
           </div>
         </div>

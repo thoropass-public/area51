@@ -63,8 +63,12 @@ const API = {
       body: JSON.stringify({ table, keep: Number(keep) }),
     }),
 
-  purgeAutopilot: () =>
-    apiFetch('/api/endpoints/autopilot/purge', { method: 'POST' }),
+  purgeAutopilot: ({ keep } = {}) =>
+    apiFetch('/api/endpoints/autopilot/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keep: Number(keep) || 0 }),
+    }),
 
   listBlacklistIps: () => apiFetch('/api/blacklist/ips'),
   addBlacklistIp: (ip) => apiFetch('/api/blacklist/ips', {

@@ -327,9 +327,48 @@ select {
   background: transparent;
   transition: color 0.1s ease, background 0.1s ease;
 }
-.theme-toggle:hover {
-  color: var(--s1);
-  background: var(--n1);
+.theme-toggle:hover { color: var(--s1); background: var(--n1); }
+.theme-toggle:disabled { cursor: default; }
+/* During the pulsar-ping animation the icon does one full rotation,
+   landing back at 0deg right when the destination theme is swapped in. */
+.theme-toggle.pinging svg { animation: theme-icon-spin 700ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes theme-icon-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ----- Theme transition (pulsar ping) -----
+   A fullscreen, fixed overlay carrying the DESTINATION theme. The data-theme
+   attribute on the overlay rescopes the CSS variable cascade, so var(--n0)
+   etc. inside this element resolve to the destination palette while the rest
+   of the page still shows the source palette. We use clip-path: circle()
+   from radius 0 to the diagonal-of-viewport so the wave grows from the
+   toggle button's center outward. A drop-shadow filter casts a frost-blue
+   glow at the visible silhouette — i.e. the wave's leading edge. */
+.theme-ping {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--n0);
+  clip-path: circle(0px at var(--ping-x) var(--ping-y));
+  will-change: clip-path;
+  animation: theme-ping-expand 700ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  filter:
+    drop-shadow(0 0 18px var(--f1))
+    drop-shadow(0 0 6px var(--f1));
+}
+@keyframes theme-ping-expand {
+  from { clip-path: circle(0px at var(--ping-x) var(--ping-y)); }
+  to   { clip-path: circle(var(--ping-r) at var(--ping-x) var(--ping-y)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Belt-and-suspenders: app.jsx already short-circuits to an instant swap
+     when this media query matches, but if it ever slips through we kill the
+     animations here so the user never sees motion they opted out of. */
+  .theme-ping { display: none; }
+  .theme-toggle.pinging svg { animation: none; }
 }
 
 .status-dot {

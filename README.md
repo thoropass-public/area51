@@ -1,4 +1,4 @@
-# AREA 51 — Exploit Server
+# AREA 51 — Black Holes
 
 Internal out-of-band callback infrastructure for the Thoropass security team. Hosted on Cloudflare.
 
@@ -31,7 +31,18 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 
 ## 1. What it is
 
-AREA 51 is an **exploit server**: an attacker-controlled HTTP and email endpoint that pentesters point targets at during engagements. Targets that fetch URLs, send webhooks, click email links, or otherwise reach out to "the internet" can be steered to `0r0.us`, where:
+**AREA 51** is an internal Cloudflare Worker — the system pentesters interact with. It sits behind any number of **black holes**: attacker-controlled domains, each acting as an entry-point for incoming **HTTP requests**, incoming **email**, or both. Anything a target sends to a black hole ends up captured in AREA 51's database for the pentester to inspect.
+
+Each black hole's role is configurable per domain — some catch only HTTP, some only mail, some both. Currently configured:
+
+| Domain | HTTP | Mail |
+|---|:---:|:---:|
+| `0r0.us` | ✓ | ✓ |
+| `thoropentests.com` | ✓ | ✓ |
+
+(Edit live via the `DOMAINS_CONFIG` Pages env var — see [§7](#7-http-api-contract-pages-functions).)
+
+Targets that fetch URLs, send webhooks, click email links, or otherwise reach out to "the internet" can be steered to one of these black holes, where:
 
 - the **HTTP traffic** is captured (full request, headers, body), and
 - the **server's response** is whatever the pentester has configured for that path.
@@ -41,10 +52,10 @@ Use cases:
 - OAuth `redirect_uri` abuse (host a redirect or token-grab page)
 - XXE / SSRF data exfiltration (host a DTD or follow-up payload)
 - CSRF / clickjacking PoC hosting
-- Phishing landing pages and email-based interaction proofs (`*@0r0.us` is a catch-all inbox)
+- Phishing landing pages and email-based interaction proofs (any address at a mail-enabled black hole is a catch-all inbox)
 - Generic "callback received" confirmation for interaction-based vulnerabilities
 
-It is **not customer-facing**. All users are trusted Thoropass team members. Design prioritizes simplicity and maintainability over hardening or scale. The dashboard sits behind Cloudflare Access (VPN IP allowlist + `@thoropass.com` email OTP); the exploit server itself (`0r0.us`) is open to the internet because it has to be reachable by targets.
+It is **not customer-facing**. All users are trusted Thoropass team members. Design prioritizes simplicity and maintainability over hardening or scale. The dashboard sits behind Cloudflare Access (VPN IP allowlist + `@thoropass.com` email OTP); the black holes themselves are open to the internet because they have to be reachable by targets.
 
 ---
 
@@ -79,8 +90,8 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │   └── /functions/api/* ──────┘  D1 binding)            │
                 │                                                        │
                 │                           ┌────────────────────────┐   │
-                │ Email Routing fallback ──►│ apaar.farmaha@thoropass│   │
-                │ (forwarded when           │ .com (catch-all bucket)│   │
+                │ Email Routing fallback ──►│  FALLBACK_ADDRESS      │   │
+                │ (forwarded when           │  (catch-all inbox)     │   │
                 │  rawSize >1 MB)           └────────────────────────┘   │
                 └────────────────────────────────────────────────────────┘
 ```
@@ -272,7 +283,7 @@ In `worker/wrangler.toml`:
 | Binding / Var | Purpose |
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
-| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>1 MB) and failure cases. Currently `apaar.farmaha@thoropass.com` |
+| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>1 MB) and failure cases. Value set in `.env` and substituted into `worker/wrangler.toml` at render time. |
 | `routes` | Custom Domain entry binds the worker to `0r0.us` (Cloudflare auto-manages DNS) |
 | `workers_dev = false` | Disables the auto-generated `area51-worker.<account-subdomain>.workers.dev` URL — the worker is reachable only via `0r0.us` |
 | `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
@@ -687,7 +698,7 @@ D1 storage limit on Free is **500 MB**. Check usage in the Cloudflare dashboard 
 
 ### Rotating the fallback inbox
 
-Currently `FALLBACK_ADDRESS = apaar.farmaha@thoropass.com` in `worker/wrangler.toml`. Change the value and redeploy the worker. (It's a `[vars]` entry, not a secret, so it ships with the worker bundle — that's fine because the value isn't sensitive.)
+Set `FALLBACK_ADDRESS` in the repo-root `.env`, then run `./scripts/deploy-worker.sh`. The render step substitutes the value into `worker/wrangler.toml` and the deploy ships it as a `[vars]` entry. It's not treated as a secret (the value isn't sensitive — it just identifies the destination inbox).
 
 ---
 
@@ -737,7 +748,7 @@ Run these after any non-trivial deploy.
 - **No transaction isolation in the dashboard.** Two pentesters editing the same endpoint at the same time: last write wins. Accepted for internal tooling.
 - **`message.rawSize` BigInt quirk.** Cloudflare's email worker types declared `rawSize` as `number` but historically returned `BigInt`. We wrap in `Number()`. If a future Workers release changes the type, the `Number()` is still safe.
 - **Pages Functions cold start.** First request after idle can take 1–2s. Subsequent requests are fast. Not worth optimizing.
-- **No rate limiting on `0r0.us`.** The exploit server is meant to be reachable. If abuse happens, layer Cloudflare WAF or rate limiting at the edge.
+- **No rate limiting on the black holes.** They're meant to be reachable. If abuse happens, layer Cloudflare WAF or rate limiting at the edge.
 - **postal-mime only runs in the worker.** The dashboard no longer parses any EML in the browser — it reads pre-parsed columns from D1. Removes the prior dependency on `esm.sh` for the frontend, and the lazy-load latency on first email modal open.
 - **The dashboard relies on Babel-standalone in the browser.** Initial load is ~3 MB. Acceptable for an internal tool used by ~5 people who keep it open.
 - **No CSRF protection on `/api/*`.** Cloudflare Access cookies are SameSite by default and the dashboard is same-origin, so CSRF risk is bounded — but if you ever ship a third-party-embedded UI, revisit this.
@@ -746,7 +757,7 @@ Run these after any non-trivial deploy.
 
 ## 15. Agent API + MCP server (`agent-a51.thoropentests.com`)
 
-A separate Cloudflare Worker (`agent-a51-worker`, code in `agent-worker/`) exposes (a) the last 5 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as "Burp Collaborator + a programmable response server, exposed via MCP" — structured access for an LLM-driven agent without any human in the loop.
+A separate Cloudflare Worker (`agent-a51-worker`, code in `agent-worker/`) exposes (a) the last 5 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the black holes** — what's been falling into them recently, plus the ability to stage response stubs under `/autopilot/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
 
 ### 15.1 What it serves
 
@@ -769,8 +780,8 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 ### 15.2 Why a separate worker
 
 - **Different domain semantics.** `0r0.us` catches every path as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
-- **Different read pattern.** The exploit-server worker is write-heavy on the request log path. The agent worker is read-oriented (with bounded writes via the `/autopilot/*` CRUD path).
-- **Different auth model.** The exploit server is wide open (it has to be reachable by targets). The agent worker is locked behind a shared secret. Different surface, different rules.
+- **Different read pattern.** The black hole worker is write-heavy on the request log path. The agent worker is read-oriented (with bounded writes via the `/autopilot/*` CRUD path).
+- **Different auth model.** The black holes are wide open (they have to be reachable by targets). The agent worker is locked behind a shared secret. Different surface, different rules.
 - **Different blast radius.** A runaway agent making mistakes through the agent worker is bounded to `/autopilot/*` and recent reads. It cannot touch the rest of the endpoint table or the blacklists.
 
 Both workers share the same D1 binding (`area51` database). Schema doesn't change.

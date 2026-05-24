@@ -240,7 +240,7 @@ const MCP_TOOLS = [
     name: 'autopilot_endpoints_list',
     description: [
       "Lists all configured endpoints under /autopilot/*. Use this to see",
-      "what response stubs the AREA 51 exploit server is currently serving",
+      "what response stubs the AREA 51 black holes are currently serving",
       "for autopilot paths. Returns JSON: {rows: [{uri, status, headers, body}, ...]}.",
       "Only endpoints with URIs starting with /autopilot/ are returned;",
       "manually-defined endpoints outside that prefix are not visible. No",
@@ -355,8 +355,9 @@ async function handleMcp(request, env) {
         capabilities: { tools: {} },
         serverInfo: { name: 'area51-agent', version: '1.1.0' },
         instructions: [
-          "AREA 51 is Thoropass's internal exploit-server / mail-collaborator",
-          "infrastructure. Use the requests_recent_5min and emails_recent_5min",
+          "AREA 51 is Thoropass's internal callback infrastructure: a worker",
+          "behind a set of 'black hole' domains that catch both HTTP requests",
+          "and email sent to them. Use the requests_recent_5min and emails_recent_5min",
           "tools to detect out-of-band callbacks during authorized pentests.",
           "Use the autopilot_endpoints_* tools to stage response stubs under",
           "/autopilot/* paths (e.g., fake OAuth callbacks, controlled .well-known",

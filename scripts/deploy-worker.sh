@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the main exploit-server worker (0r0.us).
+# Deploys the main black hole worker.
 # - Sources .env for the API token + all interpolated values.
 # - Renders worker/wrangler.toml from its template.
 # - Runs `wrangler deploy` from worker/.

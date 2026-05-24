@@ -13,8 +13,8 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 1. [What it is](#1-what-it-is)
 2. [Architecture](#2-architecture)
 3. [Repository layout](#3-repository-layout)
-4. [The Worker (`0r0.us`)](#4-the-worker-0r0us)
-5. [The Pages site (`area51.thoropentests.com`)](#5-the-pages-site-area51thoropentestscom)
+4. [The black hole worker](#4-the-black-hole-worker)
+5. [The dashboard (Cloudflare Pages)](#5-the-dashboard-cloudflare-pages)
 6. [D1 database](#6-d1-database)
 7. [HTTP API contract](#7-http-api-contract-pages-functions)
 8. [Cloudflare Access](#8-cloudflare-access)
@@ -24,7 +24,7 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 12. [Smoke tests](#12-smoke-tests)
 13. [Debugging](#13-debugging-common-issues)
 14. [Known constraints & caveats](#14-known-constraints--caveats)
-15. [Agent API + MCP server](#15-agent-api--mcp-server-agent-a51thoropentestscom)
+15. [Agent worker + MCP server](#15-agent-worker--mcp-server)
 16. [Design decisions](#16-design-decision-log)
 
 ---
@@ -33,14 +33,7 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 
 **AREA 51** is an internal Cloudflare Worker — the system pentesters interact with. It sits behind any number of **black holes**: attacker-controlled domains, each acting as an entry-point for incoming **HTTP requests**, incoming **email**, or both. Anything a target sends to a black hole ends up captured in AREA 51's database for the pentester to inspect.
 
-Each black hole's role is configurable per domain — some catch only HTTP, some only mail, some both. Currently configured:
-
-| Domain | HTTP | Mail |
-|---|:---:|:---:|
-| `0r0.us` | ✓ | ✓ |
-| `thoropentests.com` | ✓ | ✓ |
-
-(Edit live via the `DOMAINS_CONFIG` Pages env var — see [§7](#7-http-api-contract-pages-functions).)
+Each black hole's role is configurable per domain — some catch only HTTP, some only mail, some both. The list of currently-bound black holes is **not hardcoded in this repo**; it lives as the `DOMAINS_CONFIG` environment variable on the Cloudflare Pages project, served to the frontend by [`/api/config/domains`](#7-http-api-contract-pages-functions). To add or remove a black hole: edit that env var in the dashboard and bind/unbind the domain to the worker via Cloudflare's Custom Domain UI. No redeploy needed for the env-var change.
 
 Targets that fetch URLs, send webhooks, click email links, or otherwise reach out to "the internet" can be steered to one of these black holes, where:
 
@@ -65,7 +58,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 ┌────────────────────────────────────────────────────────┐
                 │ Cloudflare                                             │
                 │                                                        │
-  Internet ─────┼─► 0r0.us/*                 (Worker)                    │
+  Internet ─────┼─► <black-hole-domain>/*    (Worker)                    │
   (targets,     │     ├── HTTP fetch handler ──┐                         │
    email)       │     └── Email handler ────┐  │                         │
                 │                           │  │                         │
@@ -78,7 +71,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │                           │ └────────────────────────┘ │
                 │                           │  ▲                         │
                 │                           │  │                         │
-  Pentester ────┼─► area51.thoropentests.com│  │                         │
+  Pentester ────┼─► <dashboard-domain>      │  │                         │
    (browser,    │   ▲                       │  │                         │
    on VPN +     │   │                       │  │                         │
    thoropass    │  Cloudflare Access        │  │                         │
@@ -100,16 +93,16 @@ Three deployables, one database, one Cloudflare account:
 
 | Component | Where | What it does |
 |---|---|---|
-| **Worker** | `0r0.us` | Serves arbitrary HTTP responses from D1; captures every request; receives `*@0r0.us` email, parses, stores, optionally forwards |
-| **Pages site** | `area51.thoropentests.com` | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, purge data |
+| **Black hole worker** | bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, parses, stores, optionally forwards |
+| **Dashboard** | Cloudflare Pages site (one Custom Domain) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, purge data |
 | **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Worker and Pages |
-| **Access policy** | in front of Pages domain | VPN IP allowlist AND `@thoropass.com` email OTP — both required |
-| **Email Routing** | on `0r0.us` | Catch-all delivers incoming mail to the Worker's email handler |
+| **Access policy** | in front of dashboard domain | VPN IP allowlist AND `@thoropass.com` email OTP — both required |
+| **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the worker's email handler |
 
-### 2.1 HTTP request flow (target → 0r0.us)
+### 2.1 HTTP request flow (target → black hole)
 
 ```
-target ──► 0r0.us/some/path
+target ──► <black-hole>/some/path
               │
               ▼
          Worker.fetch()
@@ -128,10 +121,10 @@ target ──► 0r0.us/some/path
 
 The request log INSERT is scheduled via `ctx.waitUntil` so the response goes out without waiting on D1. If the INSERT fails, the log is lost — accepted per design. There is no retry queue.
 
-### 2.2 Email flow (sender → *@0r0.us)
+### 2.2 Email flow (sender → *@<black-hole>)
 
 ```
-sender ──► *@0r0.us
+sender ──► *@<black-hole>
               │  (Cloudflare Email Routing catch-all)
               ▼
          Worker.email(message)
@@ -158,7 +151,7 @@ sender ──► *@0r0.us
 
 The email handler **never throws out of the handler function** — any uncaught path triggers a last-resort forward so the email isn't dropped silently.
 
-### 2.3 Dashboard flow (pentester → area51.thoropentests.com)
+### 2.3 Dashboard flow (pentester → dashboard domain)
 
 ```
 pentester (on VPN, @thoropass.com Google)
@@ -191,12 +184,12 @@ Pages domain
 .
 ├── README.md                  ← you are here (the canonical primer)
 ├── schema.sql                 ← D1 schema (apply with `wrangler d1 execute`)
-├── worker/                    ← 0r0.us deployable
+├── worker/                    ← black hole worker (one Cloudflare Worker, many bound domains)
 │   ├── wrangler.toml          ← Worker config: D1 binding, email trigger, FALLBACK_ADDRESS
 │   ├── package.json           ← deps: postal-mime, wrangler
 │   └── src/
 │       └── index.js           ← single-file Worker with fetch + email handlers
-└── pages/                     ← area51.thoropentests.com deployable
+└── pages/                     ← dashboard (Cloudflare Pages site)
     ├── index.html             ← entry point; loads React/Babel UMD + the three .jsx files
     ├── styles.css             ← Nord-inspired dark dashboard, dense developer UI
     ├── ui.jsx                 ← helpers, API client, toast/modal/confirm
@@ -222,7 +215,7 @@ The Worker and Pages projects are **deployed independently** but share a single 
 
 ---
 
-## 4. The Worker (`0r0.us`)
+## 4. The black hole worker
 
 Single-file Worker at `worker/src/index.js`. One npm dep: `postal-mime` (for email parsing). Compatibility flags: `nodejs_compat` (postal-mime needs it).
 
@@ -284,8 +277,7 @@ In `worker/wrangler.toml`:
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
 | `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>1 MB) and failure cases. Value set in `.env` and substituted into `worker/wrangler.toml` at render time. |
-| `routes` | Custom Domain entry binds the worker to `0r0.us` (Cloudflare auto-manages DNS) |
-| `workers_dev = false` | Disables the auto-generated `area51-worker.<account-subdomain>.workers.dev` URL — the worker is reachable only via `0r0.us` |
+| `workers_dev = false` | Disables the auto-generated `*.workers.dev` URL — the worker is reachable only via the Custom Domains bound to it in the dashboard |
 | `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
 
 **Email Routing is configured in the Cloudflare dashboard, not `wrangler.toml`.** Wrangler v4 deprecated the `[triggers] email` config. The worker exports an `email` handler; the dashboard's Email Routing → "Send to a Worker" feature is what actually delivers inbound mail to it. See the deployment steps in [§9](#9-deployment-from-a-clean-slate).
@@ -322,7 +314,7 @@ Tail with `wrangler tail` (see [Operations](#11-operations)).
 
 ---
 
-## 5. The Pages site (`area51.thoropentests.com`)
+## 5. The dashboard (Cloudflare Pages)
 
 A static site + Pages Functions, both deployed from `pages/`.
 
@@ -469,7 +461,7 @@ The cache miss path returns an empty set on D1 error so a transient D1 outage ne
 
 ## 7. HTTP API contract (Pages Functions)
 
-Base path: `https://area51.thoropentests.com/api/`. All endpoints sit behind Cloudflare Access.
+Base path: `https://<dashboard-domain>/api/`. All endpoints sit behind Cloudflare Access.
 
 **Response conventions:**
 - Success: JSON body, HTTP 200. Lists return a bare JSON array. Detail endpoints return the row object. Mutations return `{ok: true}` (purge also returns `deleted: N`).
@@ -509,9 +501,9 @@ Configured **manually** in the Cloudflare dashboard. Not part of the code delive
 
 1. Cloudflare → Zero Trust → Access → Applications → **Add an application** → Self-hosted.
 2. **Application domains** — add **all three**, each as a separate "Application domain" row in the same app:
-   - `area51.thoropentests.com` (primary custom domain)
-   - `area51-dnt.pages.dev` (Pages production URL — always exposed by Cloudflare)
-   - `*.area51-dnt.pages.dev` (Pages per-deployment preview URLs)
+   - The dashboard's custom domain.
+   - The Pages production URL (`<project-name>.pages.dev`).
+   - The Pages preview URLs (`*.<project-name>.pages.dev`).
 
    Without all three, the dashboard is reachable unprotected via the raw `pages.dev` URLs even after you've set Access on the custom domain.
 3. Add **two policies, both required** (set to "Allow" with rule grouping such that both must match):
@@ -526,19 +518,18 @@ If a teammate joins the team and can't get in, they need: VPN access AND a `@tho
 ## 9. Deployment from a clean slate
 
 Prereqs:
-- Cloudflare account with both `0r0.us` and `thoropentests.com` already added as zones.
+- A Cloudflare account with at least **one black-hole zone** (a domain you want the worker to receive HTTP and/or email on) and **one dashboard zone** (a domain to host the Pages site) already added as Cloudflare-managed zones.
 - Node.js 18+ and `npm`. On Kali / Debian-derived: `sudo apt install nodejs npm`.
-- A **Cloudflare API token** with permissions for: Workers Scripts (Edit), D1 (Edit), Pages (Edit), Workers Routes (Edit, both account- and zone-level for the `0r0.us` and `area51.thoropentests.com` zones). The "Edit Cloudflare Workers" template covers most of these — confirm the **Zone Resources** include both target zones, not just the account.
-- Export the token: `export CLOUDFLARE_API_TOKEN='cfut_...'`. All `wrangler` commands below assume it's in the environment.
+- A **Cloudflare API token** with permissions for Workers Scripts (Edit), D1 (Edit), Pages (Edit). The "Edit Cloudflare Workers" template is sufficient. **Zone-level permissions are not required** — DNS / Custom Domain mapping is intentionally manual.
+- Copy `.env.example` → `.env` and fill in the values. The deploy scripts (`scripts/*.sh`) source `.env` and render the worker config templates from it.
 
 ### Step 1 — Install worker dependencies
 
 ```sh
-cd worker
-npm install
+cd worker && npm install
 ```
 
-This pulls in `postal-mime` and `wrangler` (v4+). Verify with `npx wrangler whoami` — should print the account name `Pentest Operations` (or whatever account the token belongs to).
+This pulls in `postal-mime` and `wrangler` (v4+). Verify with `npx wrangler whoami` — should print the Cloudflare account name your token belongs to.
 
 ### Step 2 — Create the D1 database
 
@@ -546,14 +537,7 @@ This pulls in `postal-mime` and `wrangler` (v4+). Verify with `npx wrangler whoa
 npx wrangler d1 create area51
 ```
 
-Copy the printed `database_id`. Then **copy the template** to the live config and paste the ID:
-
-```sh
-cp wrangler.toml.example wrangler.toml
-# edit wrangler.toml, paste the database_id
-```
-
-`worker/wrangler.toml` is **gitignored** — the live ID stays local. The template stays in the repo with the placeholder.
+Copy the printed `database_id` into `.env` under `D1_DATABASE_ID`. (Each deploy script renders `wrangler.toml` from the template + `.env` — the live `wrangler.toml` files are gitignored.)
 
 ### Step 3 — Apply the schema
 
@@ -563,65 +547,73 @@ From the repo root:
 npx wrangler d1 execute area51 --file=schema.sql --remote
 ```
 
-Verify:
+Verify the tables exist:
 
 ```sh
 npx wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote
 ```
 
-Should list `endpoints`, `requests`, `emails` (and `_cf_KV`, which is Cloudflare's internal D1 metadata table — ignore it).
+Should list `endpoints`, `requests`, `emails`, `ip_blacklist`, `email_blacklist` (and `_cf_KV`, which is Cloudflare's internal D1 metadata table — ignore it).
 
-### Step 4 — Deploy the Worker
-
-```sh
-cd worker
-npx wrangler deploy
-```
-
-The `routes = [{ pattern = "0r0.us", custom_domain = true }]` entry in `wrangler.toml` makes Wrangler create the **Custom Domain** binding for `0r0.us` automatically. Cloudflare manages the DNS A/AAAA records for you — no manual DNS step.
-
-> **If you get `Authentication error [code: 10000]` on the routes API:** the API token is missing zone-level permissions for the `0r0.us` zone. Two ways out:
-> 1. Add `Zone → Workers Routes → Edit` for the `0r0.us` zone to the token, then re-run `npx wrangler deploy`.
-> 2. Or, comment out the `routes` block in `wrangler.toml` and bind the Custom Domain manually: **Workers → area51-worker → Settings → Domains & Routes → Add → Custom Domain → `0r0.us`**.
-
-Verify with `curl https://0r0.us/anything` — should return `404! Not Found` (no endpoints configured yet, but the worker is responding). Then check that the hit was logged:
+### Step 4 — Deploy the black hole worker
 
 ```sh
-npx wrangler d1 execute area51 --command "SELECT ts, method, url, ip FROM requests ORDER BY ts DESC LIMIT 5" --remote
+./scripts/deploy-worker.sh
 ```
 
-### Step 5 — Enable Email Routing (dashboard only)
+This renders `worker/wrangler.toml` from `worker/wrangler.toml.template` using values from `.env`, then runs `wrangler deploy`. The worker is uploaded but has **no public URL yet** — `workers_dev` is disabled in the template, and no routes are declared.
 
-Wrangler v4 does not configure email triggers. Do this in the Cloudflare dashboard:
+### Step 5 — Bind each black hole domain to the worker (dashboard, manual)
 
-1. **Cloudflare → `0r0.us` zone → Email → Email Routing → Get Started** (if not already enabled).
-2. Once enabled, go to **Routing rules → Catch-all address → Edit**.
-3. Action: **Send to a Worker** → pick `area51-worker`.
-4. Save.
+For every domain you want the worker to receive HTTP requests on:
 
-After this, any email to `*@0r0.us` invokes the worker's `email` handler.
+1. **Cloudflare → Workers & Pages → `area51-worker` → Settings → Domains & Routes → Add → Custom Domain.**
+2. Enter the domain (or subdomain). Cloudflare provisions the cert and DNS automatically.
 
-### Step 6 — Deploy Pages
+Repeat for every black hole. The worker code is domain-agnostic — it serves whatever it has been bound to.
+
+### Step 6 — Enable Email Routing per mail-enabled black hole (dashboard, manual)
+
+For each zone where the black hole should also receive email:
+
+1. **Cloudflare → that zone → Email → Email Routing → Get Started** (if not already enabled).
+2. **Routing rules → Catch-all address → Edit.**
+3. Action: **Send to a Worker** → pick `area51-worker` → Save.
+
+After this, any email to `*@<that-zone>` invokes the worker's `email` handler.
+
+### Step 7 — Deploy the dashboard
 
 ```sh
-cd ..
-npx wrangler pages deploy pages --project-name area51
+./scripts/deploy-pages.sh
 ```
 
-The first deploy creates the Pages project. Then in the dashboard, two things only the dashboard handles:
+The first deploy creates the Pages project. Then in the dashboard:
 
-- **Cloudflare → Pages → area51 → Settings → Functions → D1 database bindings:** add a binding `DB` → `area51` for **both Production and Preview**. ⚠️ Without this, every `/api/*` call returns 500.
-- **Cloudflare → Pages → area51 → Custom domains:** add `area51.thoropentests.com`.
+- **Pages → `area51` → Settings → Functions → D1 database bindings:** add a binding `DB` → `area51` for **both Production and Preview**. ⚠️ Without this, every `/api/*` call returns 500.
+- **Pages → `area51` → Custom domains:** add the dashboard domain.
 
-Redeploy once after adding the binding so the new env is picked up: `npx wrangler pages deploy pages --project-name area51`.
+Redeploy once after adding the D1 binding so the new env is picked up: `./scripts/deploy-pages.sh`.
 
-### Step 7 — Configure Cloudflare Access
+### Step 8 — Configure the DOMAINS_CONFIG env var
 
-Follow [§8](#8-cloudflare-access). Without this, `area51.thoropentests.com` is open to the world.
+This is the variable that drives the orbit chips on the Home page and the `/api/config/domains` response.
 
-**Also cover the Pages-generated URLs.** Pages always exposes the dashboard at `area51-dnt.pages.dev` (production) and `<hash>.area51-dnt.pages.dev` (per-deployment previews) regardless of any wrangler.toml setting. Make sure your Access application includes these hostnames so they're locked behind the same IP + OTP policies — see [§8](#8-cloudflare-access) for the exact hostnames to add.
+**Cloudflare → Pages → `area51` → Settings → Variables and Secrets → Environment variables (Production) → Add variable.** Name `DOMAINS_CONFIG`; value a JSON-stringified array like:
 
-### Step 8 — Smoke
+```json
+[{"domain":"<host-1>","roles":["http","mail"]},{"domain":"<host-2>","roles":["http"]}]
+```
+
+Each entry's `roles` is a subset of `["http", "mail"]`. Save, then redeploy Pages so the new value is bound to the active deployment.
+
+### Step 9 — Configure Cloudflare Access
+
+Follow [§8](#8-cloudflare-access). Without this, the dashboard domain is open to the world.
+
+**Also cover the Pages-generated URLs.** Cloudflare always exposes the dashboard at `<project-name>.pages.dev` (production) and `<hash>.<project-name>.pages.dev` (per-deployment previews) regardless of any wrangler setting. Add those hostnames to the same Access application so they're locked behind the same IP + OTP policies.
+
+### Step 10 — Smoke
 
 Run the tests in [§12](#12-smoke-tests).
 
@@ -707,12 +699,12 @@ Set `FALLBACK_ADDRESS` in the repo-root `.env`, then run `./scripts/deploy-worke
 Run these after any non-trivial deploy.
 
 1. **Schema applied** — `wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote` lists `endpoints`, `requests`, `emails`.
-2. **HTTP 404 + capture** — `curl https://0r0.us/test` returns `404! Not Found`. A row appears in `requests`.
-3. **HTTP endpoint serving** — Create an endpoint via the dashboard for `/health` returning `200 ok`. `curl https://0r0.us/health` returns it. A request row is logged.
-4. **Email basic** — Send a plain text email under 1 MB and with no attachments to `anything@0r0.us`. A row appears in `emails` with populated `headers`, `text`, `html`, `attachments='[]'`. No forward.
+2. **HTTP 404 + capture** — `curl https://<black-hole>/test` returns `404! Not Found`. A row appears in `requests`.
+3. **HTTP endpoint serving** — Create an endpoint via the dashboard for `/health` returning `200 ok`. `curl https://<black-hole>/health` returns it. A request row is logged.
+4. **Email basic** — Send a plain text email under 1 MB and with no attachments to `anything@<mail-enabled-black-hole>`. A row appears in `emails` with populated `headers`, `text`, `html`, `attachments='[]'`. No forward.
 5. **Email with attachment** — Send any email with an attachment. A row appears with `html = "sent_to_fallback"` while `text`, `headers`, `attachments` (metadata) are still populated. The original lands in the fallback inbox.
 6. **Email oversized** — Send a >1 MB email (no attachment required). Same outcome as #5.
-7. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on `0r0.us` updates immediately.
+7. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on the worker updates immediately.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
 10. **Purge** — With ≥15 rows in `requests`, purge with keep=10; only the 10 most recent remain.
@@ -725,11 +717,11 @@ Run these after any non-trivial deploy.
 
 | Symptom | Probable cause | What to check |
 |---|---|---|
-| Dashboard returns 401 / Access page loops | Access policy misconfigured | Cloudflare → Zero Trust → Access → app for `area51.thoropentests.com`. Confirm IP rule matches your egress; confirm OTP rule targets `@thoropass.com`. |
+| Dashboard returns 401 / Access page loops | Access policy misconfigured | Cloudflare → Zero Trust → Access → app for the dashboard domain. Confirm IP rule matches your egress; confirm OTP rule targets `@thoropass.com`. |
 | `/api/*` returns HTML instead of JSON | D1 binding missing | Cloudflare → Pages → area51 → Settings → Functions → D1 bindings. Add `DB` → `area51` for both Production and Preview. Redeploy. |
-| `0r0.us` returns 404 for everything | Custom Domain not bound to worker, OR endpoint table empty | In the dashboard: Workers → area51-worker → Settings → Domains & Routes should show `0r0.us` as a Custom Domain. Confirm `SELECT * FROM endpoints` returns rows. |
+| Black hole returns 404 for everything | Custom Domain not bound to worker, OR endpoint table empty | Workers → `area51-worker` → Settings → Domains & Routes should show the black hole as a Custom Domain. Confirm `SELECT * FROM endpoints` returns rows. |
 | Endpoint exists but worker returns 404 | URI mismatch (case, trailing slash, query) | `endpoints.uri` matches `url.pathname` **exactly**. Re-check the path stored. |
-| Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → 0r0.us zone → Email → Email Routing. Catch-all destination must be the worker. |
+| Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → the black hole zone → Email → Email Routing. Catch-all destination must be the worker. |
 | Email arrives but body is empty / parse fails | postal-mime parse threw on the worker | Check Workers Logs for `email_parse_failed`. The D1 row still gets written, but `headers`, `text`, `html`, `attachments` may be `NULL`. The dashboard will just show the minimal envelope (from/to/subject/ts). |
 | Request count keeps dropping | Someone purged; or a deploy with the wrong `keep` value | Check Pages Functions logs for `/api/purge` calls. There's no audit trail. |
 | Worker logs show `http_log_insert_failed` | D1 transient error or quota | Logs are best-effort by design — but if it's repeated, check D1 health and storage. |
@@ -755,7 +747,7 @@ Run these after any non-trivial deploy.
 
 ---
 
-## 15. Agent API + MCP server (`agent-a51.thoropentests.com`)
+## 15. Agent API + MCP server
 
 A separate Cloudflare Worker (`agent-a51-worker`, code in `agent-worker/`) exposes (a) the last 5 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the black holes** — what's been falling into them recently, plus the ability to stage response stubs under `/autopilot/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
 
@@ -779,7 +771,7 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 
 ### 15.2 Why a separate worker
 
-- **Different domain semantics.** `0r0.us` catches every path as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
+- **Different domain semantics.** The black hole worker catches every path on every bound domain as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
 - **Different read pattern.** The black hole worker is write-heavy on the request log path. The agent worker is read-oriented (with bounded writes via the `/autopilot/*` CRUD path).
 - **Different auth model.** The black holes are wide open (they have to be reachable by targets). The agent worker is locked behind a shared secret. Different surface, different rules.
 - **Different blast radius.** A runaway agent making mistakes through the agent worker is bounded to `/autopilot/*` and recent reads. It cannot touch the rest of the endpoint table or the blacklists.
@@ -813,7 +805,7 @@ Each tool has an agent-friendly description in the tool schema explaining *when*
 To register the MCP server in Claude Code on a pentester's machine:
 
 ```sh
-claude mcp add area51 https://agent-a51.thoropentests.com/mcp \
+claude mcp add area51 https://<agent-worker-domain>/mcp \
   --transport http \
   --header "X-A51-Secret: <secret-from-.env>"
 ```
@@ -846,15 +838,15 @@ cp .env.example .env
 
 Then in the Cloudflare dashboard:
 
-- **Workers → agent-a51-worker → Settings → Domains & Routes** → Add Custom Domain → `agent-a51.thoropentests.com`. (Manual because the current API token doesn't have Zone Resources permissions for `thoropentests.com`; if you ever expand the token's zone scope, you can add a `routes = [...]` block to the template.)
+- **Workers → `agent-a51-worker` → Settings → Domains & Routes** → Add Custom Domain → the domain you want the agent worker on. (Manual because DNS / Custom Domain mapping is intentionally not part of the deploy automation.)
 
-That's it. Six endpoints + an MCP server live behind `https://agent-a51.thoropentests.com/`.
+That's it. Six endpoints + an MCP server live behind the agent worker's bound domain.
 
 ### 15.7 Smoke tests for the agent worker
 
 ```sh
 SECRET=$(grep ^AGENT_SECRET .env | cut -d= -f2)
-BASE=https://agent-a51.thoropentests.com
+BASE=https://<agent-worker-domain>
 
 # REST
 curl -sS -H "X-A51-Secret: $SECRET" $BASE/requests | jq .served_at

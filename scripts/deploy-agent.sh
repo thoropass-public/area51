@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the agent worker (agent-a51.thoropentests.com).
+# Deploys the agent worker.
 # - Sources .env for the API token + all interpolated values.
 # - Renders agent-worker/wrangler.toml from its template.
 # - Installs AGENT_SECRET as a Worker Secret (idempotent — overwrites).

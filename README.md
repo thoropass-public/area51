@@ -483,6 +483,7 @@ Base path: `https://area51.thoropentests.com/api/`. All endpoints sit behind Clo
 | `GET` | `/api/blacklist/emails` | List blacklisted senders. Returns `[{email, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/emails` | Body: `{email, note?}`. Accepts bare `addr@host` or angle-bracketed `Display <addr@host>`; stored lowercase. Validated as `^[^@\s]+@[^@\s]+\.[^@\s]+$`. |
 | `DELETE` | `/api/blacklist/emails/[email]` | Remove. Lowercased + URL-decoded path param. 404 if not present. |
+| `GET` | `/api/config/domains` | Returns `{domains: [{domain, roles}, …]}` from the `DOMAINS_CONFIG` Pages environment variable (JSON-stringified array). Rendered by the Home hero as orbit chips. Edit live in **Cloudflare → Pages → area51 → Settings → Variables and Secrets**; no redeploy needed — next page load picks up the new value. Handler is defensive: returns `{domains: []}` on missing or malformed env. |
 
 The `headers` round-trip is asymmetric on purpose:
 - **Endpoints (write):** dashboard sends a line-separated string; server parses to JSON object before storing.

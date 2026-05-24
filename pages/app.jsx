@@ -110,18 +110,14 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
 // Home
 // ----------------------------------------------------------------
 
-// Domains bound to the AREA 51 workers. Rendered as chips orbiting the alien
-// on the Home hero. Edit this list to add or remove domains — the orbit
-// layout adapts automatically to any N.
-//
-// Each entry:
-//   - domain: the bare hostname (no protocol)
-//   - roles:  array containing any of "http" and "mail", describing what
-//             the worker(s) on that domain accept.
-const DOMAINS = [
-  { domain: "0r0.us",             roles: ["http", "mail"] },
-  { domain: "thoropentests.com",  roles: ["http", "mail"] },
-];
+// Domains bound to the AREA 51 workers are configured as a Cloudflare Pages
+// environment variable named DOMAINS_CONFIG, served to the frontend by the
+// /api/config/domains Pages Function. To edit them: Cloudflare → Pages →
+// area51 → Settings → Variables and Secrets → DOMAINS_CONFIG → set the
+// value to a JSON string like:
+//   [{"domain":"0r0.us","roles":["http","mail"]},
+//    {"domain":"thoropentests.com","roles":["http","mail"]}]
+// Save. The next page load reads the new value; no redeploy needed.
 
 function fmtRoles(roles) {
   return (roles || []).map((r) => r.toLowerCase()).join(" · ");
@@ -174,6 +170,18 @@ function Home({ setTab }) {
     { id: "settings",  num: "04", title: "Settings",  desc: "Purge captured rows to stay under D1 quotas." },
   ];
 
+  // Fetch the domain list from the Pages env var (via /api/config/domains).
+  // Empty array on miss/error so the alien renders with no chips rather
+  // than blocking the whole hero.
+  const [domains, setDomains] = useState([]);
+  useEffect(() => {
+    let live = true;
+    API.listDomains()
+      .then((res) => { if (live) setDomains(Array.isArray(res && res.domains) ? res.domains : []); })
+      .catch(() => { /* no chips on failure — silent */ });
+    return () => { live = false; };
+  }, []);
+
   return (
     <div className="content">
       <div className="home">
@@ -193,8 +201,8 @@ function Home({ setTab }) {
               <ellipse cx="8.6" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(-22 8.6 11.4)"/>
               <ellipse cx="15.4" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(22 15.4 11.4)"/>
             </svg>
-            {DOMAINS.map((d, i) => {
-              const p = chipPlacement(i, DOMAINS.length);
+            {domains.map((d, i) => {
+              const p = chipPlacement(i, domains.length);
               return (
                 <div
                   key={d.domain}

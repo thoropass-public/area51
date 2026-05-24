@@ -1,5 +1,10 @@
 // AREA 51 — main app: tab navigation, Home, Settings, shell.
 
+// Pulsar-ping theme transition: a circle of the destination theme expands
+// radially from the toggle button, with a frost-blue drop-shadow glow at the
+// leading edge. Total duration matches the CSS keyframe in styles.css.
+const THEME_PING_MS = 700;
+
 function App() {
   const [tab, setTab] = useState("home");
   const [theme, setTheme] = useState(() => {
@@ -9,15 +14,57 @@ function App() {
     } catch {}
     return "dark";
   });
+  // When non-null, a transition overlay is rendered until the wave completes.
+  // Shape: { x, y, r, nextTheme }. Set by clicking the toggle; cleared on a
+  // timer that fires THEME_PING_MS after the click.
+  const [ping, setPing] = useState(null);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     try { window.localStorage.setItem("area51:theme", theme); } catch {}
   }, [theme]);
 
-  const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-  }, []);
+  // Drive the post-animation cleanup: swap theme, then drop the overlay.
+  useEffect(() => {
+    if (!ping) return;
+    const t = setTimeout(() => {
+      setTheme(ping.nextTheme);
+      // Tiny buffer so the underlying app has finished its repaint to the
+      // new theme by the time the overlay disappears — avoids a one-frame
+      // flash of the old theme when the wave is removed.
+      setTimeout(() => setPing(null), 40);
+    }, THEME_PING_MS);
+    return () => clearTimeout(t);
+  }, [ping]);
+
+  const toggleTheme = useCallback((e) => {
+    // Debounce: ignore additional clicks while a wave is in flight.
+    if (ping) return;
+    const next = theme === "dark" ? "light" : "dark";
+
+    // Honor the user's OS-level motion preference: skip the wave entirely.
+    const reduceMotion = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      setTheme(next);
+      return;
+    }
+
+    // Origin of the wave = center of the toggle button that was clicked.
+    const target = e && e.currentTarget;
+    const rect = target && target.getBoundingClientRect();
+    const x = rect ? rect.left + rect.width / 2 : window.innerWidth - 24;
+    const y = rect ? rect.top + rect.height / 2 : 24;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    // Distance from (x, y) to the furthest viewport corner — the radius the
+    // wave needs to reach to fully cover the screen.
+    const r = Math.sqrt(
+      Math.pow(Math.max(x, w - x), 2) +
+      Math.pow(Math.max(y, h - y), 2)
+    );
+    setPing({ x, y, r, nextTheme: next });
+  }, [theme, ping]);
 
   // Keyboard tab switching: ⌘/ctrl + 1..4
   useEffect(() => {
@@ -37,7 +84,7 @@ function App() {
       <ToastProvider>
         <BlacklistProvider>
           <div className="app">
-            <TopBar tab={tab} setTab={setTab} theme={theme} toggleTheme={toggleTheme}/>
+            <TopBar tab={tab} setTab={setTab} theme={theme} toggleTheme={toggleTheme} pinging={!!ping}/>
             <div className="workspace">
               {tab === "home" && <Home setTab={setTab}/>}
               {tab === "endpoints" && <EndpointsTab/>}
@@ -46,6 +93,18 @@ function App() {
               {tab === "settings" && <Settings/>}
             </div>
           </div>
+          {ping && (
+            <div
+              className="theme-ping"
+              data-theme={ping.nextTheme}
+              style={{
+                "--ping-x": `${ping.x}px`,
+                "--ping-y": `${ping.y}px`,
+                "--ping-r": `${ping.r}px`,
+              }}
+              aria-hidden="true"
+            />
+          )}
         </BlacklistProvider>
       </ToastProvider>
     </ConfirmProvider>
@@ -56,7 +115,7 @@ function App() {
 // TopBar
 // ----------------------------------------------------------------
 
-function TopBar({ tab, setTab, theme, toggleTheme }) {
+function TopBar({ tab, setTab, theme, toggleTheme, pinging }) {
   const TABS = [
     { id: "endpoints", label: "Endpoints" },
     { id: "requests", label: "Requests" },
@@ -85,8 +144,9 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
       </div>
       <div className="topbar-right">
         <button
-          className="theme-toggle"
+          className={`theme-toggle ${pinging ? "pinging" : ""}`}
           onClick={toggleTheme}
+          disabled={pinging}
           title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           aria-label="Toggle theme"
         >

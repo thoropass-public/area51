@@ -370,7 +370,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
                   autoFocus
                 />
               )}
-              <div className="helper">Path the exploit server will serve. Must start with /</div>
+              <div className="helper">Path the black hole will serve. Must start with /</div>
             </div>
 
             <div className="field-row">
@@ -762,7 +762,7 @@ function EmailView({ data, forwarded, onBlockSender }) {
       {forwarded && (
         <div className="notice">
           <span className="glyph">!</span>
-          <span>This email was forwarded to the fallback inbox due to attachments or size. The full message body is not stored here — check the fallback mailbox for the original.</span>
+          <span>This email was forwarded to the fallback inbox due to attachments or size. The full message body is not stored here — check the fallback inbox for the original.</span>
         </div>
       )}
 

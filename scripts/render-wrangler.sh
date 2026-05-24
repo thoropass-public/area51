@@ -43,9 +43,9 @@ set +a
 # template doesn't silently become an empty string.
 allowed_vars='${CLOUDFLARE_API_TOKEN} ${CLOUDFLARE_ACCOUNT_ID} '\
 '${D1_DATABASE_NAME} ${D1_DATABASE_ID} '\
-'${WORKER_NAME} ${EXPLOIT_DOMAIN} ${FALLBACK_ADDRESS} '\
-'${PAGES_PROJECT_NAME} ${DASHBOARD_DOMAIN} '\
-'${AGENT_WORKER_NAME} ${AGENT_DOMAIN} ${AGENT_SECRET}'
+'${WORKER_NAME} ${FALLBACK_ADDRESS} '\
+'${PAGES_PROJECT_NAME} '\
+'${AGENT_WORKER_NAME} ${AGENT_SECRET}'
 
 envsubst "$allowed_vars" < "$template" > "$output"
 

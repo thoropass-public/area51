@@ -1,12 +1,13 @@
-// AREA 51 agent worker.
+// Autopilot worker.
 //
-// Bound to its own Cloudflare Custom Domain (configured manually in the
-// dashboard; see the deploy script + README). Separate from the black hole
-// worker so it can be locked behind a shared secret without affecting the
-// black holes' public reachability.
+// The REST + MCP server that authorized Claude Code / Codex agents talk to
+// during pentests. Bound to its own Cloudflare Custom Domain (configured
+// manually in the dashboard; see the deploy script + README). Separate from
+// the Black Holes worker so it can be locked behind a shared secret without
+// affecting the black holes' public reachability.
 //
-// Read endpoints + autopilot CRUD for authorized Claude Code / Codex agents
-// during pentests.
+// Surfaces recent captures from the same D1 database AREA 51 reads, plus
+// CRUD over the reserved /autopilot/* endpoint URI namespace.
 //
 // Endpoints:
 //   GET    /requests                     →  last 5 minutes of `requests` rows
@@ -212,11 +213,11 @@ const MCP_TOOLS = [
   {
     name: 'requests_recent_5min',
     description: [
-      "Returns HTTP requests captured by the AREA 51",
+      "Returns HTTP requests captured by the Black Holes",
       "in the last 5 minutes. Use this during authorized pentests to detect",
       "out-of-band callbacks — e.g., to confirm whether an SSRF, XXE, blind",
       "command-injection, or other interaction-based payload has triggered a",
-      "callback to AREA 51's callback infrastructure. The result is JSON: an",
+      "callback to one of our black-hole domains. The result is JSON: an",
       "object with `served_at` (ISO timestamp), `window_minutes` (5), and",
       "`rows` (an array of {id, ts, method, url, ip} objects, newest first).",
       "Data is live (no server-side cache). No parameters; the window is",
@@ -227,7 +228,7 @@ const MCP_TOOLS = [
   {
     name: 'emails_recent_5min',
     description: [
-      "Returns emails received by the AREA 51",
+      "Returns emails received by the Black Holes",
       "in the last 5 minutes. Use this during authorized pentests to",
       "detect email-based out-of-band callbacks — e.g., to confirm an",
       "email-injection or password-reset-redirect payload triggered delivery",
@@ -245,8 +246,8 @@ const MCP_TOOLS = [
     name: 'autopilot_endpoints_list',
     description: [
       "Lists all configured endpoints under /autopilot/*. Use this to see",
-      "what response stubs the AREA 51 black holes are currently serving",
-      "for autopilot paths. Returns JSON: {rows: [{uri, status, headers, body}, ...]}.",
+      "what response stubs the Black Holes are currently serving for",
+      "autopilot paths. Returns JSON: {rows: [{uri, status, headers, body}, ...]}.",
       "Only endpoints with URIs starting with /autopilot/ are returned;",
       "manually-defined endpoints outside that prefix are not visible. No",
       "parameters.",
@@ -277,8 +278,8 @@ const MCP_TOOLS = [
     name: 'autopilot_endpoints_upsert',
     description: [
       "Creates or updates an endpoint configuration under /autopilot/*. Use",
-      "this to set the response the AREA 51 worker will serve when a target",
-      "calls a specific /autopilot/* path during a pentest — e.g., stage a",
+      "this to set the response the Black Holes worker will serve when a",
+      "target calls a specific /autopilot/* path during a pentest — e.g., stage a",
       "fake OAuth callback, a malicious .well-known file, or any other",
       "controlled response. Upsert semantics: if the URI already exists, its",
       "status / headers / body are overwritten.",
@@ -302,8 +303,9 @@ const MCP_TOOLS = [
   {
     name: 'autopilot_endpoints_delete',
     description: [
-      "Deletes an /autopilot/* endpoint configuration. The worker will start",
-      "returning 404 for that URI immediately on the next request. The `uri`",
+      "Deletes an /autopilot/* endpoint configuration. The Black Holes worker",
+      "will start returning 404 for that URI immediately on the next request.",
+      "The `uri`",
       "must start with /autopilot/ — otherwise the call returns an error.",
       "Returns success on delete; 404-equivalent error if the URI was not",
       "configured.",
@@ -358,16 +360,19 @@ async function handleMcp(request, env) {
       return jsonRpcResult(msg.id, {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'area51-agent', version: '1.1.0' },
+        serverInfo: { name: 'autopilot', version: '1.1.0' },
         instructions: [
-          "AREA 51 is Thoropass's internal callback infrastructure: a worker",
-          "behind a set of 'black hole' domains that catch both HTTP requests",
-          "and email sent to them. Use the requests_recent_5min and emails_recent_5min",
-          "tools to detect out-of-band callbacks during authorized pentests.",
-          "Use the autopilot_endpoints_* tools to stage response stubs under",
-          "/autopilot/* paths (e.g., fake OAuth callbacks, controlled .well-known",
-          "responses). The /autopilot/ prefix is mandatory and enforced",
-          "server-side; you cannot create or modify endpoints outside it.",
+          "Autopilot is Thoropass's MCP interface to its internal callback",
+          "infrastructure. Targets visit attacker-controlled 'black hole'",
+          "domains during pentests; every HTTP request and every email sent",
+          "to those domains is captured in a shared database. Use the",
+          "requests_recent_5min and emails_recent_5min tools to detect",
+          "out-of-band callbacks during authorized engagements. Use the",
+          "autopilot_endpoints_* tools to stage response stubs under",
+          "/autopilot/* paths (e.g., fake OAuth callbacks, controlled",
+          ".well-known responses). The /autopilot/ prefix is mandatory and",
+          "enforced server-side; you cannot create or modify endpoints",
+          "outside it.",
         ].join(' '),
       });
 

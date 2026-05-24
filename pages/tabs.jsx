@@ -8,11 +8,21 @@ function ListView({
   pins, onPin, onUnpin, onClearPins,
   pinPlaceholder,
   rows, loading, hasMore, onLoadMore, loadingMore,
+  onRefresh,
   header, renderRow, emptyText, gridClass, total,
   rightToolbar,
 }) {
   const canPin = !!(search && search.trim());
   const hasPins = Array.isArray(pins) && pins.length > 0;
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    try { await onRefresh(); } finally {
+      // Small delay so the spin animation registers visually even on a fast call.
+      setTimeout(() => setRefreshing(false), 250);
+    }
+  };
   const onKeyDown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -82,6 +92,17 @@ function ListView({
             <span className="meta-filter">{pins.length} pinned · OR</span>
           )}
           <span>{total} loaded</span>
+          {onRefresh && (
+            <button
+              className={`refresh-btn ${refreshing ? "spinning" : ""}`}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              <Icon.refresh/>
+            </button>
+          )}
         </div>
       </div>
       <div className="content">
@@ -151,7 +172,7 @@ function effectiveSearch(input, pins) {
 // Endpoints
 // ----------------------------------------------------------------
 
-function EndpointsTab({ refreshKey }) {
+function EndpointsTab() {
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -181,7 +202,7 @@ function EndpointsTab({ refreshKey }) {
     }
   }, [terms, toast]);
 
-  useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
+  useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
   const loadMore = async () => {
     if (rows.length === 0) return;
@@ -235,6 +256,7 @@ function EndpointsTab({ refreshKey }) {
       <ListView
         search={search} setSearch={setSearch}
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        onRefresh={fetchFirst}
         pinPlaceholder="Search URIs…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
@@ -407,7 +429,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
 // Requests
 // ----------------------------------------------------------------
 
-function RequestsTab({ refreshKey }) {
+function RequestsTab() {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
@@ -433,7 +455,7 @@ function RequestsTab({ refreshKey }) {
     }
   }, [terms, toast]);
 
-  useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
+  useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
   const loadMore = async () => {
     if (rows.length === 0) return;
@@ -455,6 +477,7 @@ function RequestsTab({ refreshKey }) {
       <ListView
         search={search} setSearch={setSearch}
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        onRefresh={fetchFirst}
         pinPlaceholder="Search URLs…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
@@ -585,7 +608,7 @@ function RequestModal({ id, onClose }) {
 // Emails
 // ----------------------------------------------------------------
 
-function EmailsTab({ refreshKey }) {
+function EmailsTab() {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
@@ -611,7 +634,7 @@ function EmailsTab({ refreshKey }) {
     }
   }, [terms, toast]);
 
-  useEffect(() => { fetchFirst(); }, [fetchFirst, refreshKey]);
+  useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
   const loadMore = async () => {
     if (rows.length === 0) return;
@@ -633,6 +656,7 @@ function EmailsTab({ refreshKey }) {
       <ListView
         search={search} setSearch={setSearch}
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        onRefresh={fetchFirst}
         pinPlaceholder="Search to addresses…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}

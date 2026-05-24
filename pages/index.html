@@ -11,6 +11,20 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 
   <link rel="stylesheet" href="styles.css"/>
+
+  <script>
+    // Apply saved theme synchronously before React paints, to avoid a
+    // flash-of-wrong-theme on page load. Mirrors the React-managed effect
+    // in App; both write to area51:theme.
+    (function () {
+      try {
+        var t = localStorage.getItem('area51:theme');
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* private mode etc. — fall through to dark default */ }
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>

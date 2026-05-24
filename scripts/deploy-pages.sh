@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the dashboard Pages project (area51.ops.example).
+# Deploys the dashboard Pages project.
 # - Sources .env for the API token + PAGES_PROJECT_NAME.
 # - Runs `wrangler pages deploy` from pages/.
 

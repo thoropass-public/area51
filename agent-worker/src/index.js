@@ -1,4 +1,9 @@
-// AREA 51 agent worker (agent-a51.ops.example)
+// AREA 51 agent worker.
+//
+// Bound to its own Cloudflare Custom Domain (configured manually in the
+// dashboard; see the deploy script + README). Separate from the black hole
+// worker so it can be locked behind a shared secret without affecting the
+// black holes' public reachability.
 //
 // Read endpoints + autopilot CRUD for authorized Claude Code / Codex agents
 // during pentests.

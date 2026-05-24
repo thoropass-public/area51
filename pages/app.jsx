@@ -110,14 +110,14 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
 // Home
 // ----------------------------------------------------------------
 
-// Domains bound to the AREA 51 workers are configured as a Cloudflare Pages
-// environment variable named DOMAINS_CONFIG, served to the frontend by the
-// /api/config/domains Pages Function. To edit them: Cloudflare → Pages →
-// area51 → Settings → Variables and Secrets → DOMAINS_CONFIG → set the
-// value to a JSON string like:
-//   [{"domain":"oob.example","roles":["http","mail"]},
-//    {"domain":"ops.example","roles":["http","mail"]}]
-// Save. The next page load reads the new value; no redeploy needed.
+// Black holes (domains bound to the AREA 51 workers) are configured as a
+// Cloudflare Pages environment variable named DOMAINS_CONFIG, served to the
+// frontend by the /api/config/domains Pages Function. To edit them:
+// Cloudflare → Pages → <project> → Settings → Variables and Secrets →
+// DOMAINS_CONFIG → set the value to a JSON string like:
+//   [{"domain":"<host>","roles":["http","mail"]}, ...]
+// where each `roles` entry is "http", "mail", or both. Save. The next page
+// load reads the new value; no redeploy needed.
 
 function fmtRoles(roles) {
   return (roles || []).map((r) => r.toLowerCase()).join(" · ");

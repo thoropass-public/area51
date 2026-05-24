@@ -480,7 +480,7 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 **Response conventions:**
 - Success: JSON body, HTTP 200. Lists return a bare JSON array. Detail endpoints return the row object. Mutations return `{ok: true}` (purge also returns `deleted: N`).
 - Error: `{error: "message"}` with status 400 (bad input) or 500 (server error). 404 returns `{error: "Not found"}`.
-- Pagination: cursor-based. Page size is fixed at 10 (`PAGE_SIZE` in `_shared.js`). The cursor is the natural sort key of the last row returned — pass it as `?cursor=` for the next page. `hasMore` is inferred client-side from `results.length === PAGE_SIZE`.
+- Pagination: cursor-based. Page size is fixed at 50 (`PAGE_SIZE` in `_shared.js`). The cursor is the natural sort key of the last row returned — pass it as `?cursor=` for the next page. `hasMore` is inferred client-side from `results.length === PAGE_SIZE`.
 
 | Method | Path | Notes |
 |---|---|---|

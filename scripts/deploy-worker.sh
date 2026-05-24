@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the main black hole worker.
+# Deploys the Black Holes worker (the HTTP / email catcher).
 # - Sources .env for the API token + all interpolated values.
 # - Renders worker/wrangler.toml from its template.
 # - Runs `wrangler deploy` from worker/.

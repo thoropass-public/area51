@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the dashboard Pages project.
+# Deploys AREA 51 (the dashboard Cloudflare Pages project).
 # - Sources .env for the API token + PAGES_PROJECT_NAME.
 # - Runs `wrangler pages deploy` from pages/.
 

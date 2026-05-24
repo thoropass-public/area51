@@ -1,3 +1,20 @@
+// Black Holes worker.
+//
+// Cloudflare Worker bound (via Custom Domains configured manually in the
+// dashboard) to one or more "black hole" domains. Each black hole is a
+// catch-all entry-point that accepts incoming HTTP requests, incoming email,
+// or both — anything a target sends ends up captured in D1 for the pentester
+// to inspect via the AREA 51 dashboard.
+//
+// Two handlers, one D1 binding, one optional fallback inbox:
+//   fetch(request)  — serve an arbitrary response from `endpoints`; log the
+//                     request to `requests` (suppressed for IPs on the
+//                     ip_blacklist).
+//   email(message)  — parse with postal-mime; insert structured columns into
+//                     `emails`; forward the original to FALLBACK_ADDRESS when
+//                     the message is too big or carries attachments; silently
+//                     drop senders on the email_blacklist.
+
 import PostalMime from 'postal-mime';
 
 const FORWARD_THRESHOLD_BYTES = 1048576;

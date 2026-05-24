@@ -1,4 +1,4 @@
-// AREA 51 — main app: tab navigation, Home, Settings, shell.
+// AREA 51 dashboard — main app: tab navigation, Home, Settings, shell.
 
 function App() {
   const [tab, setTab] = useState("home");
@@ -110,7 +110,7 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
 // Home
 // ----------------------------------------------------------------
 
-// Black holes (domains bound to the AREA 51 workers) are configured as a
+// Black Holes (domains bound to the Black Holes worker) are configured as a
 // Cloudflare Pages environment variable named DOMAINS_CONFIG, served to the
 // frontend by the /api/config/domains Pages Function. To edit them:
 // Cloudflare → Pages → <project> → Settings → Variables and Secrets →

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the agent worker.
+# Deploys the Autopilot worker (the agent REST + MCP server).
 # - Sources .env for the API token + all interpolated values.
 # - Renders agent-worker/wrangler.toml from its template.
 # - Installs AGENT_SECRET as a Worker Secret (idempotent — overwrites).

@@ -17,8 +17,9 @@ preview_urls = false
 [observability]
 enabled = true
 
-# Read-only D1 binding to the same area51 database the main black hole
-# worker writes to.
+# D1 binding to the same area51 database the Black Holes worker writes to
+# and that AREA 51 (the dashboard) reads through Pages Functions. Autopilot
+# is read-heavy with bounded writes scoped to the /autopilot/* URI namespace.
 [[d1_databases]]
 binding = "DB"
 database_name = "${D1_DATABASE_NAME}"

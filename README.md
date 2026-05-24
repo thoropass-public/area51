@@ -1,4 +1,4 @@
-# AREA 51 — Black Holes
+# AREA 51 · Black Holes · Autopilot
 
 Internal out-of-band callback infrastructure for the Thoropass security team. Hosted on Cloudflare.
 
@@ -13,27 +13,30 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 1. [What it is](#1-what-it-is)
 2. [Architecture](#2-architecture)
 3. [Repository layout](#3-repository-layout)
-4. [The black hole worker](#4-the-black-hole-worker)
-5. [The dashboard (Cloudflare Pages)](#5-the-dashboard-cloudflare-pages)
+4. [The Black Holes worker](#4-the-black-holes-worker)
+5. [AREA 51 — the dashboard (Cloudflare Pages)](#5-area-51--the-dashboard-cloudflare-pages)
 6. [D1 database](#6-d1-database)
 7. [HTTP API contract](#7-http-api-contract-pages-functions)
-8. [Cloudflare Access](#8-cloudflare-access)
-9. [Deployment from a clean slate](#9-deployment-from-a-clean-slate)
-10. [Local development](#10-local-development)
-11. [Operations](#11-operations)
-12. [Smoke tests](#12-smoke-tests)
-13. [Debugging](#13-debugging-common-issues)
-14. [Known constraints & caveats](#14-known-constraints--caveats)
-15. [Agent worker + MCP server](#15-agent-worker--mcp-server)
-16. [Design decisions](#16-design-decision-log)
+8. [Deployment from a clean slate](#8-deployment-from-a-clean-slate)
+9. [Local development](#9-local-development)
+10. [Operations](#10-operations)
+11. [Smoke tests](#11-smoke-tests)
+12. [Debugging](#12-debugging-common-issues)
+13. [Known constraints & caveats](#13-known-constraints--caveats)
+14. [Autopilot — agent worker + MCP server](#14-autopilot--agent-worker--mcp-server)
+15. [Design decisions](#15-design-decision-log)
 
 ---
 
 ## 1. What it is
 
-**AREA 51** is an internal Cloudflare Worker — the system pentesters interact with. It sits behind any number of **black holes**: attacker-controlled domains, each acting as an entry-point for incoming **HTTP requests**, incoming **email**, or both. Anything a target sends to a black hole ends up captured in AREA 51's database for the pentester to inspect.
+Internal out-of-band callback infrastructure for the Thoropass pentest team. Pentesters interact with three named pieces:
 
-Each black hole's role is configurable per domain — some catch only HTTP, some only mail, some both. The list of currently-bound black holes is **not hardcoded in this repo**; it lives as the `DOMAINS_CONFIG` environment variable on the Cloudflare Pages project, served to the frontend by [`/api/config/domains`](#7-http-api-contract-pages-functions). To add or remove a black hole: edit that env var in the dashboard and bind/unbind the domain to the worker via Cloudflare's Custom Domain UI. No redeploy needed for the env-var change.
+- **AREA 51** — the dashboard. Configure endpoints, browse captured requests and emails, purge data, manage blacklists.
+- **Black Holes** — attacker-controlled domains, each acting as an entry-point for incoming **HTTP requests**, incoming **email**, or both. Anything a target sends to a black hole ends up captured in D1 for the pentester to inspect via AREA 51.
+- **Autopilot** — the MCP server (with a REST mirror) that authorized Claude Code / Codex agents connect to during engagements. Surfaces recent requests + emails and CRUD over a reserved `/autopilot/*` endpoint namespace so an agent can stage response stubs and observe callbacks on its own.
+
+Each black hole's role is configurable per domain — some catch only HTTP, some only mail, some both. The list of currently-bound black holes is **not hardcoded in this repo**; it lives as the `DOMAINS_CONFIG` environment variable on the Cloudflare Pages project, served to the frontend by [`/api/config/domains`](#7-http-api-contract-pages-functions). To add or remove a black hole: edit that env var in the dashboard and bind/unbind the domain to the Black Holes worker via Cloudflare's Custom Domain UI. No redeploy needed for the env-var change.
 
 Targets that fetch URLs, send webhooks, click email links, or otherwise reach out to "the internet" can be steered to one of these black holes, where:
 
@@ -48,7 +51,7 @@ Use cases:
 - Phishing landing pages and email-based interaction proofs (any address at a mail-enabled black hole is a catch-all inbox)
 - Generic "callback received" confirmation for interaction-based vulnerabilities
 
-It is **not customer-facing**. All users are trusted Thoropass team members. Design prioritizes simplicity and maintainability over hardening or scale. The dashboard sits behind Cloudflare Access (VPN IP allowlist + `@thoropass.com` email OTP); the black holes themselves are open to the internet because they have to be reachable by targets.
+It is **not customer-facing**. All users are trusted Thoropass team members. Design prioritizes simplicity and maintainability over hardening or scale. The black holes themselves are open to the internet because they have to be reachable by targets.
 
 ---
 
@@ -58,7 +61,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 ┌────────────────────────────────────────────────────────┐
                 │ Cloudflare                                             │
                 │                                                        │
-  Internet ─────┼─► <black-hole-domain>/*    (Worker)                    │
+  Internet ─────┼─► <black-hole-domain>/*   (Black Holes worker)         │
   (targets,     │     ├── HTTP fetch handler ──┐                         │
    email)       │     └── Email handler ────┐  │                         │
                 │                           │  │                         │
@@ -67,37 +70,37 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │                           │ │ D1: area51 database    │ │
                 │                           │ │  ├── endpoints         │ │
                 │                           │ │  ├── requests          │ │
-                │                           │ │  └── emails            │ │
+                │                           │ │  ├── emails            │ │
+                │                           │ │  └── *_blacklist       │ │
                 │                           │ └────────────────────────┘ │
                 │                           │  ▲                         │
                 │                           │  │                         │
-  Pentester ────┼─► <dashboard-domain>      │  │                         │
-   (browser,    │   ▲                       │  │                         │
-   on VPN +     │   │                       │  │                         │
-   thoropass    │  Cloudflare Access        │  │                         │
-   email)       │  (IP + email OTP)         │  │                         │
-                │   │                       │  │                         │
-                │   ▼                       │  │                         │
-                │  Pages (static + /api/*)  │  │                         │
+  Pentester ────┼─► AREA 51 dashboard       │  │                         │
+   (browser)    │   (Cloudflare Pages)      │  │                         │
                 │   ├── index.html, *.jsx ──┘  │ (read/write via         │
                 │   └── /functions/api/* ──────┘  D1 binding)            │
+                │                              │                         │
+  AI agent ─────┼─► Autopilot worker           │                         │
+   (REST / MCP) │   /requests, /emails, ───────┘                         │
+                │   /autopilot/*, /mcp                                   │
                 │                                                        │
-                │                           ┌────────────────────────┐   │
-                │ Email Routing fallback ──►│  FALLBACK_ADDRESS      │   │
-                │ (forwarded when           │  (catch-all inbox)     │   │
-                │  rawSize >1 MB)           └────────────────────────┘   │
+                │                              ┌────────────────────────┐│
+                │ Email Routing fallback ─────►│  FALLBACK_ADDRESS      ││
+                │ (forwarded when rawSize >    │  (catch-all inbox)     ││
+                │  1 MB OR attachments         └────────────────────────┘│
+                │  present)                                              │
                 └────────────────────────────────────────────────────────┘
 ```
 
-Three deployables, one database, one Cloudflare account:
+The same Cloudflare account hosts three runtime pieces, all backed by one D1 database:
 
-| Component | Where | What it does |
+| Piece (user lingo) | Implementation | What it does |
 |---|---|---|
-| **Black hole worker** | bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, parses, stores, optionally forwards |
-| **Dashboard** | Cloudflare Pages site (one Custom Domain) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, purge data |
-| **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Worker and Pages |
-| **Access policy** | in front of dashboard domain | VPN IP allowlist AND `@thoropass.com` email OTP — both required |
-| **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the worker's email handler |
+| **AREA 51** (the dashboard) | Cloudflare Pages site (project `area51`) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, purge data, manage IP / email blacklists |
+| **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, parses, stores, optionally forwards |
+| **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads and `/autopilot/*` endpoint CRUD for authorized Claude Code / Codex agents |
+| **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Pages and both workers |
+| **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the Black Holes worker's email handler |
 
 ### 2.1 HTTP request flow (target → black hole)
 
@@ -105,7 +108,7 @@ Three deployables, one database, one Cloudflare account:
 target ──► <black-hole>/some/path
               │
               ▼
-         Worker.fetch()
+         BlackHolesWorker.fetch()
               │
               ├─ build request log row (id, ts, method, url, ip, ua, headers, body)
               ├─ ctx.waitUntil( INSERT into requests )   ← fire-and-forget, doesn't block response
@@ -127,7 +130,7 @@ The request log INSERT is scheduled via `ctx.waitUntil` so the response goes out
 sender ──► *@<black-hole>
               │  (Cloudflare Email Routing catch-all)
               ▼
-         Worker.email(message)
+         BlackHolesWorker.email(message)
               │
               ├─ id = uuid, ts = now
               ├─ read message.raw stream → rawText (string)
@@ -151,29 +154,23 @@ sender ──► *@<black-hole>
 
 The email handler **never throws out of the handler function** — any uncaught path triggers a last-resort forward so the email isn't dropped silently.
 
-### 2.3 Dashboard flow (pentester → dashboard domain)
+### 2.3 Dashboard flow (pentester → AREA 51)
 
 ```
-pentester (on VPN, @thoropass.com Google)
-   │
-   ▼
-Cloudflare Access
-   ├─ check source IP against allowlist     } both must pass
-   └─ check email OTP (sent to @thoropass.com)
-   │
-   ▼ (on success — sticky session cookie)
-Pages domain
-   ├─ /, /index.html, /styles.css, /*.jsx → static files
-   └─ /api/* → Pages Functions
-              │
-              ▼
-         { GET /api/endpoints, POST, GET/[uri], DELETE /[uri],
-           GET /api/requests, GET /[id],
-           GET /api/emails, GET /[id],
-           POST /api/purge }
-              │
-              ▼
-         env.DB (D1 binding) → SQL
+pentester ──► AREA 51 dashboard (Pages)
+                 ├─ /, /index.html, /styles.css, /*.jsx → static files
+                 └─ /api/* → Pages Functions
+                            │
+                            ▼
+                       { GET /api/endpoints, POST, GET/[uri], DELETE /[uri],
+                         GET /api/requests, GET /[id],
+                         GET /api/emails, GET /[id],
+                         POST /api/purge,
+                         GET/POST/DELETE /api/blacklist/{ips,emails},
+                         GET /api/config/domains }
+                            │
+                            ▼
+                       env.DB (D1 binding) → SQL
 ```
 
 ---
@@ -184,12 +181,22 @@ Pages domain
 .
 ├── README.md                  ← you are here (the canonical primer)
 ├── schema.sql                 ← D1 schema (apply with `wrangler d1 execute`)
-├── worker/                    ← black hole worker (one Cloudflare Worker, many bound domains)
-│   ├── wrangler.toml          ← Worker config: D1 binding, email trigger, FALLBACK_ADDRESS
+├── .env.example               ← template for the gitignored .env (single source of truth)
+├── scripts/                   ← bash deploy helpers (source .env, render wrangler.toml, deploy)
+│   ├── render-wrangler.sh     ← envsubst worker/wrangler.toml.template → worker/wrangler.toml
+│   ├── deploy-worker.sh       ← Black Holes worker
+│   ├── deploy-agent.sh        ← Autopilot worker (also installs AGENT_SECRET)
+│   └── deploy-pages.sh        ← AREA 51 dashboard (Pages)
+├── worker/                    ← Black Holes worker (one Cloudflare Worker, many bound domains)
+│   ├── wrangler.toml.template ← Worker config template (D1 binding, FALLBACK_ADDRESS)
 │   ├── package.json           ← deps: postal-mime, wrangler
 │   └── src/
 │       └── index.js           ← single-file Worker with fetch + email handlers
-└── pages/                     ← dashboard (Cloudflare Pages site)
+├── agent-worker/              ← Autopilot worker (REST + MCP server)
+│   ├── wrangler.toml.template ← Worker config template (D1 binding only; AGENT_SECRET is a Secret)
+│   └── src/
+│       └── index.js           ← REST handlers + MCP JSON-RPC 2.0 server
+└── pages/                     ← AREA 51 dashboard (Cloudflare Pages site)
     ├── index.html             ← entry point; loads React/Babel UMD + the three .jsx files
     ├── styles.css             ← Nord-inspired dark dashboard, dense developer UI
     ├── ui.jsx                 ← helpers, API client, toast/modal/confirm
@@ -198,26 +205,31 @@ Pages domain
     └── functions/             ← Pages Functions (server-side)
         └── api/
             ├── _shared.js              ← json/errResp helpers, withErrorHandler, parseHeaderLines
+            ├── config/domains.js       ← GET — reads DOMAINS_CONFIG env var, returns {domains:[…]}
             ├── endpoints/
             │   ├── index.js            ← GET (list+search+cursor), POST (upsert)
-            │   └── [uri].js            ← GET (detail), DELETE
+            │   ├── [uri].js            ← GET (detail), DELETE
+            │   └── autopilot/purge.js  ← POST — wipe /autopilot/* endpoints, keep latest N
             ├── requests/
             │   ├── index.js            ← GET (list+search+cursor)
             │   └── [id].js             ← GET (detail; headers parsed back to object)
             ├── emails/
             │   ├── index.js            ← GET (list+search+cursor)
             │   └── [id].js             ← GET (detail; headers + attachments parsed back from JSON)
+            ├── blacklist/
+            │   ├── ips/index.js & [ip].js       ← list/add, delete
+            │   └── emails/index.js & [email].js ← list/add, delete
             └── purge/
                 └── index.js            ← POST (delete-all-except-latest-N, allowlisted tables only)
 ```
 
-The Worker and Pages projects are **deployed independently** but share a single D1 database via separate Wrangler bindings.
+The two workers and the Pages project are **deployed independently** but share a single D1 database via separate Wrangler bindings.
 
 ---
 
-## 4. The black hole worker
+## 4. The Black Holes worker
 
-Single-file Worker at `worker/src/index.js`. One npm dep: `postal-mime` (for email parsing). Compatibility flags: `nodejs_compat` (postal-mime needs it).
+Single-file Worker at `worker/src/index.js`, service name `area51-worker`. One npm dep: `postal-mime` (for email parsing). Compatibility flags: `nodejs_compat` (postal-mime needs it). Bound via Custom Domain to each black hole — the same worker code serves every domain, and the worker doesn't know or care which black hole a given request came in on.
 
 Exports a default object with two handlers:
 
@@ -271,18 +283,18 @@ The `"sent_to_fallback"` literal in the `html` column is what the dashboard's em
 
 ### 4.3 Bindings & env vars
 
-In `worker/wrangler.toml`:
+In `worker/wrangler.toml` (rendered by `scripts/render-wrangler.sh` from `worker/wrangler.toml.template` + `.env`):
 
 | Binding / Var | Purpose |
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
-| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>1 MB) and failure cases. Value set in `.env` and substituted into `worker/wrangler.toml` at render time. |
+| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>1 MB) and attachment cases. Value set in `.env` and substituted into `worker/wrangler.toml` at render time. |
 | `workers_dev = false` | Disables the auto-generated `*.workers.dev` URL — the worker is reachable only via the Custom Domains bound to it in the dashboard |
 | `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
 
-**Email Routing is configured in the Cloudflare dashboard, not `wrangler.toml`.** Wrangler v4 deprecated the `[triggers] email` config. The worker exports an `email` handler; the dashboard's Email Routing → "Send to a Worker" feature is what actually delivers inbound mail to it. See the deployment steps in [§9](#9-deployment-from-a-clean-slate).
+**Email Routing is configured in the Cloudflare dashboard, not `wrangler.toml`.** Wrangler v4 deprecated the `[triggers] email` config. The worker exports an `email` handler; the dashboard's Email Routing → "Send to a Worker" feature is what actually delivers inbound mail to it. See the deployment steps in [§8](#8-deployment-from-a-clean-slate).
 
-The real `worker/wrangler.toml` (with the live D1 ID) is gitignored. The committed template is `worker/wrangler.toml.example` — copy it and paste the `database_id` from `wrangler d1 create area51`.
+The real `worker/wrangler.toml` (with the live D1 ID) is gitignored. The committed template is `worker/wrangler.toml.template`; `scripts/render-wrangler.sh worker` reads `.env` and substitutes the placeholders.
 
 ### 4.4 Logging
 
@@ -310,13 +322,13 @@ Event names emitted:
 | `email_forward_ok` / `email_forward_failed` | message.forward result |
 | `email_unhandled_error` | top-level catch fired — last-resort forward attempted |
 
-Tail with `wrangler tail` (see [Operations](#11-operations)).
+Tail with `wrangler tail` (see [Operations](#10-operations)).
 
 ---
 
-## 5. The dashboard (Cloudflare Pages)
+## 5. AREA 51 — the dashboard (Cloudflare Pages)
 
-A static site + Pages Functions, both deployed from `pages/`.
+A static site + Pages Functions, both deployed from `pages/`. Cloudflare Pages project name `area51`. This is what pentesters open in a browser to manage the platform.
 
 ### 5.1 Frontend (no build step)
 
@@ -350,7 +362,7 @@ File responsibilities:
   - `App` — top-level component. Tab state, keyboard shortcut handler (⌘/Ctrl + 1–4 → endpoints/requests/emails/settings), wraps everything in `ConfirmProvider` + `ToastProvider`.
   - `TopBar` — brand mark + tabs + a refresh button on the far right that's visible only on list tabs (endpoints / requests / emails). The button increments an `App`-level `refreshTick` counter that the active list tab consumes as a `refreshKey` prop in its `fetchFirst` `useEffect` dependency array, causing a re-fetch of the first page. The icon spins briefly (~600ms) on click for visual feedback; the spin isn't synced to the actual loading state since each tab already shows its own spinner over the list rows.
   - `Home` — the marketing-style landing tab: AREA 51 hero, intro copy, four navigation tiles.
-  - `Settings` — purge UI. Pick table (requests/emails), pick keep-N, click Purge (red, confirmation-gated). The danger banner reads "will keep the latest N · older rows permanently deleted · no undo" — no live count of what's about to be deleted, because we don't want to query `COUNT(*)` (see [§16](#16-design-decision-log)).
+  - `Settings` — purge UI. Pick table (requests/emails/autopilot), pick keep-N, click Purge (red, confirmation-gated). The danger banner reads "will keep the latest N · older rows permanently deleted · no undo" — no live count of what's about to be deleted, because we don't want to query `COUNT(*)` (see [§15](#15-design-decision-log)).
 
 ### 5.2 HTML iframe sandbox for email bodies
 
@@ -360,13 +372,13 @@ When `ParsedEmailView` renders an email's HTML body, it does so in:
 <iframe sandbox="" srcDoc={parsed.html} title="email html"/>
 ```
 
-`sandbox=""` (no allowed tokens) is the **strictest** sandbox: no scripts, no same-origin access, no form submission, no top-navigation. Even though AREA 51 is internal-only, emails arrive from untrusted senders, so HTML bodies must be treated as hostile. Do not relax this sandbox.
+`sandbox=""` (no allowed tokens) is the **strictest** sandbox: no scripts, no same-origin access, no form submission, no top-navigation. Even though this is internal-only, emails arrive from untrusted senders, so HTML bodies must be treated as hostile. Do not relax this sandbox.
 
 ### 5.3 Pages Functions (`/functions/api/*`)
 
 Each file under `pages/functions/api/` exports `onRequestGet` / `onRequestPost` / `onRequestDelete` named handlers. Every handler is wrapped in `withErrorHandler` (`_shared.js`), which try/catches, logs the error via `console.error`, and returns `{ error: "Internal error" }` with HTTP 500 on any uncaught throw.
 
-The full HTTP API contract is in [§7](#7-http-api-contract-pages-functions).
+The full HTTP API contract is in [§7](#7-http-api-contract-pages-functions). Note: the `/autopilot/*` namespace inside `endpoints` is reserved for the **Autopilot** worker (see [§14](#14-autopilot--agent-worker--mcp-server)); AREA 51's UI treats it as a normal endpoint table, but the Settings purge UI exposes a dedicated "Autopilot Endpoints" purge target for convenience.
 
 ---
 
@@ -452,16 +464,16 @@ The cache miss path returns an empty set on D1 error so a transient D1 outage ne
 
 ### 6.5 What's not in the schema (and why)
 
-- **No counters table.** Tab badges and stats panels were dropped because counting rows on D1 bills per row scanned. Re-litigate this before adding counters; see [§16](#16-design-decision-log).
+- **No counters table.** Tab badges and stats panels were dropped because counting rows on D1 bills per row scanned. Re-litigate this before adding counters; see [§15](#15-design-decision-log).
 - **No foreign keys.** Endpoints, requests, and emails are independent — request rows are NOT linked to the endpoint that matched. The dashboard treats them as separate logs.
 - **No soft-delete columns.** Delete is delete. Purge is delete-by-position. Recovery is via fallback inbox (for emails) or "we just lost the row" (for requests).
-- **No created_by / actor tracking.** The dashboard is single-tenant from the database's perspective. Access control happens at the Cloudflare Access layer, not in the data model.
+- **No created_by / actor tracking.** The dashboard is single-tenant from the database's perspective. Access control happens at the network edge, not in the data model.
 
 ---
 
 ## 7. HTTP API contract (Pages Functions)
 
-Base path: `https://<dashboard-domain>/api/`. All endpoints sit behind Cloudflare Access.
+Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is consumed by the AREA 51 frontend.
 
 **Response conventions:**
 - Success: JSON body, HTTP 200. Lists return a bare JSON array. Detail endpoints return the row object. Mutations return `{ok: true}` (purge also returns `deleted: N`).
@@ -486,7 +498,7 @@ Base path: `https://<dashboard-domain>/api/`. All endpoints sit behind Cloudflar
 | `GET` | `/api/blacklist/emails` | List blacklisted senders. Returns `[{email, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/emails` | Body: `{email, note?}`. Accepts bare `addr@host` or angle-bracketed `Display <addr@host>`; stored lowercase. Validated as `^[^@\s]+@[^@\s]+\.[^@\s]+$`. |
 | `DELETE` | `/api/blacklist/emails/[email]` | Remove. Lowercased + URL-decoded path param. 404 if not present. |
-| `GET` | `/api/config/domains` | Returns `{domains: [{domain, roles}, …]}` from the `DOMAINS_CONFIG` Pages environment variable (JSON-stringified array). Rendered by the Home hero as orbit chips. Edit live in **Cloudflare → Pages → area51 → Settings → Variables and Secrets**; no redeploy needed — next page load picks up the new value. Handler is defensive: returns `{domains: []}` on missing or malformed env. |
+| `GET` | `/api/config/domains` | Returns `{domains: [{domain, roles}, …]}` from the `DOMAINS_CONFIG` Pages environment variable (JSON-stringified array of `{domain, roles}` where `roles` is a subset of `["http", "mail"]`). Rendered by the AREA 51 Home hero as orbit chips around the alien. Edit live in **Cloudflare → Pages → area51 → Settings → Variables and Secrets**; no redeploy needed — next page load picks up the new value. Handler is defensive: returns `{domains: []}` on missing or malformed env. |
 
 The `headers` round-trip is asymmetric on purpose:
 - **Endpoints (write):** dashboard sends a line-separated string; server parses to JSON object before storing.
@@ -495,27 +507,7 @@ The `headers` round-trip is asymmetric on purpose:
 
 ---
 
-## 8. Cloudflare Access
-
-Configured **manually** in the Cloudflare dashboard. Not part of the code deliverables. To set up:
-
-1. Cloudflare → Zero Trust → Access → Applications → **Add an application** → Self-hosted.
-2. **Application domains** — add **all three**, each as a separate "Application domain" row in the same app:
-   - The dashboard's custom domain.
-   - The Pages production URL (`<project-name>.pages.dev`).
-   - The Pages preview URLs (`*.<project-name>.pages.dev`).
-
-   Without all three, the dashboard is reachable unprotected via the raw `pages.dev` URLs even after you've set Access on the custom domain.
-3. Add **two policies, both required** (set to "Allow" with rule grouping such that both must match):
-   - **Rule 1 — IP allowlist:** action Allow, include: IP in range = VPN egress IP(s).
-   - **Rule 2 — Email OTP:** action Allow, include: Emails ending in `@thoropass.com`. Auth method: One-time PIN.
-4. Save. Pages Functions (`/api/*`) inherit the policy automatically.
-
-If a teammate joins the team and can't get in, they need: VPN access AND a `@thoropass.com` mailbox that can receive the OTP.
-
----
-
-## 9. Deployment from a clean slate
+## 8. Deployment from a clean slate
 
 Prereqs:
 - A Cloudflare account with at least **one black-hole zone** (a domain you want the worker to receive HTTP and/or email on) and **one dashboard zone** (a domain to host the Pages site) already added as Cloudflare-managed zones.
@@ -555,7 +547,7 @@ npx wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE t
 
 Should list `endpoints`, `requests`, `emails`, `ip_blacklist`, `email_blacklist` (and `_cf_KV`, which is Cloudflare's internal D1 metadata table — ignore it).
 
-### Step 4 — Deploy the black hole worker
+### Step 4 — Deploy the Black Holes worker
 
 ```sh
 ./scripts/deploy-worker.sh
@@ -582,7 +574,7 @@ For each zone where the black hole should also receive email:
 
 After this, any email to `*@<that-zone>` invokes the worker's `email` handler.
 
-### Step 7 — Deploy the dashboard
+### Step 7 — Deploy AREA 51 (the dashboard)
 
 ```sh
 ./scripts/deploy-pages.sh
@@ -597,7 +589,7 @@ Redeploy once after adding the D1 binding so the new env is picked up: `./script
 
 ### Step 8 — Configure the DOMAINS_CONFIG env var
 
-This is the variable that drives the orbit chips on the Home page and the `/api/config/domains` response.
+This is the variable that drives the orbit chips on the AREA 51 Home page and the `/api/config/domains` response.
 
 **Cloudflare → Pages → `area51` → Settings → Variables and Secrets → Environment variables (Production) → Add variable.** Name `DOMAINS_CONFIG`; value a JSON-stringified array like:
 
@@ -607,19 +599,17 @@ This is the variable that drives the orbit chips on the Home page and the `/api/
 
 Each entry's `roles` is a subset of `["http", "mail"]`. Save, then redeploy Pages so the new value is bound to the active deployment.
 
-### Step 9 — Configure Cloudflare Access
+### Step 9 — Deploy the Autopilot worker (optional, for agent use)
 
-Follow [§8](#8-cloudflare-access). Without this, the dashboard domain is open to the world.
-
-**Also cover the Pages-generated URLs.** Cloudflare always exposes the dashboard at `<project-name>.pages.dev` (production) and `<hash>.<project-name>.pages.dev` (per-deployment previews) regardless of any wrangler setting. Add those hostnames to the same Access application so they're locked behind the same IP + OTP policies.
+If pentesters will be driving the platform via Claude Code / Codex agents, also deploy the Autopilot worker. See [§14](#14-autopilot--agent-worker--mcp-server) for the full setup.
 
 ### Step 10 — Smoke
 
-Run the tests in [§12](#12-smoke-tests).
+Run the tests in [§11](#11-smoke-tests).
 
 ---
 
-## 10. Local development
+## 9. Local development
 
 ### Worker
 
@@ -651,7 +641,7 @@ Or via the dashboard's "New endpoint" form once it's running.
 
 ---
 
-## 11. Operations
+## 10. Operations
 
 ### Tailing worker logs
 
@@ -694,43 +684,42 @@ Set `FALLBACK_ADDRESS` in the repo-root `.env`, then run `./scripts/deploy-worke
 
 ---
 
-## 12. Smoke tests
+## 11. Smoke tests
 
 Run these after any non-trivial deploy.
 
-1. **Schema applied** — `wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote` lists `endpoints`, `requests`, `emails`.
+1. **Schema applied** — `wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote` lists `endpoints`, `requests`, `emails`, `ip_blacklist`, `email_blacklist`.
 2. **HTTP 404 + capture** — `curl https://<black-hole>/test` returns `404! Not Found`. A row appears in `requests`.
-3. **HTTP endpoint serving** — Create an endpoint via the dashboard for `/health` returning `200 ok`. `curl https://<black-hole>/health` returns it. A request row is logged.
+3. **HTTP endpoint serving** — Create an endpoint via AREA 51 for `/health` returning `200 ok`. `curl https://<black-hole>/health` returns it. A request row is logged.
 4. **Email basic** — Send a plain text email under 1 MB and with no attachments to `anything@<mail-enabled-black-hole>`. A row appears in `emails` with populated `headers`, `text`, `html`, `attachments='[]'`. No forward.
 5. **Email with attachment** — Send any email with an attachment. A row appears with `html = "sent_to_fallback"` while `text`, `headers`, `attachments` (metadata) are still populated. The original lands in the fallback inbox.
 6. **Email oversized** — Send a >1 MB email (no attachment required). Same outcome as #5.
-7. **Dashboard CRUD** — Create, edit, delete an endpoint via the modal; live behavior on the worker updates immediately.
+7. **AREA 51 CRUD** — Create, edit, delete an endpoint via the modal; live behavior on the worker updates immediately.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
 10. **Purge** — With ≥15 rows in `requests`, purge with keep=10; only the 10 most recent remain.
-11. **Access (negative)** — From outside VPN: blocked.
-12. **Access (positive)** — On VPN, with a `@thoropass.com` email: OTP challenge → access granted.
+11. **Blacklist write-filter** — Add a test IP to `ip_blacklist`; hit a black hole from that IP within an hour; confirm no row appears in `requests` (response is still served as configured).
+12. **Autopilot** (only if deployed) — see [§14.7](#147-smoke-tests-for-the-autopilot-worker).
 
 ---
 
-## 13. Debugging common issues
+## 12. Debugging common issues
 
 | Symptom | Probable cause | What to check |
 |---|---|---|
-| Dashboard returns 401 / Access page loops | Access policy misconfigured | Cloudflare → Zero Trust → Access → app for the dashboard domain. Confirm IP rule matches your egress; confirm OTP rule targets `@thoropass.com`. |
 | `/api/*` returns HTML instead of JSON | D1 binding missing | Cloudflare → Pages → area51 → Settings → Functions → D1 bindings. Add `DB` → `area51` for both Production and Preview. Redeploy. |
-| Black hole returns 404 for everything | Custom Domain not bound to worker, OR endpoint table empty | Workers → `area51-worker` → Settings → Domains & Routes should show the black hole as a Custom Domain. Confirm `SELECT * FROM endpoints` returns rows. |
+| Black hole returns 404 for everything | Custom Domain not bound to Black Holes worker, OR endpoint table empty | Workers → `area51-worker` → Settings → Domains & Routes should show the black hole as a Custom Domain. Confirm `SELECT * FROM endpoints` returns rows. |
 | Endpoint exists but worker returns 404 | URI mismatch (case, trailing slash, query) | `endpoints.uri` matches `url.pathname` **exactly**. Re-check the path stored. |
-| Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → the black hole zone → Email → Email Routing. Catch-all destination must be the worker. |
-| Email arrives but body is empty / parse fails | postal-mime parse threw on the worker | Check Workers Logs for `email_parse_failed`. The D1 row still gets written, but `headers`, `text`, `html`, `attachments` may be `NULL`. The dashboard will just show the minimal envelope (from/to/subject/ts). |
+| Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → the black hole zone → Email → Email Routing. Catch-all destination must be `area51-worker`. |
+| Email arrives but body is empty / parse fails | postal-mime parse threw on the worker | Check Workers Logs for `email_parse_failed`. The D1 row still gets written, but `headers`, `text`, `html`, `attachments` may be `NULL`. AREA 51 will just show the minimal envelope (from/to/subject/ts). |
 | Request count keeps dropping | Someone purged; or a deploy with the wrong `keep` value | Check Pages Functions logs for `/api/purge` calls. There's no audit trail. |
 | Worker logs show `http_log_insert_failed` | D1 transient error or quota | Logs are best-effort by design — but if it's repeated, check D1 health and storage. |
-| Dashboard's Endpoints search misses matches | LIKE search is `uri LIKE '%query%'` — full-table scan, but exact-substring | Try a shorter / different substring. There's no fuzzy search. |
-| Wrong timestamps in the dashboard | Browser timezone vs UTC | `ts` is UTC ISO 8601; the dashboard renders in the local timezone via `Intl.DateTimeFormat`. Confirm system tz. |
+| AREA 51's Endpoints search misses matches | LIKE search is `uri LIKE '%query%'` — full-table scan, but exact-substring | Try a shorter / different substring. There's no fuzzy search. |
+| Wrong timestamps in AREA 51 | Browser timezone vs UTC | `ts` is UTC ISO 8601; AREA 51 renders in the local timezone via `Intl.DateTimeFormat`. Confirm system tz. |
 
 ---
 
-## 14. Known constraints & caveats
+## 13. Known constraints & caveats
 
 - **D1 row size limit: 2 MB.** Mitigated for emails by the 1 MB forward threshold; the actual body length we write to D1 is typically a fraction of `message.rawSize` (Cloudflare's reported size includes envelope/routing overhead), so 1 MB against `rawSize` leaves comfortable headroom against the 2 MB row cap. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
 - **D1 storage limit: 500 MB on Free tier.** Purge regularly. No automatic eviction.
@@ -743,15 +732,15 @@ Run these after any non-trivial deploy.
 - **No rate limiting on the black holes.** They're meant to be reachable. If abuse happens, layer Cloudflare WAF or rate limiting at the edge.
 - **postal-mime only runs in the worker.** The dashboard no longer parses any EML in the browser — it reads pre-parsed columns from D1. Removes the prior dependency on `esm.sh` for the frontend, and the lazy-load latency on first email modal open.
 - **The dashboard relies on Babel-standalone in the browser.** Initial load is ~3 MB. Acceptable for an internal tool used by ~5 people who keep it open.
-- **No CSRF protection on `/api/*`.** Cloudflare Access cookies are SameSite by default and the dashboard is same-origin, so CSRF risk is bounded — but if you ever ship a third-party-embedded UI, revisit this.
+- **No CSRF protection on `/api/*`.** AREA 51 calls `/api/*` same-origin and session cookies are SameSite by default, so CSRF risk is bounded — but if you ever ship a third-party-embedded UI, revisit this.
 
 ---
 
-## 15. Agent API + MCP server
+## 14. Autopilot — agent worker + MCP server
 
-A separate Cloudflare Worker (`agent-a51-worker`, code in `agent-worker/`) exposes (a) the last 5 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the black holes** — what's been falling into them recently, plus the ability to stage response stubs under `/autopilot/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
+**Autopilot** is the third runtime piece. A separate Cloudflare Worker (service name `agent-a51-worker`, code in `agent-worker/`) that exposes (a) the last 5 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the Black Holes** — what's been falling into them recently, plus the ability to stage response stubs under `/autopilot/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
 
-### 15.1 What it serves
+### 14.1 What it serves
 
 All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 
@@ -763,31 +752,31 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 | `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/autopilot/` — server returns 400 otherwise. |
 | `GET` | `/autopilot/endpoints/<uri>` | Read one. URI is URL-encoded in the path. Same `/autopilot/` prefix rule. |
 | `DELETE` | `/autopilot/endpoints/<uri>` | Delete one. Same prefix rule. |
-| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Six tools (see §15.4). |
+| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Six tools (see §14.4). |
 
 **No parameters on the read endpoints.** Window (5 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows.
 
-**The `/autopilot/` prefix is hardcoded** in the worker and applies to every CRUD path. The agent worker has no ability to read, create, update, or delete an endpoint outside that namespace — a separate guardrail from the dashboard's full-namespace CRUD via `/api/endpoints`.
+**The `/autopilot/` prefix is hardcoded** in the worker and applies to every CRUD path. The Autopilot worker has no ability to read, create, update, or delete an endpoint outside that namespace — a separate guardrail from AREA 51's full-namespace CRUD via `/api/endpoints`.
 
-### 15.2 Why a separate worker
+### 14.2 Why a separate worker
 
-- **Different domain semantics.** The black hole worker catches every path on every bound domain as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
-- **Different read pattern.** The black hole worker is write-heavy on the request log path. The agent worker is read-oriented (with bounded writes via the `/autopilot/*` CRUD path).
-- **Different auth model.** The black holes are wide open (they have to be reachable by targets). The agent worker is locked behind a shared secret. Different surface, different rules.
-- **Different blast radius.** A runaway agent making mistakes through the agent worker is bounded to `/autopilot/*` and recent reads. It cannot touch the rest of the endpoint table or the blacklists.
+- **Different domain semantics.** The Black Holes worker catches every path on every bound domain as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
+- **Different read pattern.** The Black Holes worker is write-heavy on the request log path. Autopilot is read-oriented (with bounded writes via the `/autopilot/*` CRUD path).
+- **Different auth model.** The Black Holes are wide open (they have to be reachable by targets). Autopilot is locked behind a shared secret. Different surface, different rules.
+- **Different blast radius.** A runaway agent making mistakes through Autopilot is bounded to `/autopilot/*` and recent reads. It cannot touch the rest of the endpoint table or the blacklists.
 
 Both workers share the same D1 binding (`area51` database). Schema doesn't change.
 
-### 15.3 No edge cache on the agent worker
+### 14.3 No edge cache on Autopilot
 
-Earlier versions of this worker wrapped the read endpoints in a 60-second `caches.default` edge cache. **Removed** because:
+Earlier versions of the Autopilot worker wrapped the read endpoints in a 60-second `caches.default` edge cache. **Removed** because:
 
 - During an active engagement an agent polling `/requests` or `/emails` wants the freshest possible view (a 60s stale snapshot can hide a just-arrived callback that the agent's reasoning depends on).
 - D1 read budget at realistic pentest volume is small enough that the cache wasn't earning its complexity — even with one agent polling every 30 seconds at 100 callbacks/min, you land at ~3M reads/day worst case across both endpoints, still under the 5M/day free quota.
 
 So every call hits D1. The `/autopilot/*` CRUD endpoints are also uncached — they're mutations or fresh reads. The `Cache-Control: no-store` header is set on all responses to discourage clients from caching on their end either.
 
-### 15.4 MCP server (what it is and how Claude Code uses it)
+### 14.4 MCP server (what it is and how Claude Code uses it)
 
 The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Six tools exposed:
 
@@ -800,19 +789,19 @@ The Model Context Protocol is Anthropic's spec for letting LLMs talk to external
 | `autopilot_endpoints_upsert` | `POST /autopilot/endpoints` | `{uri, status, headers?, body?}` |
 | `autopilot_endpoints_delete` | `DELETE /autopilot/endpoints/<uri>` | `{uri}` |
 
-Each tool has an agent-friendly description in the tool schema explaining *when* to use it. The `initialize` response also returns an `instructions` field giving the agent a brief preamble: what AREA 51 is, what the tools do, and the `/autopilot/` prefix rule.
+Each tool has an agent-friendly description in the tool schema explaining *when* to use it. The `initialize` response also returns an `instructions` field giving the agent a brief preamble: what the Black Holes are, what the tools do, and the `/autopilot/` prefix rule.
 
-To register the MCP server in Claude Code on a pentester's machine:
+To register Autopilot in Claude Code on a pentester's machine:
 
 ```sh
-claude mcp add area51 https://<agent-worker-domain>/mcp \
+claude mcp add autopilot https://<autopilot-domain>/mcp \
   --transport http \
   --header "X-A51-Secret: <secret-from-.env>"
 ```
 
-After that, any Claude Code session on that machine has all six `mcp__area51__*` tools available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
+After that, any Claude Code session on that machine has all six `mcp__autopilot__*` tools available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
 
-### 15.5 Auth + secret management
+### 14.5 Auth + secret management
 
 - Secret name: `AGENT_SECRET`. Long random hex, generated with `openssl rand -hex 32`.
 - **Header**: clients send `X-A51-Secret: <secret>` on every request (REST and MCP).
@@ -821,7 +810,7 @@ After that, any Claude Code session on that machine has all six `mcp__area51__*`
 - **Storage locally**: lives in the repo-root `.env` (gitignored) so `scripts/deploy-agent.sh` can re-install it after rotation without anyone having to remember the value.
 - **Rotation**: `openssl rand -hex 32 > newvalue`, update `.env`, run `./scripts/deploy-agent.sh`. Then teammates re-run `claude mcp add` (or edit their MCP config) with the new value.
 
-### 15.6 Deploying
+### 14.6 Deploying Autopilot
 
 From a clean clone:
 
@@ -838,15 +827,15 @@ cp .env.example .env
 
 Then in the Cloudflare dashboard:
 
-- **Workers → `agent-a51-worker` → Settings → Domains & Routes** → Add Custom Domain → the domain you want the agent worker on. (Manual because DNS / Custom Domain mapping is intentionally not part of the deploy automation.)
+- **Workers → `agent-a51-worker` → Settings → Domains & Routes** → Add Custom Domain → the domain you want Autopilot on. (Manual because DNS / Custom Domain mapping is intentionally not part of the deploy automation.)
 
-That's it. Six endpoints + an MCP server live behind the agent worker's bound domain.
+That's it. Six endpoints + an MCP server live behind Autopilot's bound domain.
 
-### 15.7 Smoke tests for the agent worker
+### 14.7 Smoke tests for the Autopilot worker
 
 ```sh
 SECRET=$(grep ^AGENT_SECRET .env | cut -d= -f2)
-BASE=https://<agent-worker-domain>
+BASE=https://<autopilot-domain>
 
 # REST
 curl -sS -H "X-A51-Secret: $SECRET" $BASE/requests | jq .served_at
@@ -875,11 +864,11 @@ The expected steady-state cost of all this: a few hundred to a few thousand D1 r
 
 ---
 
-## 16. Design decision log
+## 15. Design decision log
 
 These are the non-obvious choices. Each is here because someone might be tempted to undo it without realizing the cost.
 
-### 16.1 No row counts anywhere in the UI
+### 15.1 No row counts anywhere in the UI
 
 The original design had tab-count badges ("Endpoints 42 · Requests 5,183 · Emails 926") and a Settings stats panel. We removed both. **D1 bills per row scanned** — `SELECT COUNT(*) FROM emails` over 1k rows is 1k row reads, and a dashboard refresh would burn ~6k row reads on counts alone. At our usage that's still well under the Free tier (5M reads/day), but the polish-to-cost ratio is bad: scans grow linearly with table size and offer ~zero user value at this scale.
 
@@ -887,7 +876,7 @@ The textbook fix is a separate `counters` table updated by `AFTER INSERT/DELETE`
 
 If you bring counts back, do it via counters + triggers, not COUNT(*).
 
-### 16.2 Endpoints list shows URI + status (and only those)
+### 15.2 Endpoints list shows URI + status (and only those)
 
 The original design showed URI, status, header count, and body length per row, populated via N+1 lazy fetches. We re-shaped that: the list endpoint returns just `{uri, status}` (two columns), the row renders status using the same color-coded `status-2xx/3xx/4xx/5xx` tags as the Requests tab, and the full headers/body are fetched only when the modal opens.
 
@@ -896,15 +885,15 @@ Why this shape:
 - **Headers count and body length aren't** — both require either an extra round-trip per row or fattening the list payload, and neither tells you anything that the modal doesn't show better.
 - One query per page (10 rows) instead of 11 (1 list + 10 lazy details).
 
-### 16.3 Purge banner doesn't show a row delete count
+### 15.3 Purge banner doesn't show a row delete count
 
 To keep "will delete X of Y rows" accurate, we'd need to fetch the current table count every time the user changes the `keep` input. Same row-scan cost as the counts decision. The simplified banner ("will keep the latest N · older rows permanently deleted · no undo") communicates the action; the user sees the resulting `deleted: N` count via the success toast.
 
-### 16.4 No build pipeline for the frontend
+### 15.4 No build pipeline for the frontend
 
 React + Babel-standalone loaded from unpkg, JSX transpiled in the browser. **Pro:** zero build deps, zero version-skew chores, deploys are pure file uploads. **Con:** ~3 MB of JS on first load, no tree-shaking, no TypeScript. For a 5-person internal tool, the trade is worth it. If the dashboard grows past ~2 k lines of frontend code, revisit Vite + a real build.
 
-### 16.5 Worker parses once; dashboard reads parsed columns
+### 15.5 Worker parses once; dashboard reads parsed columns
 
 The earlier design kept the raw EML in D1 and re-parsed it in the browser on every modal open. We replaced that with worker-side parsing into structured columns (`headers`, `text`, `html`, `attachments`). Tradeoffs:
 
@@ -914,7 +903,7 @@ The earlier design kept the raw EML in D1 and re-parsed it in the browser on eve
 - **No re-parsing on read** — dashboard is a thin renderer of the columns.
 - **Attachment content is never persisted.** Only metadata. Pentest mail attachments stay in the fallback inbox; D1 carries the filename/mime/size for reference.
 
-### 16.6 `html = "sent_to_fallback"` as a sentinel
+### 15.6 `html = "sent_to_fallback"` as a sentinel
 
 We could add a separate `was_forwarded` boolean column. Instead, we overload the `html` column with a literal string marker on rows whose original got forwarded to the fallback inbox (due to size > 1 MB or any attachment present).
 
@@ -926,7 +915,7 @@ We could add a separate `was_forwarded` boolean column. Instead, we overload the
 
 If you change the marker or the column it lives in, change both sites in the same commit.
 
-### 16.7 Endpoints are exact-match, not glob
+### 15.7 Endpoints are exact-match, not glob
 
 The worker matches `url.pathname` against `endpoints.uri` with `WHERE uri = ?`. No wildcards, no regex. A request to `/foo/bar` only matches an endpoint with `uri = '/foo/bar'`. This is intentional for now:
 - Predictability: the table is the source of truth, no precedence rules to reason about.

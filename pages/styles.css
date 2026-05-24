@@ -961,7 +961,7 @@ select {
 
 .home-tiles {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 1px;
   background: var(--n2);
   border: 1px solid var(--n2);

@@ -310,11 +310,13 @@ Event names emitted:
 | Event | When |
 |---|---|
 | `http_request_received` | top of fetch handler |
+| `http_rejected_blacklist` | IP on the ip_blacklist; 403 returned, no D1 write, no endpoint serve |
 | `http_endpoint_matched` | endpoint row found, about to respond |
 | `http_endpoint_not_found` | no endpoint row for path |
 | `http_endpoint_lookup_failed` | D1 lookup threw (rare) |
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the `ctx.waitUntil` request log |
 | `email_received` | top of email handler |
+| `email_rejected_blacklist` | sender on the email_blacklist; `setReject` invoked, no D1 write, no forward |
 | `email_parse_failed` | postal-mime threw (D1 row still gets written with whatever metadata we have) |
 | `email_fallback` | shouldForward branch fired; logs `{reason, hasAttachments, tooBig, rawSize}` |
 | `email_oversized` | decision to forward (rawSize > 1 MB) |
@@ -444,7 +446,7 @@ Note: even on fallback rows, **everything except `html` is written**: `subject`,
 
 ### 6.4 `ip_blacklist` and `email_blacklist`
 
-Write-filter lists consulted by the worker before storing a captured `request` or `email`. Exact-match only — no patterns, no CIDR ranges.
+Active-reject lists consulted by the worker at the top of each handler. Exact-match only — no patterns, no CIDR ranges.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -455,12 +457,12 @@ Write-filter lists consulted by the worker before storing a captured `request` o
 No additional indexes — the PK suffices for both reads (worker checks `WHERE ip = ?`) and writes.
 
 Worker behavior on a match:
-- **IP blacklist hit** → skip `ctx.waitUntil(insertRequestLog(...))`. The target still receives the configured endpoint response — only the D1 write is suppressed.
-- **Email blacklist hit** → silent drop. No D1 row, no fallback forward. Cloudflare's MX has already accepted the message; the worker just discards.
+- **IP blacklist hit** → return `403 Forbidden` immediately. The body is never read, the endpoint table is never consulted, no row is written to `requests`. The target sees a hard reject.
+- **Email blacklist hit** → `message.setReject('Address not accepted')`. The email is NACKed back to the upstream SMTP server so the sender gets a bounce. No row is written to `emails`, no fallback forward happens.
 
-Worker reads each list at most **once per 60 minutes per data center** (edge-cached via `caches.default`). Dashboard mutations take up to **60 minutes** to fully propagate — applies to both adds and removes. The long TTL is intentional: at moderate pentest traffic (~100 callbacks/min), this drops blacklist-related D1 reads from ~8K/day to ~150/day per edge. Acceptable because blacklisting is a noise filter, not a security boundary; the cost of hour-long staleness on an add is "we logged a few more requests from a noisy IP than necessary," and on a remove is "we silently dropped a few legitimate captures for slightly longer than expected."
+Worker reads each list at most **once per 60 minutes per data center** (edge-cached via `caches.default`). Dashboard mutations take up to **60 minutes** to fully propagate — applies to both adds and removes. The long TTL is intentional: at moderate pentest traffic (~100 callbacks/min), this drops blacklist-related D1 reads from ~8K/day to ~150/day per edge. Acceptable because blacklisting is a noise filter, not a security boundary; the cost of hour-long staleness on an add is "we keep accepting a few more requests/emails from the source than necessary," and on a remove is "we keep rejecting a freshly un-blacklisted source for slightly longer than expected."
 
-The cache miss path returns an empty set on D1 error so a transient D1 outage never blocks captures.
+The cache miss path returns an empty set on D1 error so a transient D1 outage never blocks captures (fail-open: an outage means we don't enforce, rather than rejecting everyone).
 
 ### 6.5 What's not in the schema (and why)
 
@@ -698,8 +700,9 @@ Run these after any non-trivial deploy.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
 10. **Purge** — With ≥15 rows in `requests`, purge with keep=10; only the 10 most recent remain.
-11. **Blacklist write-filter** — Add a test IP to `ip_blacklist`; hit a black hole from that IP within an hour; confirm no row appears in `requests` (response is still served as configured).
-12. **Autopilot** (only if deployed) — see [§14.7](#147-smoke-tests-for-the-autopilot-worker).
+11. **Blacklist reject (HTTP)** — Add a test IP to `ip_blacklist`; hit a black hole from that IP within an hour; confirm the response is `403 Forbidden` and no row appears in `requests`. Also expect a `http_rejected_blacklist` log line in `wrangler tail`.
+12. **Blacklist reject (email)** — Add a test sender to `email_blacklist`; send from that address within an hour; confirm the sender receives a bounce ("Address not accepted") and no row appears in `emails`. Expect `email_rejected_blacklist` in the tail.
+13. **Autopilot** (only if deployed) — see [§14.7](#147-smoke-tests-for-the-autopilot-worker).
 
 ---
 

@@ -157,6 +157,20 @@ textarea {
   resize: vertical;
 }
 
+/* Drop the native dropdown arrow on <select> and paint a themed chevron with
+   actual breathing room from the right edge. currentColor in the SVG follows
+   the field's text color so dark/light themes both look right. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10' fill='none' stroke='%238893a8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M2 4l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 10px;
+}
+
 ::selection {
   background: rgba(136, 192, 208, 0.3);
 }

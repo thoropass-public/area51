@@ -1,4 +1,4 @@
-export const PAGE_SIZE = 10;
+export const PAGE_SIZE = 50;
 
 export function json(data, init) {
   return Response.json(data, init);

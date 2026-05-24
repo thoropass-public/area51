@@ -167,7 +167,6 @@ function Home({ setTab }) {
     { id: "endpoints", num: "01", title: "Endpoints", desc: "Define what gets served to the target — status, headers, body. Use as callback URLs, SSRF probes, OAuth redirects, payload hosts." },
     { id: "requests",  num: "02", title: "Requests",  desc: "Every HTTP hit on the worker, raw. Inspect method, URL, IP, headers and body." },
     { id: "emails",    num: "03", title: "Emails",    desc: "Inbound emails are received and parsed entirely client-side, with HTML bodies rendered in a sandboxed context to contain untrusted content." },
-    { id: "settings",  num: "04", title: "Settings",  desc: "Purge captured rows to stay under D1 quotas." },
   ];
 
   // Fetch the domain list from the Pages env var (via /api/config/domains).

@@ -170,6 +170,62 @@ function TopBar({ tab, setTab, theme, toggleTheme, pinging }) {
 // Home
 // ----------------------------------------------------------------
 
+// Domains bound to the AREA 51 workers. Rendered as chips orbiting the alien
+// on the Home hero. Edit this list to add or remove domains — the orbit
+// layout adapts automatically to any N.
+//
+// Each entry:
+//   - domain: the bare hostname (no protocol)
+//   - roles:  array containing any of "http" and "mail", describing what
+//             the worker(s) on that domain accept.
+const DOMAINS = [
+  { domain: "oob.example",             roles: ["http", "mail"] },
+  { domain: "ops.example",  roles: ["http", "mail"] },
+];
+
+function fmtRoles(roles) {
+  return (roles || []).map((r) => r.toLowerCase()).join(" · ");
+}
+
+// Compute a chip's (left%, top%) inside the .orbit-stage. Distributes N
+// chips evenly around the alien's center, alternating between inner and
+// outer orbit rings for visual rhythm. The radius is then clamped per-angle
+// so chips never fall outside the visible stage box.
+function chipPlacement(i, n) {
+  // Stage viewBox: 640 × 320, alien centered at (320, 160).
+  const cx = 320, cy = 160, stageW = 640;
+  // The .orbit-stage has margin-bottom: -60, so the effective bottom edge
+  // (where chips can still be fully visible) is at y ≈ 260, not 320.
+  const effectiveBottom = 260;
+  // Approximate chip half-extents (we want padding, not pixel-perfect).
+  const chipHalfH = 20;
+  const chipHalfW = 100;
+
+  const startAngleDeg = -45;
+  const stepDeg = 360 / n;
+  const angle = ((startAngleDeg + i * stepDeg) * Math.PI) / 180;
+
+  const maxDown = effectiveBottom - chipHalfH - cy;
+  const maxUp   = cy - chipHalfH;
+  const maxSide = (stageW / 2) - chipHalfW;
+
+  // Desired radius alternates inner/outer ring (matches the two SVG rings).
+  let r = i % 2 === 0 ? 132 : 92;
+
+  const sinA = Math.sin(angle);
+  const cosA = Math.cos(angle);
+  if (sinA > 0) r = Math.min(r, maxDown / sinA);
+  if (sinA < 0) r = Math.min(r, maxUp   / -sinA);
+  if (cosA !== 0) r = Math.min(r, maxSide / Math.abs(cosA));
+  // Never pull the chip into the alien's silhouette.
+  r = Math.max(r, 76);
+
+  return {
+    leftPct: ((cx + r * cosA) / stageW) * 100,
+    topPct:  ((cy + r * sinA) / 320)    * 100,
+  };
+}
+
 function Home({ setTab }) {
   const tiles = [
     { id: "endpoints", num: "01", title: "Endpoints", desc: "Define what gets served to the target — status, headers, body. Use as callback URLs, SSRF probes, OAuth redirects, payload hosts." },
@@ -182,11 +238,41 @@ function Home({ setTab }) {
     <div className="content">
       <div className="home">
         <div className="home-hero">
-          <svg className="alien-xl" width="120" height="120" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 2.2c-4.4 0-7.2 3.1-7.2 7.5 0 3 1.3 5.6 3 7.6 1.2 1.5 2.6 2.7 3.4 3.7.4.6 1.2.6 1.6 0 .8-1 2.2-2.2 3.4-3.7 1.7-2 3-4.6 3-7.6 0-4.4-2.8-7.5-7.2-7.5Z" fill="currentColor"/>
-            <ellipse cx="8.6" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(-22 8.6 11.4)"/>
-            <ellipse cx="15.4" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(22 15.4 11.4)"/>
-          </svg>
+          <div className="orbit-stage">
+            <svg
+              className="orbit-rings"
+              viewBox="0 0 640 320"
+              preserveAspectRatio="xMidYMid meet"
+              aria-hidden="true"
+            >
+              <circle cx="320" cy="160" r="92"  fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 8"  opacity="0.45"/>
+              <circle cx="320" cy="160" r="132" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 12" opacity="0.28"/>
+            </svg>
+            <svg className="alien-xl" width="140" height="140" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 2.2c-4.4 0-7.2 3.1-7.2 7.5 0 3 1.3 5.6 3 7.6 1.2 1.5 2.6 2.7 3.4 3.7.4.6 1.2.6 1.6 0 .8-1 2.2-2.2 3.4-3.7 1.7-2 3-4.6 3-7.6 0-4.4-2.8-7.5-7.2-7.5Z" fill="currentColor"/>
+              <ellipse cx="8.6" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(-22 8.6 11.4)"/>
+              <ellipse cx="15.4" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(22 15.4 11.4)"/>
+            </svg>
+            {DOMAINS.map((d, i) => {
+              const p = chipPlacement(i, DOMAINS.length);
+              return (
+                <div
+                  key={d.domain}
+                  className="orbit-anchor"
+                  style={{ left: `${p.leftPct}%`, top: `${p.topPct}%` }}
+                >
+                  <div
+                    className="orbit-domain"
+                    style={{ animationDelay: `${-(i * 1.7) % 7}s` }}
+                  >
+                    <span className="dot"/>
+                    <span className="addr">{d.domain}</span>
+                    <span className="scope">{fmtRoles(d.roles)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <h1>AREA 51</h1>
           <div className="sub">/ɛəriə ˌfɪfti ˈwʌn/</div>
         </div>

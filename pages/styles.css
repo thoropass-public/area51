@@ -791,7 +791,94 @@ select {
 .alien-xl {
   color: var(--f1);
   margin-bottom: 22px;
-  filter: drop-shadow(0 0 28px var(--f1-edge));
+  filter: drop-shadow(0 0 36px var(--f1-edge));
+}
+
+/* ----- Orbit stage on Home -----
+   Container holds two dashed orbit-ring circles, the alien centered, and one
+   absolutely-positioned chip per configured domain. Chip positions are
+   computed in JS (chipPlacement) so the layout adapts to any N domains. */
+.orbit-stage {
+  position: relative;
+  width: 640px;
+  max-width: 100%;
+  height: 320px;
+  margin-bottom: -60px;
+}
+
+.orbit-stage .orbit-rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--n3);
+  pointer-events: none;
+}
+
+.orbit-stage .alien-xl {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+}
+
+.orbit-anchor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.orbit-domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 13px 8px 12px;
+  background: var(--n0);
+  border: 1px solid var(--n3);
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--s1);
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  animation: orbit-drift 7s ease-in-out infinite;
+  will-change: transform;
+}
+
+[data-theme="light"] .orbit-domain {
+  box-shadow: 0 4px 14px rgba(45, 42, 35, 0.10);
+}
+
+.orbit-domain .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green-edge);
+  animation: orbit-pulse 2.2s ease-in-out infinite;
+}
+
+.orbit-domain .scope {
+  color: var(--n4);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@keyframes orbit-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.85); }
+}
+
+@keyframes orbit-drift {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(4px, -5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-domain { animation: none; }
+  .orbit-domain .dot { animation: none; opacity: 1; transform: none; }
 }
 
 .home h1 {

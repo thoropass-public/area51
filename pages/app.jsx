@@ -2,8 +2,22 @@
 
 function App() {
   const [tab, setTab] = useState("home");
-  const [refreshTick, setRefreshTick] = useState(0);
-  const triggerRefresh = useCallback(() => setRefreshTick((n) => n + 1), []);
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem("area51:theme");
+      if (saved === "light" || saved === "dark") return saved;
+    } catch {}
+    return "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { window.localStorage.setItem("area51:theme", theme); } catch {}
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }, []);
 
   // Keyboard tab switching: ⌘/ctrl + 1..4
   useEffect(() => {
@@ -23,12 +37,12 @@ function App() {
       <ToastProvider>
         <BlacklistProvider>
           <div className="app">
-            <TopBar tab={tab} setTab={setTab} onRefresh={triggerRefresh}/>
+            <TopBar tab={tab} setTab={setTab} theme={theme} toggleTheme={toggleTheme}/>
             <div className="workspace">
               {tab === "home" && <Home setTab={setTab}/>}
-              {tab === "endpoints" && <EndpointsTab refreshKey={refreshTick}/>}
-              {tab === "requests" && <RequestsTab refreshKey={refreshTick}/>}
-              {tab === "emails" && <EmailsTab refreshKey={refreshTick}/>}
+              {tab === "endpoints" && <EndpointsTab/>}
+              {tab === "requests" && <RequestsTab/>}
+              {tab === "emails" && <EmailsTab/>}
               {tab === "settings" && <Settings/>}
             </div>
           </div>
@@ -42,27 +56,20 @@ function App() {
 // TopBar
 // ----------------------------------------------------------------
 
-function TopBar({ tab, setTab, onRefresh }) {
+function TopBar({ tab, setTab, theme, toggleTheme }) {
   const TABS = [
     { id: "endpoints", label: "Endpoints" },
     { id: "requests", label: "Requests" },
     { id: "emails", label: "Emails" },
     { id: "settings", label: "Settings" },
   ];
-  const isListTab = tab === "endpoints" || tab === "requests" || tab === "emails";
-  const [spinning, setSpinning] = useState(false);
-  const handleRefresh = () => {
-    setSpinning(true);
-    onRefresh();
-    setTimeout(() => setSpinning(false), 600);
-  };
   return (
     <div className="topbar">
       <button className="brand" onClick={() => setTab("home")} title="Home" aria-label="Home">
-        <svg className="alien" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <svg className="alien" width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 2.2c-4.4 0-7.2 3.1-7.2 7.5 0 3 1.3 5.6 3 7.6 1.2 1.5 2.6 2.7 3.4 3.7.4.6 1.2.6 1.6 0 .8-1 2.2-2.2 3.4-3.7 1.7-2 3-4.6 3-7.6 0-4.4-2.8-7.5-7.2-7.5Z" fill="currentColor"/>
-          <ellipse cx="8.6" cy="11.4" rx="2.1" ry="2.9" fill="#20242c" transform="rotate(-22 8.6 11.4)"/>
-          <ellipse cx="15.4" cy="11.4" rx="2.1" ry="2.9" fill="#20242c" transform="rotate(22 15.4 11.4)"/>
+          <ellipse cx="8.6" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(-22 8.6 11.4)"/>
+          <ellipse cx="15.4" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(22 15.4 11.4)"/>
         </svg>
       </button>
       <div className="tabs">
@@ -76,18 +83,25 @@ function TopBar({ tab, setTab, onRefresh }) {
           </button>
         ))}
       </div>
-      {isListTab && (
-        <div className="topbar-right">
-          <button
-            className={`topbar-action ${spinning ? "spinning" : ""}`}
-            onClick={handleRefresh}
-            title={`Refresh ${tab}`}
-            aria-label={`Refresh ${tab}`}
-          >
-            <Icon.refresh/>
-          </button>
-        </div>
-      )}
+      <div className="topbar-right">
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label="Toggle theme"
+        >
+          {theme === "dark" ? (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+              <circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>
+              <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M3.2 12.8l1.4-1.4M11.4 4.6l1.4-1.4"/>
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M13.5 9.2A5.5 5.5 0 1 1 6.8 2.5a4.5 4.5 0 0 0 6.7 6.7Z" fill="currentColor"/>
+            </svg>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
@@ -110,8 +124,8 @@ function Home({ setTab }) {
         <div className="home-hero">
           <svg className="alien-xl" width="120" height="120" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 2.2c-4.4 0-7.2 3.1-7.2 7.5 0 3 1.3 5.6 3 7.6 1.2 1.5 2.6 2.7 3.4 3.7.4.6 1.2.6 1.6 0 .8-1 2.2-2.2 3.4-3.7 1.7-2 3-4.6 3-7.6 0-4.4-2.8-7.5-7.2-7.5Z" fill="currentColor"/>
-            <ellipse cx="8.6" cy="11.4" rx="2.1" ry="2.9" fill="#20242c" transform="rotate(-22 8.6 11.4)"/>
-            <ellipse cx="15.4" cy="11.4" rx="2.1" ry="2.9" fill="#20242c" transform="rotate(22 15.4 11.4)"/>
+            <ellipse cx="8.6" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(-22 8.6 11.4)"/>
+            <ellipse cx="15.4" cy="11.4" rx="2.1" ry="2.9" fill="var(--n0)" transform="rotate(22 15.4 11.4)"/>
           </svg>
           <h1>AREA 51</h1>
           <div className="sub">/ɛəriə ˌfɪfti ˈwʌn/</div>
@@ -156,29 +170,30 @@ function Settings() {
   const [table, setTable] = useState("requests");
   const [keep, setKeep] = useState(100);
   const [purging, setPurging] = useState(false);
-  const [purgingAuto, setPurgingAuto] = useState(false);
 
-  const doPurgeAutopilot = async () => {
-    const ok = await confirm({
-      title: "Purge autopilot endpoints",
-      message: "Permanently delete every endpoint matching /autopilot/*. Manually-defined endpoints are not affected. This cannot be undone.",
-      confirmLabel: "Purge",
-      danger: true,
-    });
-    if (!ok) return;
-    setPurgingAuto(true);
-    try {
-      const res = await API.purgeAutopilot();
-      const n = res.deleted || 0;
-      toast(`Purged ${n.toLocaleString()} autopilot endpoint${n === 1 ? "" : "s"}`, "success");
-    } catch (e) {
-      toast("Purge failed: " + e.message, "error");
-    } finally {
-      setPurgingAuto(false);
-    }
-  };
+  const isAutopilot = table === "autopilot";
 
   const doPurge = async () => {
+    if (isAutopilot) {
+      const ok = await confirm({
+        title: "Purge autopilot endpoints",
+        message: "Permanently delete every endpoint matching /autopilot/*. Manually-defined endpoints are not affected. This cannot be undone.",
+        confirmLabel: "Purge",
+        danger: true,
+      });
+      if (!ok) return;
+      setPurging(true);
+      try {
+        const res = await API.purgeAutopilot();
+        const n = res.deleted || 0;
+        toast(`Purged ${n.toLocaleString()} autopilot endpoint${n === 1 ? "" : "s"}`, "success");
+      } catch (e) {
+        toast("Purge failed: " + e.message, "error");
+      } finally {
+        setPurging(false);
+      }
+      return;
+    }
     const keepNum = Number(keep);
     if (!Number.isInteger(keepNum) || keepNum < 0) {
       toast("Keep value must be a non-negative integer", "error");
@@ -208,62 +223,46 @@ function Settings() {
     <div className="content">
       <div className="settings">
         <div className="settings-section">
-          <h2>Purge captured data</h2>
+          <h2>Purge data</h2>
           <p className="desc">
-            Cloudflare D1 is free, but not unlimited. To make sure we stay under the limits, it is important to actively purge the request and email records.
+            Cloudflare D1 is free, but not unlimited. To make sure we stay under the limits, it is important to actively purge unwanted records.
           </p>
           <div className="settings-card">
             <div className="settings-row">
               <div className="field" style={{marginBottom:0}}>
-                <label>Table</label>
+                <label>Target</label>
                 <select value={table} onChange={(e) => setTable(e.target.value)}>
                   <option value="requests">Requests</option>
                   <option value="emails">Emails</option>
+                  <option value="autopilot">Autopilot endpoints</option>
                 </select>
               </div>
-              <div className="field" style={{marginBottom:0}}>
-                <label>Keep latest</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={keep}
-                  onChange={(e) => setKeep(e.target.value)}
-                />
-              </div>
+              {!isAutopilot && (
+                <div className="field" style={{marginBottom:0}}>
+                  <label>Keep latest</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={keep}
+                    onChange={(e) => setKeep(e.target.value)}
+                  />
+                </div>
+              )}
               <button className="btn danger" onClick={doPurge} disabled={purging}>
                 {purging ? <><span className="spinner"/> purging</> : "Purge"}
               </button>
             </div>
             <div className="danger-banner">
               <span className="glyph">!</span>
-              <span>
-                will keep the latest <b style={{color:"var(--s2)"}}>{keep}</b> {table} · older rows permanently deleted · no undo
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="settings-section">
-          <h2>Purge autopilot endpoints</h2>
-          <p className="desc">
-            Endpoints under <code className="inline-code">/autopilot/*</code> are created automatically by agents via the MCP server during engagements. These tend to accumulate quickly. Purging removes them all at once; manually-defined endpoints are untouched.
-          </p>
-          <div className="settings-card autopilot-card">
-            <div className="autopilot-action">
-              <div className="autopilot-hint">
-                Matches everything with a path starting <code className="inline-code">/autopilot/</code>.
-              </div>
-              <button
-                className="btn danger"
-                onClick={doPurgeAutopilot}
-                disabled={purgingAuto}
-              >
-                {purgingAuto ? <><span className="spinner"/> purging</> : "Purge endpoints"}
-              </button>
-            </div>
-            <div className="danger-banner">
-              <span className="glyph">!</span>
-              <span>destructive · no undo · operation is idempotent if no matches are found</span>
+              {isAutopilot ? (
+                <span>
+                  will delete every endpoint matching <b style={{color:"var(--s2)", fontFamily:"var(--mono)"}}>/autopilot/*</b> · manually-defined endpoints untouched · no undo
+                </span>
+              ) : (
+                <span>
+                  will keep the latest <b style={{color:"var(--s2)"}}>{keep}</b> {table} · older rows permanently deleted · no undo
+                </span>
+              )}
             </div>
           </div>
         </div>

@@ -192,7 +192,7 @@ function EndpointsTab() {
     try {
       const r = await API.listEndpoints({ search: terms });
       setRows(r);
-      setHasMore(r.length === 10);
+      setHasMore(r.length === 50);
     } catch (e) {
       toast("Failed to load endpoints: " + e.message, "error");
       setRows([]);
@@ -211,7 +211,7 @@ function EndpointsTab() {
       const cursor = rows[rows.length - 1].uri;
       const r = await API.listEndpoints({ search: terms, cursor });
       setRows((xs) => [...xs, ...r]);
-      setHasMore(r.length === 10);
+      setHasMore(r.length === 50);
     } catch (e) {
       toast("Failed to load more: " + e.message, "error");
     } finally {
@@ -446,7 +446,7 @@ function RequestsTab() {
     try {
       const r = await API.listRequests({ search: terms });
       setRows(r);
-      setHasMore(r.length === 10);
+      setHasMore(r.length === 50);
     } catch (e) {
       toast("Failed to load requests: " + e.message, "error");
       setRows([]); setHasMore(false);
@@ -464,7 +464,7 @@ function RequestsTab() {
       const cursor = rows[rows.length - 1].ts;
       const r = await API.listRequests({ search: terms, cursor });
       setRows((xs) => [...xs, ...r]);
-      setHasMore(r.length === 10);
+      setHasMore(r.length === 50);
     } catch (e) {
       toast("Failed to load more: " + e.message, "error");
     } finally {
@@ -625,7 +625,7 @@ function EmailsTab() {
     try {
       const r = await API.listEmails({ search: terms });
       setRows(r);
-      setHasMore(r.length === 10);
+      setHasMore(r.length === 50);
     } catch (e) {
       toast("Failed to load emails: " + e.message, "error");
       setRows([]); setHasMore(false);
@@ -643,7 +643,7 @@ function EmailsTab() {
       const cursor = rows[rows.length - 1].ts;
       const r = await API.listEmails({ search: terms, cursor });
       setRows((xs) => [...xs, ...r]);
-      setHasMore(r.length === 10);
+      setHasMore(r.length === 50);
     } catch (e) {
       toast("Failed to load more: " + e.message, "error");
     } finally {

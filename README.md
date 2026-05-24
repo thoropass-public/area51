@@ -476,6 +476,7 @@ Base path: `https://area51.thoropentests.com/api/`. All endpoints sit behind Clo
 | `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
 | `GET` | `/api/emails/[id]` | Detail. Returns `{id, ts, from_addr, to_addr, subject, headers, text, html, attachments}` with `headers` and `attachments` parsed back from JSON into arrays. 404 if missing. |
 | `POST` | `/api/purge` | Body: `{table: "requests"\|"emails", keep: <non-negative int>}`. Deletes all rows in `table` except the most-recent `keep` by `ts`. Returns `{ok: true, deleted: N}`. **`table` is validated against an allowlist before being interpolated into SQL** — don't remove that validation. |
+| `POST` | `/api/endpoints/autopilot/purge` | Deletes every endpoint with `uri LIKE '/autopilot/%'`. No body. Returns `{ok: true, deleted: N}`. Used by the Settings "Purge autopilot endpoints" section. Manually-defined endpoints outside `/autopilot/*` are not touched. |
 | `GET` | `/api/blacklist/ips` | List blacklisted IPs. Returns `[{ip, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/ips` | Body: `{ip, note?}`. IP validated (IPv4 dotted quad, IPv6 with colons, or the literal `unknown`). `INSERT OR IGNORE` semantics — duplicate adds return success without writing. |
 | `DELETE` | `/api/blacklist/ips/[ip]` | Remove. 404 if not present. |
@@ -744,55 +745,58 @@ Run these after any non-trivial deploy.
 
 ## 15. Agent API + MCP server (`agent-a51.thoropentests.com`)
 
-A separate Cloudflare Worker (`agent-a51-worker`, code in `agent-worker/`) exposes the last 5 minutes of captured `requests` and `emails` to authorized Claude Code / Codex agents during pentests. Think of it as a "Burp Collaborator for agents" — a structured, read-only view of the exploit server's recent activity that an LLM-driven agent can poll without any human in the loop.
+A separate Cloudflare Worker (`agent-a51-worker`, code in `agent-worker/`) exposes (a) the last 5 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as "Burp Collaborator + a programmable response server, exposed via MCP" — structured access for an LLM-driven agent without any human in the loop.
 
 ### 15.1 What it serves
 
-Three endpoints, all behind the same bearer-style header `X-A51-Secret: <secret>`:
+All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 
 | Method | Path | Returns |
 |---|---|---|
 | `GET` | `/requests` | `{served_at, window_minutes: 5, rows: [{id, ts, method, url, ip}, …]}` — newest-first, all rows in the last 5 minutes. |
 | `GET` | `/emails` | `{served_at, window_minutes: 5, rows: [{id, ts, from_addr, to_addr, subject, text}, …]}` — newest-first, all rows in the last 5 minutes. |
-| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Two tools: `requests_recent_5min` and `emails_recent_5min`. |
+| `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/autopilot/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. |
+| `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/autopilot/` — server returns 400 otherwise. |
+| `GET` | `/autopilot/endpoints/<uri>` | Read one. URI is URL-encoded in the path. Same `/autopilot/` prefix rule. |
+| `DELETE` | `/autopilot/endpoints/<uri>` | Delete one. Same prefix rule. |
+| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Six tools (see §15.4). |
 
-**No parameters anywhere.** Window (5 min), cache TTL (60 s), result schema — all hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows. The contract is "tell me what's happened in the last 5 minutes, and don't bother me with knobs."
+**No parameters on the read endpoints.** Window (5 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows.
+
+**The `/autopilot/` prefix is hardcoded** in the worker and applies to every CRUD path. The agent worker has no ability to read, create, update, or delete an endpoint outside that namespace — a separate guardrail from the dashboard's full-namespace CRUD via `/api/endpoints`.
 
 ### 15.2 Why a separate worker
 
 - **Different domain semantics.** `0r0.us` catches every path as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
-- **Different read pattern.** The exploit-server worker is write-heavy. The agent worker is read-only + heavily cached. Keeping them separate means a runaway agent can't degrade the exploit server.
+- **Different read pattern.** The exploit-server worker is write-heavy on the request log path. The agent worker is read-oriented (with bounded writes via the `/autopilot/*` CRUD path).
 - **Different auth model.** The exploit server is wide open (it has to be reachable by targets). The agent worker is locked behind a shared secret. Different surface, different rules.
+- **Different blast radius.** A runaway agent making mistakes through the agent worker is bounded to `/autopilot/*` and recent reads. It cannot touch the rest of the endpoint table or the blacklists.
 
 Both workers share the same D1 binding (`area51` database). Schema doesn't change.
 
-### 15.3 The edge-cache shield
+### 15.3 No edge cache on the agent worker
 
-Each list endpoint is wrapped in a `caches.default.match/put` call against a fixed cache key (e.g., `https://agent-cache.local/requests-v1`). The cached `Response` carries `Cache-Control: public, max-age=60`. Concretely:
+Earlier versions of this worker wrapped the read endpoints in a 60-second `caches.default` edge cache. **Removed** because:
 
-```
-T+0s    Agent → GET /requests
-        Worker: cache miss → query D1 (reads ~N rows) → store, TTL=60s → return
-T+5s    Agent → GET /requests
-        Worker: cache HIT → return cached, 0 D1 reads
-T+30s   Different agent → GET /requests
-        Worker: cache HIT → return cached, 0 D1 reads
-T+61s   Agent → GET /requests
-        Worker: cache MISS (TTL elapsed) → query D1 again → re-cache
-```
+- During an active engagement an agent polling `/requests` or `/emails` wants the freshest possible view (a 60s stale snapshot can hide a just-arrived callback that the agent's reasoning depends on).
+- D1 read budget at realistic pentest volume is small enough that the cache wasn't earning its complexity — even with one agent polling every 30 seconds at 100 callbacks/min, you land at ~3M reads/day worst case across both endpoints, still under the 5M/day free quota.
 
-D1 is queried **at most once per 60 seconds per Cloudflare data center per endpoint**, regardless of how many agents call or how fast. This is the lever that gives us deterministic D1 cost no matter what the clients do.
-
-Caveat to know but not worry about: edge cache is per-data-center. Three CF data centers serving the same worker = up to 3 independent D1 queries per 60s. For our scale, irrelevant — we'd land at maybe 4,000–8,000 D1 queries/day worst case across all endpoints, well under the 5M/day free quota.
+So every call hits D1. The `/autopilot/*` CRUD endpoints are also uncached — they're mutations or fresh reads. The `Cache-Control: no-store` header is set on all responses to discourage clients from caching on their end either.
 
 ### 15.4 MCP server (what it is and how Claude Code uses it)
 
-The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Two tools are exposed:
+The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Six tools exposed:
 
-- `requests_recent_5min()` — wraps `GET /requests`.
-- `emails_recent_5min()` — wraps `GET /emails`.
+| Tool | Wraps | Args |
+|---|---|---|
+| `requests_recent_5min` | `GET /requests` | — |
+| `emails_recent_5min` | `GET /emails` | — |
+| `autopilot_endpoints_list` | `GET /autopilot/endpoints` | — |
+| `autopilot_endpoints_get` | `GET /autopilot/endpoints/<uri>` | `{uri}` |
+| `autopilot_endpoints_upsert` | `POST /autopilot/endpoints` | `{uri, status, headers?, body?}` |
+| `autopilot_endpoints_delete` | `DELETE /autopilot/endpoints/<uri>` | `{uri}` |
 
-Both have agent-friendly descriptions in the tool schema explaining *when* to use them ("during authorized pentests to detect out-of-band callbacks from SSRF, XXE, email-injection, etc.").
+Each tool has an agent-friendly description in the tool schema explaining *when* to use it. The `initialize` response also returns an `instructions` field giving the agent a brief preamble: what AREA 51 is, what the tools do, and the `/autopilot/` prefix rule.
 
 To register the MCP server in Claude Code on a pentester's machine:
 
@@ -802,7 +806,7 @@ claude mcp add area51 https://agent-a51.thoropentests.com/mcp \
   --header "X-A51-Secret: <secret-from-.env>"
 ```
 
-After that, any Claude Code session on that machine has `mcp__area51__requests_recent_5min` and `mcp__area51__emails_recent_5min` available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
+After that, any Claude Code session on that machine has all six `mcp__area51__*` tools available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
 
 ### 15.5 Auth + secret management
 
@@ -832,7 +836,7 @@ Then in the Cloudflare dashboard:
 
 - **Workers → agent-a51-worker → Settings → Domains & Routes** → Add Custom Domain → `agent-a51.thoropentests.com`. (Manual because the current API token doesn't have Zone Resources permissions for `thoropentests.com`; if you ever expand the token's zone scope, you can add a `routes = [...]` block to the template.)
 
-That's it. Two endpoints + an MCP server live behind `https://agent-a51.thoropentests.com/`.
+That's it. Six endpoints + an MCP server live behind `https://agent-a51.thoropentests.com/`.
 
 ### 15.7 Smoke tests for the agent worker
 

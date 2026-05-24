@@ -156,6 +156,26 @@ function Settings() {
   const [table, setTable] = useState("requests");
   const [keep, setKeep] = useState(100);
   const [purging, setPurging] = useState(false);
+  const [purgingAuto, setPurgingAuto] = useState(false);
+
+  const doPurgeAutopilot = async () => {
+    const ok = await confirm({
+      title: "Purge autopilot endpoints",
+      message: "Permanently delete every endpoint with a URI starting with /autopilot/. The worker will return 404 for these paths immediately. Manually-defined endpoints (anything outside /autopilot/*) are not affected. This cannot be undone.",
+      confirmLabel: "Purge",
+      danger: true,
+    });
+    if (!ok) return;
+    setPurgingAuto(true);
+    try {
+      const res = await API.purgeAutopilot();
+      toast(`Purged ${(res.deleted || 0).toLocaleString()} autopilot endpoints`, "success");
+    } catch (e) {
+      toast("Purge failed: " + e.message, "error");
+    } finally {
+      setPurgingAuto(false);
+    }
+  };
 
   const doPurge = async () => {
     const keepNum = Number(keep);
@@ -217,6 +237,34 @@ function Settings() {
               <span className="glyph">!</span>
               <span>
                 will keep the latest <b style={{color:"var(--s2)"}}>{keep}</b> {table} · older rows permanently deleted · no undo
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h2>Purge autopilot endpoints</h2>
+          <p className="desc">
+            Endpoints under <code className="inline-code">/autopilot/*</code> are created automatically by agents via the MCP server during engagements. These tend to accumulate quickly. Purging removes them all at once; manually-defined endpoints are untouched.
+          </p>
+          <div className="settings-card">
+            <div className="autopilot-row">
+              <div className="autopilot-target">
+                <span className="autopilot-label">All endpoints under</span>
+                <code className="inline-code">/autopilot/*</code>
+              </div>
+              <button
+                className="btn danger"
+                onClick={doPurgeAutopilot}
+                disabled={purgingAuto}
+              >
+                {purgingAuto ? <><span className="spinner"/> purging</> : "Purge all"}
+              </button>
+            </div>
+            <div className="danger-banner">
+              <span className="glyph">!</span>
+              <span>
+                will delete every endpoint with URI starting with <b style={{color:"var(--s2)", fontFamily:"var(--mono)"}}>/autopilot/</b> · destructive · no undo
               </span>
             </div>
           </div>

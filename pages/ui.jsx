@@ -63,6 +63,9 @@ const API = {
       body: JSON.stringify({ table, keep: Number(keep) }),
     }),
 
+  purgeAutopilot: () =>
+    apiFetch('/api/endpoints/autopilot/purge', { method: 'POST' }),
+
   listBlacklistIps: () => apiFetch('/api/blacklist/ips'),
   addBlacklistIp: (ip) => apiFetch('/api/blacklist/ips', {
     method: 'POST',

@@ -1412,27 +1412,20 @@ textarea {
 
 /* ===== Autopilot purge (Settings) ===== */
 
-.autopilot-row {
+.autopilot-action {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
 }
 
-.autopilot-target {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.autopilot-label {
+.autopilot-hint {
   font-family: var(--mono);
-  font-size: 11.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12.5px;
   color: var(--n4);
+  line-height: 1.55;
 }
+.autopilot-hint code { font-size: 1em; }
 
 .inline-code {
   font-family: var(--mono);

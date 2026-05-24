@@ -161,7 +161,7 @@ function Settings() {
   const doPurgeAutopilot = async () => {
     const ok = await confirm({
       title: "Purge autopilot endpoints",
-      message: "Permanently delete every endpoint with a URI starting with /autopilot/. The worker will return 404 for these paths immediately. Manually-defined endpoints (anything outside /autopilot/*) are not affected. This cannot be undone.",
+      message: "Permanently delete every endpoint matching /autopilot/*. Manually-defined endpoints are not affected. This cannot be undone.",
       confirmLabel: "Purge",
       danger: true,
     });
@@ -169,7 +169,8 @@ function Settings() {
     setPurgingAuto(true);
     try {
       const res = await API.purgeAutopilot();
-      toast(`Purged ${(res.deleted || 0).toLocaleString()} autopilot endpoints`, "success");
+      const n = res.deleted || 0;
+      toast(`Purged ${n.toLocaleString()} autopilot endpoint${n === 1 ? "" : "s"}`, "success");
     } catch (e) {
       toast("Purge failed: " + e.message, "error");
     } finally {
@@ -247,25 +248,22 @@ function Settings() {
           <p className="desc">
             Endpoints under <code className="inline-code">/autopilot/*</code> are created automatically by agents via the MCP server during engagements. These tend to accumulate quickly. Purging removes them all at once; manually-defined endpoints are untouched.
           </p>
-          <div className="settings-card">
-            <div className="autopilot-row">
-              <div className="autopilot-target">
-                <span className="autopilot-label">All endpoints under</span>
-                <code className="inline-code">/autopilot/*</code>
+          <div className="settings-card autopilot-card">
+            <div className="autopilot-action">
+              <div className="autopilot-hint">
+                Matches everything with a path starting <code className="inline-code">/autopilot/</code>.
               </div>
               <button
                 className="btn danger"
                 onClick={doPurgeAutopilot}
                 disabled={purgingAuto}
               >
-                {purgingAuto ? <><span className="spinner"/> purging</> : "Purge all"}
+                {purgingAuto ? <><span className="spinner"/> purging</> : "Purge endpoints"}
               </button>
             </div>
             <div className="danger-banner">
               <span className="glyph">!</span>
-              <span>
-                will delete every endpoint with URI starting with <b style={{color:"var(--s2)", fontFamily:"var(--mono)"}}>/autopilot/</b> · destructive · no undo
-              </span>
+              <span>destructive · no undo · operation is idempotent if no matches are found</span>
             </div>
           </div>
         </div>

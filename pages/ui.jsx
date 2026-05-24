@@ -70,6 +70,8 @@ const API = {
       body: JSON.stringify({ keep: Number(keep) || 0 }),
     }),
 
+  listDomains: () => apiFetch('/api/config/domains'),
+
   listBlacklistIps: () => apiFetch('/api/blacklist/ips'),
   addBlacklistIp: (ip) => apiFetch('/api/blacklist/ips', {
     method: 'POST',

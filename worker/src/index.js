@@ -8,12 +8,14 @@
 //
 // Two handlers, one D1 binding, one optional fallback inbox:
 //   fetch(request)  — serve an arbitrary response from `endpoints`; log the
-//                     request to `requests` (suppressed for IPs on the
-//                     ip_blacklist).
+//                     request to `requests`. IPs on the ip_blacklist get a
+//                     403 immediately (no body read, no D1 write, no endpoint
+//                     serve).
 //   email(message)  — parse with postal-mime; insert structured columns into
 //                     `emails`; forward the original to FALLBACK_ADDRESS when
-//                     the message is too big or carries attachments; silently
-//                     drop senders on the email_blacklist.
+//                     the message is too big or carries attachments. Senders
+//                     on the email_blacklist are rejected via
+//                     message.setReject so the upstream SMTP gets a bounce.
 
 import PostalMime from 'postal-mime';
 
@@ -98,29 +100,31 @@ async function handleHttp(request, env, ctx) {
   const url = new URL(request.url);
   const route = url.pathname;
   const id = crypto.randomUUID();
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
 
-  log('http_request_received', { id, method: request.method, route });
+  log('http_request_received', { id, method: request.method, route, ip });
+
+  // Blacklist gate (active reject). Checked before reading the body or looking
+  // up an endpoint so a blacklisted IP costs us as little as possible. No D1
+  // write, no endpoint serve — just a 403 back at the source.
+  const ipBlacklist = await loadBlacklist(env, 'ip');
+  if (ipBlacklist.has(ip)) {
+    log('http_rejected_blacklist', { id, ip });
+    return new Response('403! Forbidden', { status: 403 });
+  }
 
   const row = {
     id,
     ts: new Date().toISOString(),
     method: request.method,
     url: request.url,
-    ip: request.headers.get('cf-connecting-ip') || 'unknown',
+    ip,
     ua: request.headers.get('user-agent') || 'unknown',
     headers: JSON.stringify(Object.fromEntries(request.headers.entries())),
     body: await readBody(request),
   };
 
-  // Blacklist gate: skip the D1 write if this IP is on the list. The target
-  // still receives the configured endpoint response below — only logging is
-  // suppressed.
-  const ipBlacklist = await loadBlacklist(env, 'ip');
-  if (ipBlacklist.has(row.ip)) {
-    log('http_log_skipped_blacklist', { id, ip: row.ip });
-  } else {
-    ctx.waitUntil(insertRequestLog(env, row));
-  }
+  ctx.waitUntil(insertRequestLog(env, row));
 
   let endpoint = null;
   try {
@@ -176,14 +180,15 @@ async function handleEmail(message, env, ctx) {
     const rawSize = Number(message.rawSize);
     log('email_received', { id, from: fromAddr, to: toAddr, rawSize });
 
-    // Blacklist gate: silently discard if the envelope sender is on the list.
-    // Cloudflare's MX has already accepted the message at this point; we
-    // simply don't store it and don't forward it. The sender sees no bounce.
+    // Blacklist gate (active reject). message.setReject NACKs the message
+    // back to the upstream SMTP so the sender gets a clear bounce. No D1
+    // write, no fallback forward.
     const normalizedFrom = normalizeEmail(fromAddr);
     if (normalizedFrom) {
       const emailBlacklist = await loadBlacklist(env, 'email');
       if (emailBlacklist.has(normalizedFrom)) {
-        log('email_dropped_blacklist', { id, from: normalizedFrom });
+        log('email_rejected_blacklist', { id, from: normalizedFrom });
+        message.setReject('Address not accepted');
         return;
       }
     }

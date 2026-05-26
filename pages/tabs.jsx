@@ -792,16 +792,20 @@ function buildEmailArchiveHtml(data) {
     .map((h) => `${escHtml(h.key || "")}: ${escHtml(h.value || "")}`)
     .join("\n");
 
-  let bodyBlock;
+  const parts = [];
   if (forwarded) {
-    bodyBlock = `<div class="notice">Body forwarded to the fallback inbox; not stored. The original email is in the fallback mailbox.</div>`;
-  } else if (data.html) {
-    bodyBlock = `<iframe sandbox="" srcdoc="${escHtml(data.html)}" title="email html"></iframe>`;
-  } else if (data.text) {
-    bodyBlock = `<pre class="text-body">${escHtml(data.text)}</pre>`;
-  } else {
-    bodyBlock = `<div class="notice muted">No body captured.</div>`;
+    parts.push(`<div class="body-part"><div class="notice">Body forwarded to the fallback inbox; not stored. The original email is in the fallback mailbox.</div></div>`);
   }
+  if (!forwarded && data.html) {
+    parts.push(`<div class="body-part"><h3>HTML body</h3><iframe sandbox="" srcdoc="${escHtml(data.html)}" title="email html"></iframe></div>`);
+  }
+  if (data.text) {
+    parts.push(`<div class="body-part"><h3>Plaintext body</h3><pre class="text-body">${escHtml(data.text)}</pre></div>`);
+  }
+  if (parts.length === 0) {
+    parts.push(`<div class="body-part"><div class="notice muted">No body captured.</div></div>`);
+  }
+  const bodyBlock = parts.join("\n    ");
 
   let attachmentsBlock = "";
   if (attachments.length > 0) {
@@ -837,10 +841,13 @@ function buildEmailArchiveHtml(data) {
   details.headers summary { padding: 14px 18px; cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
   details.headers[open] summary { border-bottom: 1px solid var(--border); }
   details.headers pre { margin: 0; padding: 14px 18px; font: 12.5px/1.55 ui-monospace, "JetBrains Mono", monospace; color: var(--text); overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-  .body-section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px; margin-bottom: 18px; }
-  .body-section iframe { width: 100%; height: 600px; border: none; background: #fff; border-radius: 6px; display: block; }
-  .body-section .text-body { margin: 0; padding: 18px; white-space: pre-wrap; word-break: break-word; font: 13px/1.6 ui-monospace, "JetBrains Mono", monospace; }
-  .notice { padding: 18px; border-radius: 6px; background: rgba(235, 203, 139, 0.12); border: 1px solid var(--yellow); color: var(--yellow); margin: 10px; }
+  .body-section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 18px; overflow: hidden; }
+  .body-part { padding: 16px 18px; }
+  .body-part + .body-part { border-top: 1px solid var(--border); }
+  .body-part h3 { font-size: 11px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .body-part iframe { width: 100%; height: 600px; border: 1px solid var(--border); background: #fff; border-radius: 6px; display: block; }
+  .body-part .text-body { margin: 0; white-space: pre-wrap; word-break: break-word; font: 13px/1.6 ui-monospace, "JetBrains Mono", monospace; color: var(--text); max-height: 600px; overflow-y: auto; }
+  .notice { padding: 14px 16px; border-radius: 6px; background: rgba(235, 203, 139, 0.12); border: 1px solid var(--yellow); color: var(--yellow); }
   .notice.muted { background: transparent; border-color: var(--border); color: var(--muted); }
   .attachments { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; margin-bottom: 18px; }
   .attachments p { margin: 0 0 12px; font-size: 13px; }

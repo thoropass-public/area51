@@ -741,7 +741,7 @@ Run these after any non-trivial deploy.
 
 ## 14. Autopilot — agent worker + MCP server
 
-**Autopilot** is the third runtime piece. A separate Cloudflare Worker (service name `agent-a51-worker`, code in `agent-worker/`) that exposes (a) the last 5 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the Black Holes** — what's been falling into them recently, plus the ability to stage response stubs under `/autopilot/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
+**Autopilot** is the third runtime piece. A separate Cloudflare Worker (service name `agent-a51-worker`, code in `agent-worker/`) that exposes (a) the last 60 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the Black Holes** — what's been falling into them recently, plus the ability to stage response stubs under `/autopilot/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
 
 ### 14.1 What it serves
 
@@ -749,15 +749,15 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 
 | Method | Path | Returns |
 |---|---|---|
-| `GET` | `/requests` | `{served_at, window_minutes: 5, rows: [{id, ts, method, url, ip}, …]}` — newest-first, all rows in the last 5 minutes. |
-| `GET` | `/emails` | `{served_at, window_minutes: 5, rows: [{id, ts, from_addr, to_addr, subject, text}, …]}` — newest-first, all rows in the last 5 minutes. |
+| `GET` | `/requests` | `{served_at, window_minutes: 60, rows: [{id, ts, method, url, ip}, …]}` — newest-first, all rows in the last 60 minutes. |
+| `GET` | `/emails` | `{served_at, window_minutes: 60, rows: [{id, ts, from_addr, to_addr, subject, text}, …]}` — newest-first, all rows in the last 60 minutes. |
 | `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/autopilot/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. |
 | `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/autopilot/` — server returns 400 otherwise. |
 | `GET` | `/autopilot/endpoints/<uri>` | Read one. URI is URL-encoded in the path. Same `/autopilot/` prefix rule. |
 | `DELETE` | `/autopilot/endpoints/<uri>` | Delete one. Same prefix rule. |
 | `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Six tools (see §14.4). |
 
-**No parameters on the read endpoints.** Window (5 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows.
+**No parameters on the read endpoints.** Window (60 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows. The CRUD endpoints under `/autopilot/*` have no time restriction — the only guardrail there is the URI prefix.
 
 **The `/autopilot/` prefix is hardcoded** in the worker and applies to every CRUD path. The Autopilot worker has no ability to read, create, update, or delete an endpoint outside that namespace — a separate guardrail from AREA 51's full-namespace CRUD via `/api/endpoints`.
 
@@ -785,8 +785,8 @@ The Model Context Protocol is Anthropic's spec for letting LLMs talk to external
 
 | Tool | Wraps | Args |
 |---|---|---|
-| `requests_recent_5min` | `GET /requests` | — |
-| `emails_recent_5min` | `GET /emails` | — |
+| `requests_recent_1hr` | `GET /requests` | — |
+| `emails_recent_1hr` | `GET /emails` | — |
 | `autopilot_endpoints_list` | `GET /autopilot/endpoints` | — |
 | `autopilot_endpoints_get` | `GET /autopilot/endpoints/<uri>` | `{uri}` |
 | `autopilot_endpoints_upsert` | `POST /autopilot/endpoints` | `{uri, status, headers?, body?}` |
@@ -859,7 +859,7 @@ curl -sS -H "X-A51-Secret: $SECRET" -H "Content-Type: application/json" \
 
 # MCP tools/call
 curl -sS -H "X-A51-Secret: $SECRET" -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"requests_recent_5min","arguments":{}}}' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"requests_recent_1hr","arguments":{}}}' \
   $BASE/mcp | jq '.result.content[0].text | fromjson | .rows | length'
 ```
 

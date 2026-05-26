@@ -10,8 +10,8 @@
 // CRUD over the reserved /autopilot/* endpoint URI namespace.
 //
 // Endpoints:
-//   GET    /requests                     →  last 5 minutes of `requests` rows
-//   GET    /emails                       →  last 5 minutes of `emails`   rows
+//   GET    /requests                     →  last 60 minutes of `requests` rows
+//   GET    /emails                       →  last 60 minutes of `emails`   rows
 //   GET    /autopilot/endpoints          →  list all endpoints under /autopilot/*
 //   POST   /autopilot/endpoints          →  upsert (body: {uri, status, headers, body})
 //   GET    /autopilot/endpoints/<uri>    →  read one
@@ -20,8 +20,8 @@
 //   POST   /mcp                          →  MCP (JSON-RPC 2.0 over HTTP)
 //
 // MCP tools exposed:
-//   requests_recent_5min
-//   emails_recent_5min
+//   requests_recent_1hr
+//   emails_recent_1hr
 //   autopilot_endpoints_list
 //   autopilot_endpoints_get
 //   autopilot_endpoints_upsert
@@ -38,7 +38,7 @@
 // worker cached the read responses for 60s; removed because agents polling
 // during active engagements want freshness over read-cost optimization.)
 
-const WINDOW_MINUTES = 5;
+const WINDOW_MINUTES = 60;
 const WINDOW_MS = WINDOW_MINUTES * 60 * 1000;
 const AUTOPILOT_PREFIX = '/autopilot/';
 
@@ -211,14 +211,14 @@ async function autopilotDelete(env, uri) {
 
 const MCP_TOOLS = [
   {
-    name: 'requests_recent_5min',
+    name: 'requests_recent_1hr',
     description: [
       "Returns HTTP requests captured by the Black Holes",
-      "in the last 5 minutes. Use this during authorized pentests to detect",
+      "in the last 60 minutes. Use this during authorized pentests to detect",
       "out-of-band callbacks — e.g., to confirm whether an SSRF, XXE, blind",
       "command-injection, or other interaction-based payload has triggered a",
       "callback to one of our black-hole domains. The result is JSON: an",
-      "object with `served_at` (ISO timestamp), `window_minutes` (5), and",
+      "object with `served_at` (ISO timestamp), `window_minutes` (60), and",
       "`rows` (an array of {id, ts, method, url, ip} objects, newest first).",
       "Data is live (no server-side cache). No parameters; the window is",
       "fixed server-side and cannot be widened.",
@@ -226,14 +226,14 @@ const MCP_TOOLS = [
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
-    name: 'emails_recent_5min',
+    name: 'emails_recent_1hr',
     description: [
       "Returns emails received by the Black Holes",
-      "in the last 5 minutes. Use this during authorized pentests to",
+      "in the last 60 minutes. Use this during authorized pentests to",
       "detect email-based out-of-band callbacks — e.g., to confirm an",
       "email-injection or password-reset-redirect payload triggered delivery",
       "to a controlled address. The result is JSON: an object with",
-      "`served_at`, `window_minutes` (5), and `rows` (an array of",
+      "`served_at`, `window_minutes` (60), and `rows` (an array of",
       "{id, ts, from_addr, to_addr, subject, text} objects, newest first).",
       "Note: emails forwarded to the fallback inbox (size > 1 MB or",
       "attachments present) are still listed here but the body fields may be",
@@ -366,7 +366,7 @@ async function handleMcp(request, env) {
           "infrastructure. Targets visit attacker-controlled 'black hole'",
           "domains during pentests; every HTTP request and every email sent",
           "to those domains is captured in a shared database. Use the",
-          "requests_recent_5min and emails_recent_5min tools to detect",
+          "requests_recent_1hr and emails_recent_1hr tools to detect",
           "out-of-band callbacks during authorized engagements. Use the",
           "autopilot_endpoints_* tools to stage response stubs under",
           "/autopilot/* paths (e.g., fake OAuth callbacks, controlled",
@@ -387,9 +387,9 @@ async function handleMcp(request, env) {
       const args = (msg.params && msg.params.arguments) || {};
       let dataResp;
       try {
-        if (name === 'requests_recent_5min') {
+        if (name === 'requests_recent_1hr') {
           dataResp = await handleRequests(env);
-        } else if (name === 'emails_recent_5min') {
+        } else if (name === 'emails_recent_1hr') {
           dataResp = await handleEmails(env);
         } else if (name === 'autopilot_endpoints_list') {
           dataResp = await autopilotList(env);

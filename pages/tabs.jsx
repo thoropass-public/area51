@@ -794,7 +794,7 @@ function buildEmailArchiveHtml(data) {
 
   const parts = [];
   if (forwarded) {
-    parts.push(`<div class="body-part"><div class="notice">Body forwarded to the fallback inbox; not stored. The original email is in the fallback mailbox.</div></div>`);
+    parts.push(`<div class="body-part"><div class="notice">HTML body forwarded to the fallback inbox; not stored. The original email is in the fallback mailbox.</div></div>`);
   }
   if (!forwarded && data.html) {
     parts.push(`<div class="body-part"><h3>HTML body</h3><iframe sandbox="" srcdoc="${escHtml(data.html)}" title="email html"></iframe></div>`);

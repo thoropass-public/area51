@@ -565,6 +565,12 @@ select {
 }
 .btn.primary .plus { color: var(--on-primary); }
 
+.btn .dl-glyph {
+  display: inline-flex;
+  align-items: center;
+  color: var(--f1);
+}
+
 /* ===== Content area ===== */
 
 .content {

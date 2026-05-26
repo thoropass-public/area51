@@ -739,11 +739,161 @@ function EmailModal({ id, onClose }) {
         )}
       </div>
       <div className="modal-foot">
+        {data && (
+          <button
+            className="btn"
+            onClick={() => downloadEmailHtml(data, toast)}
+            title="Download as standalone .html"
+          >
+            <span className="dl-glyph" aria-hidden="true">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 1.5v8M4 6.5l3 3 3-3M2 12h10"/>
+              </svg>
+            </span>
+            Download
+          </button>
+        )}
         <div className="spacer"/>
         <button className="btn ghost" onClick={onClose}>Close</button>
       </div>
     </Modal>
   );
+}
+
+// Filename: <sanitized-subject>--<id8>.html, or email-<id8>.html when subject is empty.
+function emailFilename(data) {
+  if (!data) return "email.html";
+  const subj = String(data.subject || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  const id8 = String(data.id || "").slice(0, 8) || "unknown";
+  return subj ? `${subj}--${id8}.html` : `email-${id8}.html`;
+}
+
+function escHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Build the standalone archive HTML from a fetched email row.
+function buildEmailArchiveHtml(data) {
+  const forwarded = data.html === "sent_to_fallback";
+  const headers = Array.isArray(data.headers) ? data.headers : [];
+  const attachments = Array.isArray(data.attachments) ? data.attachments : [];
+  const subject = data.subject || "(no subject)";
+
+  const headerLines = headers
+    .map((h) => `${escHtml(h.key || "")}: ${escHtml(h.value || "")}`)
+    .join("\n");
+
+  let bodyBlock;
+  if (forwarded) {
+    bodyBlock = `<div class="notice">Body forwarded to the fallback inbox; not stored. The original email is in the fallback mailbox.</div>`;
+  } else if (data.html) {
+    bodyBlock = `<iframe sandbox="" srcdoc="${escHtml(data.html)}" title="email html"></iframe>`;
+  } else if (data.text) {
+    bodyBlock = `<pre class="text-body">${escHtml(data.text)}</pre>`;
+  } else {
+    bodyBlock = `<div class="notice muted">No body captured.</div>`;
+  }
+
+  let attachmentsBlock = "";
+  if (attachments.length > 0) {
+    const rows = attachments
+      .map((a) => `<tr><td>${escHtml(a.filename || "(unnamed)")}</td><td>${escHtml(a.mime || "")}</td><td>${escHtml(fmtBytes(a.size || 0))}</td></tr>`)
+      .join("");
+    attachmentsBlock = `
+  <section class="attachments">
+    <h2>Attachments (${attachments.length})</h2>
+    <p class="muted">Metadata only — attachment bytes are not stored. The original email with full attachments is in the fallback inbox.</p>
+    <table>
+      <thead><tr><th>Filename</th><th>Type</th><th>Size</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </section>`;
+  }
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${escHtml(subject)}</title>
+<style>
+  :root { --bg:#20242c; --surface:#2a2f3a; --border:#3b4252; --text:#d8dee9; --muted:#8893a8; --yellow:#ebcb8b; }
+  body { margin: 0; padding: 32px; background: var(--bg); color: var(--text); font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif; max-width: 920px; margin-inline: auto; }
+  h1 { font-size: 20px; margin: 0 0 18px; }
+  h2 { font-size: 12px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .env { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 22px; margin-bottom: 18px; }
+  .env dl { display: grid; grid-template-columns: 70px 1fr; gap: 6px 18px; margin: 0; font: 13px/1.55 ui-monospace, "JetBrains Mono", Menlo, monospace; }
+  .env dt { color: var(--muted); }
+  .env dd { margin: 0; word-break: break-word; }
+  details.headers { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 18px; }
+  details.headers summary { padding: 14px 18px; cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
+  details.headers[open] summary { border-bottom: 1px solid var(--border); }
+  details.headers pre { margin: 0; padding: 14px 18px; font: 12.5px/1.55 ui-monospace, "JetBrains Mono", monospace; color: var(--text); overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  .body-section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px; margin-bottom: 18px; }
+  .body-section iframe { width: 100%; height: 600px; border: none; background: #fff; border-radius: 6px; display: block; }
+  .body-section .text-body { margin: 0; padding: 18px; white-space: pre-wrap; word-break: break-word; font: 13px/1.6 ui-monospace, "JetBrains Mono", monospace; }
+  .notice { padding: 18px; border-radius: 6px; background: rgba(235, 203, 139, 0.12); border: 1px solid var(--yellow); color: var(--yellow); margin: 10px; }
+  .notice.muted { background: transparent; border-color: var(--border); color: var(--muted); }
+  .attachments { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; margin-bottom: 18px; }
+  .attachments p { margin: 0 0 12px; font-size: 13px; }
+  .attachments table { width: 100%; border-collapse: collapse; font: 13px/1.5 ui-monospace, "JetBrains Mono", monospace; }
+  .attachments th, .attachments td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .attachments th { color: var(--muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .attachments tr:last-child td { border-bottom: none; }
+  .muted { color: var(--muted); }
+  footer { margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--border); font: 12px/1.5 ui-monospace, "JetBrains Mono", monospace; color: var(--muted); }
+</style>
+</head>
+<body>
+  <header class="env">
+    <h1>${escHtml(subject)}</h1>
+    <dl>
+      <dt>From</dt><dd>${escHtml(data.from_addr || "")}</dd>
+      <dt>To</dt><dd>${escHtml(data.to_addr || "")}</dd>
+      <dt>Date</dt><dd>${escHtml(data.ts || "")}</dd>
+      <dt>ID</dt><dd>${escHtml(data.id || "")}</dd>
+    </dl>
+  </header>
+${headers.length > 0 ? `  <details class="headers">
+    <summary>Full headers (${headers.length})</summary>
+    <pre>${headerLines}</pre>
+  </details>` : ""}
+  <section class="body-section">
+    ${bodyBlock}
+  </section>
+${attachmentsBlock}
+  <footer>Archived from AREA 51 · ${escHtml(data.id || "")} · downloaded ${escHtml(new Date().toISOString())}</footer>
+</body>
+</html>
+`;
+}
+
+function downloadEmailHtml(data, toast) {
+  if (!data) return;
+  try {
+    const html = buildEmailArchiveHtml(data);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const filename = emailFilename(data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+    toast("Downloaded " + filename, "success");
+  } catch (e) {
+    toast("Download failed: " + (e && e.message || e), "error");
+  }
 }
 
 function EmailView({ data, forwarded, onBlockSender }) {

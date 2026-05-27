@@ -7,13 +7,14 @@
 // affecting the black holes' public reachability.
 //
 // Surfaces recent captures from the same D1 database AREA 51 reads, plus
-// CRUD over the reserved /autopilot/* endpoint URI namespace.
+// CRUD over the reserved /-/* endpoint URI namespace.
 //
 // Endpoints:
 //   GET    /requests                     →  last 60 minutes of `requests` rows
 //   GET    /emails                       →  last 60 minutes of `emails`   rows
 //   GET    /emails/<id>/raw              →  raw .eml from R2 (hard 60-min check)
-//   GET    /autopilot/endpoints          →  list all endpoints under /autopilot/*
+//   GET    /domains                      →  configured black holes (for URL building)
+//   GET    /autopilot/endpoints          →  list all endpoints under /-/*
 //   POST   /autopilot/endpoints          →  upsert (body: {uri, status, headers, body})
 //   GET    /autopilot/endpoints/<uri>    →  read one
 //   DELETE /autopilot/endpoints/<uri>    →  delete one
@@ -24,6 +25,7 @@
 //   requests_recent_1hr
 //   emails_recent_1hr
 //   email_raw  (explicit, on-demand: full raw .eml for one recent email)
+//   list_black_holes  (configured domains, for building https://<domain>/-/...)
 //   autopilot_endpoints_list
 //   autopilot_endpoints_get
 //   autopilot_endpoints_upsert
@@ -32,9 +34,9 @@
 // Every request must include `X-A51-Secret: <secret>` (matched against the
 // AGENT_SECRET worker secret in constant time). 401 otherwise.
 //
-// The /autopilot/* prefix on managed endpoint URIs is hardcoded server-side
+// The /-/* prefix on managed endpoint URIs is hardcoded server-side
 // and cannot be widened by the client. Any CRUD call referencing a URI that
-// doesn't start with /autopilot/ returns 400.
+// doesn't start with /-/ returns 400.
 //
 // No edge caching. Every call hits D1 directly. (Earlier versions of this
 // worker cached the read responses for 60s; removed because agents polling
@@ -42,7 +44,7 @@
 
 const WINDOW_MINUTES = 60;
 const WINDOW_MS = WINDOW_MINUTES * 60 * 1000;
-const AUTOPILOT_PREFIX = '/autopilot/';
+const AUTOPILOT_PREFIX = '/-/';
 
 const log = (event, fields = {}) => {
   try { console.log(JSON.stringify({ event, ...fields })); } catch { /* never crash on logging */ }
@@ -149,6 +151,29 @@ async function handleEmailRaw(env, id) {
   });
 }
 
+// ----- configured black holes -----
+//
+// Reads the same D1 `domains` table the dashboard's /api/config/domains
+// serves, so the agent can build full callback URLs (https://<domain>/-/...).
+async function handleDomains(env) {
+  const ALLOWED = new Set(['http', 'mail']);
+  const { results } = await env.DB.prepare(
+    'SELECT domain, roles FROM domains ORDER BY domain ASC'
+  ).all();
+  const domains = (results || [])
+    .map((r) => {
+      let roles = [];
+      try { roles = JSON.parse(r.roles); } catch { roles = []; }
+      if (!Array.isArray(roles)) roles = [];
+      return {
+        domain: String(r.domain || '').trim(),
+        roles: roles.filter((x) => typeof x === 'string' && ALLOWED.has(x.toLowerCase())).map((x) => x.toLowerCase()),
+      };
+    })
+    .filter((d) => d.domain.length > 0);
+  return json({ served_at: new Date().toISOString(), endpoint_prefix: AUTOPILOT_PREFIX, domains });
+}
+
 // ----- /autopilot/endpoints CRUD -----
 
 function parseHeaderLines(raw) {
@@ -167,9 +192,9 @@ function parseHeaderLines(raw) {
 }
 
 async function autopilotList(env) {
-  // LIKE '/autopilot/%' uses the endpoints PK (uri) index for range matching.
+  // LIKE '/-/%' uses the endpoints PK (uri) index for range matching.
   const { results } = await env.DB.prepare(
-    "SELECT uri, status, headers, body FROM endpoints WHERE uri LIKE '/autopilot/%' ORDER BY uri ASC"
+    "SELECT uri, status, headers, body FROM endpoints WHERE uri LIKE '/-/%' ORDER BY uri ASC"
   ).all();
   // Parse headers JSON back into objects on the way out so agents don't have
   // to do it themselves.
@@ -182,7 +207,7 @@ async function autopilotList(env) {
 }
 
 async function autopilotGet(env, uri) {
-  if (!isAutopilotUri(uri)) return errResp('uri must start with /autopilot/', 400);
+  if (!isAutopilotUri(uri)) return errResp('uri must start with /-/', 400);
   const row = await env.DB.prepare(
     'SELECT uri, status, headers, body FROM endpoints WHERE uri = ?'
   ).bind(uri).first();
@@ -198,7 +223,7 @@ async function autopilotUpsert(env, payload) {
   const rawHeaders = (payload && payload.headers);
   const body = (payload && payload.body) || '';
 
-  if (!isAutopilotUri(uri)) return errResp('uri must start with /autopilot/', 400);
+  if (!isAutopilotUri(uri)) return errResp('uri must start with /-/', 400);
   if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) {
     return errResp('status must be an integer between 100 and 599', 400);
   }
@@ -232,7 +257,7 @@ async function autopilotUpsert(env, payload) {
 }
 
 async function autopilotDelete(env, uri) {
-  if (!isAutopilotUri(uri)) return errResp('uri must start with /autopilot/', 400);
+  if (!isAutopilotUri(uri)) return errResp('uri must start with /-/', 400);
   const result = await env.DB.prepare('DELETE FROM endpoints WHERE uri = ?').bind(uri).run();
   if (!result.meta || result.meta.changes === 0) return errResp('Not found', 404);
   log('autopilot_delete', { uri });
@@ -298,12 +323,24 @@ const MCP_TOOLS = [
     },
   },
   {
+    name: 'list_black_holes',
+    description: [
+      "Lists the configured black hole domains and their roles (http and/or",
+      "mail). Use this to construct a full callback URL for an autopilot",
+      "endpoint: pick a domain whose roles include \"http\", create the endpoint",
+      "with autopilot_endpoints_upsert (its uri must start with /-/), then hand",
+      "out https://<domain><uri> — e.g. https://example.com/-/1. The response",
+      "also includes `endpoint_prefix` (\"/-/\") for reference. No parameters.",
+    ].join(' '),
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'autopilot_endpoints_list',
     description: [
-      "Lists all configured endpoints under /autopilot/*. Use this to see",
+      "Lists all configured endpoints under /-/*. Use this to see",
       "what response stubs the Black Holes are currently serving for",
       "autopilot paths. Returns JSON: {rows: [{uri, status, headers, body}, ...]}.",
-      "Only endpoints with URIs starting with /autopilot/ are returned;",
+      "Only endpoints with URIs starting with /-/ are returned;",
       "manually-defined endpoints outside that prefix are not visible. No",
       "parameters.",
     ].join(' '),
@@ -312,9 +349,9 @@ const MCP_TOOLS = [
   {
     name: 'autopilot_endpoints_get',
     description: [
-      "Returns the configured response stub for a single /autopilot/* URI.",
+      "Returns the configured response stub for a single /-/* URI.",
       "Use this to inspect what a particular autopilot endpoint is set to",
-      "return. The `uri` argument must start with /autopilot/ — otherwise",
+      "return. The `uri` argument must start with /-/ — otherwise",
       "the call returns an error. Result is JSON: {uri, status, headers, body}.",
       "Returns 404-equivalent error if the URI is not configured.",
     ].join(' '),
@@ -323,7 +360,7 @@ const MCP_TOOLS = [
       properties: {
         uri: {
           type: 'string',
-          description: "Endpoint URI to read. Must start with /autopilot/",
+          description: "Endpoint URI to read. Must start with /-/",
         },
       },
       required: ['uri'],
@@ -332,14 +369,14 @@ const MCP_TOOLS = [
   {
     name: 'autopilot_endpoints_upsert',
     description: [
-      "Creates or updates an endpoint configuration under /autopilot/*. Use",
+      "Creates or updates an endpoint configuration under /-/*. Use",
       "this to set the response the Black Holes worker will serve when a",
-      "target calls a specific /autopilot/* path during a pentest — e.g., stage a",
+      "target calls a specific /-/* path during a pentest — e.g., stage a",
       "fake OAuth callback, a malicious .well-known file, or any other",
       "controlled response. Upsert semantics: if the URI already exists, its",
       "status / headers / body are overwritten.",
       "",
-      "The `uri` MUST start with /autopilot/ — any other prefix returns an",
+      "The `uri` MUST start with /-/ — any other prefix returns an",
       "error. `status` is an integer 100–599. `headers` is an object",
       "(key→value strings). `body` is a string (any text or base64-encoded",
       "binary; the worker serves it verbatim).",
@@ -347,7 +384,7 @@ const MCP_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        uri: { type: 'string', description: "Endpoint URI. Must start with /autopilot/" },
+        uri: { type: 'string', description: "Endpoint URI. Must start with /-/" },
         status: { type: 'integer', minimum: 100, maximum: 599, description: "HTTP status code to return" },
         headers: { type: 'object', description: "Response headers as a key→value object", additionalProperties: { type: 'string' } },
         body: { type: 'string', description: "Response body (any text)" },
@@ -358,17 +395,17 @@ const MCP_TOOLS = [
   {
     name: 'autopilot_endpoints_delete',
     description: [
-      "Deletes an /autopilot/* endpoint configuration. The Black Holes worker",
+      "Deletes an /-/* endpoint configuration. The Black Holes worker",
       "will start returning 404 for that URI immediately on the next request.",
       "The `uri`",
-      "must start with /autopilot/ — otherwise the call returns an error.",
+      "must start with /-/ — otherwise the call returns an error.",
       "Returns success on delete; 404-equivalent error if the URI was not",
       "configured.",
     ].join(' '),
     inputSchema: {
       type: 'object',
       properties: {
-        uri: { type: 'string', description: "Endpoint URI to delete. Must start with /autopilot/" },
+        uri: { type: 'string', description: "Endpoint URI to delete. Must start with /-/" },
       },
       required: ['uri'],
     },
@@ -415,7 +452,7 @@ async function handleMcp(request, env) {
       return jsonRpcResult(msg.id, {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'autopilot', version: '1.1.0' },
+        serverInfo: { name: 'autopilot', version: '1.2.0' },
         instructions: [
           "Autopilot is Thoropass's MCP interface to its internal callback",
           "infrastructure. Targets visit attacker-controlled 'black hole'",
@@ -424,10 +461,12 @@ async function handleMcp(request, env) {
           "requests_recent_1hr and emails_recent_1hr tools to detect",
           "out-of-band callbacks during authorized engagements. Use the",
           "autopilot_endpoints_* tools to stage response stubs under",
-          "/autopilot/* paths (e.g., fake OAuth callbacks, controlled",
-          ".well-known responses). The /autopilot/ prefix is mandatory and",
-          "enforced server-side; you cannot create or modify endpoints",
-          "outside it.",
+          "/-/* paths (e.g., fake OAuth callbacks, controlled .well-known",
+          "responses). The /-/ prefix is mandatory and enforced server-side;",
+          "you cannot create or modify endpoints outside it. To hand a full",
+          "callback URL to another task, call list_black_holes to get the",
+          "configured domains, pick one whose roles include 'http', and",
+          "combine it with your /-/ endpoint path: https://<domain>/-/<path>.",
         ].join(' '),
       });
 
@@ -448,6 +487,8 @@ async function handleMcp(request, env) {
           dataResp = await handleEmails(env);
         } else if (name === 'email_raw') {
           dataResp = await handleEmailRaw(env, args.id);
+        } else if (name === 'list_black_holes') {
+          dataResp = await handleDomains(env);
         } else if (name === 'autopilot_endpoints_list') {
           dataResp = await autopilotList(env);
         } else if (name === 'autopilot_endpoints_get') {
@@ -492,6 +533,7 @@ export default {
       // Read endpoints.
       if (path === '/requests' && request.method === 'GET') return handleRequests(env);
       if (path === '/emails'   && request.method === 'GET') return handleEmails(env);
+      if (path === '/domains'  && request.method === 'GET') return handleDomains(env);
 
       // Raw .eml download (hard 60-minute freshness gate inside handleEmailRaw).
       if (request.method === 'GET' && path.startsWith('/emails/') && path.endsWith('/raw')) {

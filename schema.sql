@@ -49,3 +49,13 @@ CREATE TABLE IF NOT EXISTS email_blacklist (
   ts TEXT NOT NULL,
   note TEXT
 );
+
+-- Configured black hole domains. Single source of truth (replaces the old
+-- DOMAINS_CONFIG Pages env var): read live by the dashboard's
+-- /api/config/domains (Home orbit chips) and by the Autopilot worker (so an
+-- agent can build full callback URLs like https://<domain>/-/<path>).
+-- Seeded at deploy from .env's DOMAINS_CONFIG; edit with `wrangler d1 execute`.
+CREATE TABLE IF NOT EXISTS domains (
+  domain TEXT PRIMARY KEY,
+  roles TEXT NOT NULL       -- JSON array, subset of ["http","mail"]
+);

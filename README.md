@@ -34,9 +34,9 @@ Internal out-of-band callback infrastructure for the Thoropass pentest team. Pen
 
 - **AREA 51** — the dashboard. Configure endpoints, browse captured requests and emails, purge data, manage blacklists.
 - **Black Holes** — attacker-controlled domains, each acting as an entry-point for incoming **HTTP requests**, incoming **email**, or both. Anything a target sends to a black hole ends up captured in D1 for the pentester to inspect via AREA 51.
-- **Autopilot** — the MCP server (with a REST mirror) that authorized Claude Code / Codex agents connect to during engagements. Surfaces recent requests + emails and CRUD over a reserved `/autopilot/*` endpoint namespace so an agent can stage response stubs and observe callbacks on its own.
+- **Autopilot** — the MCP server (with a REST mirror) that authorized Claude Code / Codex agents connect to during engagements. Surfaces recent requests + emails and CRUD over a reserved `/-/*` endpoint namespace so an agent can stage response stubs and observe callbacks on its own.
 
-Each black hole's role is configurable per domain — some catch only HTTP, some only mail, some both. The list of currently-bound black holes is **not hardcoded in this repo**; it lives as the `DOMAINS_CONFIG` environment variable on the Cloudflare Pages project, served to the frontend by [`/api/config/domains`](#7-http-api-contract-pages-functions). To add or remove a black hole: edit that env var in the dashboard and bind/unbind the domain to the Black Holes worker via Cloudflare's Custom Domain UI. No redeploy needed for the env-var change.
+Each black hole's role is configurable per domain — some catch only HTTP, some only mail, some both. The list of currently-bound black holes is **not hardcoded in this repo**; it lives in the D1 `domains` table, read live by the dashboard ([`/api/config/domains`](#7-http-api-contract-pages-functions), for the Home orbit chips) and by the Autopilot worker (so an agent can build full callback URLs). To add or remove a black hole: edit the `domains` table (`wrangler d1 execute`) and bind/unbind the domain to the Black Holes worker via Cloudflare's Custom Domain UI. No redeploy needed for the table change.
 
 Targets that fetch URLs, send webhooks, click email links, or otherwise reach out to "the internet" can be steered to one of these black holes, where:
 
@@ -87,7 +87,7 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
   AI agent ─────┼─► Autopilot worker           │                         │
    (REST / MCP) │   /requests, /emails,        │                         │
                 │   /emails/<id>/raw, ─────────┘                         │
-                │   /autopilot/*, /mcp                                   │
+                │   /-/*, /mcp                                   │
                 │                                                        │
                 │                              ┌────────────────────────┐│
                 │ Email Routing fallback ─────►│  FALLBACK_ADDRESS      ││
@@ -102,7 +102,7 @@ The same Cloudflare account hosts three runtime pieces, backed by one D1 databas
 |---|---|---|
 | **AREA 51** (the dashboard) | Cloudflare Pages site (project `area51`) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, purge data, manage IP / email blacklists |
 | **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, stores the raw `.eml` to R2, writes a lean index row to D1 |
-| **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/autopilot/*` endpoint CRUD for authorized Claude Code / Codex agents |
+| **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/-/*` endpoint CRUD for authorized Claude Code / Codex agents |
 | **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the modal's "More" / Download Raw and by Autopilot |
 | **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Pages and both workers |
 | **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the Black Holes worker's email handler |
@@ -204,7 +204,7 @@ pentester ──► AREA 51 dashboard (Pages)
     └── functions/             ← Pages Functions (server-side)
         └── api/
             ├── _shared.js              ← json/errResp helpers, withErrorHandler, parseHeaderLines
-            ├── config/domains.js       ← GET — reads DOMAINS_CONFIG env var, returns {domains:[…]}
+            ├── config/domains.js       ← GET — reads D1 `domains` table, returns {domains:[…]}
             ├── endpoints/
             │   ├── index.js            ← GET (list+search+cursor), POST (upsert)
             │   └── [uri].js            ← GET (detail), DELETE
@@ -351,7 +351,7 @@ File responsibilities:
   - `App` — top-level component. Tab state, keyboard shortcut handler (⌘/Ctrl + 1–4 → endpoints/requests/emails/settings), wraps everything in `ConfirmProvider` + `ToastProvider`.
   - `TopBar` — brand mark + tabs + a refresh button on the far right that's visible only on list tabs (endpoints / requests / emails). The button increments an `App`-level `refreshTick` counter that the active list tab consumes as a `refreshKey` prop in its `fetchFirst` `useEffect` dependency array, causing a re-fetch of the first page. The icon spins briefly (~600ms) on click for visual feedback; the spin isn't synced to the actual loading state since each tab already shows its own spinner over the list rows.
   - `Home` — the marketing-style landing tab: AREA 51 hero, intro copy, four navigation tiles.
-  - `Settings` — purge UI. Multi-select any of the three data types (Requests / Emails / Autopilot Endpoints) via pill toggles, enter how many recent **days** to keep, click Purge (red, confirmation-gated). Purges each selected type via `API.purge({table, days})` in a loop. **Autopilot Endpoints is an exception** — selecting it wipes the entire `/autopilot/*` namespace regardless of the days value (no timestamp on that table); the confirm dialog and danger banner reword to say "all" for that case. No live row count, because we don't want to query `COUNT(*)` (see [§15](#15-design-decision-log)).
+  - `Settings` — purge UI. Multi-select any of the three data types (Requests / Emails / Autopilot Endpoints) via pill toggles, enter how many recent **days** to keep, click Purge (red, confirmation-gated). Purges each selected type via `API.purge({table, days})` in a loop. **Autopilot Endpoints is an exception** — selecting it wipes the entire `/-/*` namespace regardless of the days value (no timestamp on that table); the confirm dialog and danger banner reword to say "all" for that case. No live row count, because we don't want to query `COUNT(*)` (see [§15](#15-design-decision-log)).
 
 ### 5.2 HTML iframe sandbox for email bodies
 
@@ -367,7 +367,7 @@ When `ParsedEmailView` renders an email's HTML body, it does so in:
 
 Each file under `pages/functions/api/` exports `onRequestGet` / `onRequestPost` / `onRequestDelete` named handlers. Every handler is wrapped in `withErrorHandler` (`_shared.js`), which try/catches, logs the error via `console.error`, and returns `{ error: "Internal error" }` with HTTP 500 on any uncaught throw.
 
-The full HTTP API contract is in [§7](#7-http-api-contract-pages-functions). Note: the `/autopilot/*` namespace inside `endpoints` is reserved for the **Autopilot** worker (see [§14](#14-autopilot--agent-worker--mcp-server)); AREA 51's UI treats it as a normal endpoint table, but the Settings purge UI exposes a dedicated "Autopilot Endpoints" purge target for convenience.
+The full HTTP API contract is in [§7](#7-http-api-contract-pages-functions). Note: the `/-/*` namespace inside `endpoints` is reserved for the **Autopilot** worker (see [§14](#14-autopilot--agent-worker--mcp-server)); AREA 51's UI treats it as a normal endpoint table, but the Settings purge UI exposes a dedicated "Autopilot Endpoints" purge target for convenience.
 
 ---
 
@@ -390,7 +390,7 @@ The map of `URI path → response` that the worker serves.
 | `headers` | `TEXT` | JSON-stringified `{key: value}` object. Stored as JSON so D1 can hold arbitrary header sets without a side table. |
 | `body` | `TEXT` | Raw response body (text or encoded binary). Capped at D1's 2 MB row limit. |
 
-No `ts` / `created_at` — the worker doesn't need it, and nothing surfaces it. (This is why the Autopilot Endpoints purge wipes the whole `/autopilot/*` namespace rather than purging by age — there's no timestamp to age against.)
+No `ts` / `created_at` — the worker doesn't need it, and nothing surfaces it. (This is why the Autopilot Endpoints purge wipes the whole `/-/*` namespace rather than purging by age — there's no timestamp to age against.)
 
 ### 6.2 `requests`
 
@@ -458,6 +458,17 @@ The cache miss path returns an empty set on D1 error so a transient D1 outage ne
 
 Bucket `area51-emails`, bound as `EML` on the worker, agent worker, and Pages. One object per email at key `emails/<id>.eml` — the verbatim raw RFC-822 message (`Content-Type: message/rfc822`). Written by the worker on capture; read on demand by the dashboard (`/api/emails/<id>/raw`) and Autopilot (`/emails/<id>/raw`). Deleting an email (purge) deletes its object too. R2's free tier (10 GB storage, no egress fees) is the reason emails no longer threaten the 500 MB D1 limit — D1 now carries only the lean rows.
 
+### 6.7 `domains`
+
+The configured black holes — the single source of truth (replaces the old `DOMAINS_CONFIG` Pages env var).
+
+| Column | Type | Notes |
+|---|---|---|
+| `domain` | `TEXT PRIMARY KEY` | The black hole host, e.g. `0r0.us` |
+| `roles` | `TEXT NOT NULL` | JSON array, subset of `["http", "mail"]` |
+
+Read live by the dashboard's `/api/config/domains` (Home orbit chips) and by the Autopilot worker's `/domains` + `list_black_holes` tool (so an agent can build `https://<domain>/-/<path>`). Both workers/sites share the D1 binding, so there's no drift. Seeded at deploy from `.env`'s `DOMAINS_CONFIG`; edit afterward with `wrangler d1 execute` (e.g. `INSERT OR REPLACE INTO domains (domain, roles) VALUES ('0r0.us', '["http","mail"]')`).
+
 ---
 
 ## 7. HTTP API contract (Pages Functions)
@@ -480,14 +491,14 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 | `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
 | `GET` | `/api/emails/[id]` | Lean detail. Returns `{id, ts, from_addr, to_addr, subject, text, attachment_count}`. Headers / HTML / attachment bytes are **not** here — they're in the raw `.eml`. 404 if missing. |
 | `GET` | `/api/emails/[id]/raw` | Streams the verbatim raw `.eml` from R2 (`message/rfc822`). 404 if no object (fallback rows, purged, or never stored). Consumed by the modal's More / Download Raw. |
-| `POST` | `/api/purge` | Body: `{table: "requests"\|"emails"\|"endpoints", days: <non-negative int>}`. For `requests`/`emails`: deletes rows older than `days` days (`ts < now - days`), keeping the last `days` days (`days=0` deletes everything); for `emails` it also deletes the matching `emails/<id>.eml` R2 objects (best-effort, batched). For `endpoints`: **`days` is ignored** — deletes every `uri LIKE '/autopilot/%'` (the table has no timestamp), never manually-defined endpoints. Returns `{ok: true, deleted: N}`. The dashboard calls this once per selected type. **`table` is validated against an allowlist** — don't remove that. |
+| `POST` | `/api/purge` | Body: `{table: "requests"\|"emails"\|"endpoints", days: <non-negative int>}`. For `requests`/`emails`: deletes rows older than `days` days (`ts < now - days`), keeping the last `days` days (`days=0` deletes everything); for `emails` it also deletes the matching `emails/<id>.eml` R2 objects (best-effort, batched). For `endpoints`: **`days` is ignored** — deletes every `uri LIKE '/-/%'` (the table has no timestamp), never manually-defined endpoints. Returns `{ok: true, deleted: N}`. The dashboard calls this once per selected type. **`table` is validated against an allowlist** — don't remove that. |
 | `GET` | `/api/blacklist/ips` | List blacklisted IPs. Returns `[{ip, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/ips` | Body: `{ip, note?}`. IP validated (IPv4 dotted quad, IPv6 with colons, or the literal `unknown`). `INSERT OR IGNORE` semantics — duplicate adds return success without writing. |
 | `DELETE` | `/api/blacklist/ips/[ip]` | Remove. 404 if not present. |
 | `GET` | `/api/blacklist/emails` | List blacklisted senders. Returns `[{email, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/emails` | Body: `{email, note?}`. Accepts bare `addr@host` or angle-bracketed `Display <addr@host>`; stored lowercase. Validated as `^[^@\s]+@[^@\s]+\.[^@\s]+$`. |
 | `DELETE` | `/api/blacklist/emails/[email]` | Remove. Lowercased + URL-decoded path param. 404 if not present. |
-| `GET` | `/api/config/domains` | Returns `{domains: [{domain, roles}, …]}` from the `DOMAINS_CONFIG` Pages environment variable (JSON-stringified array of `{domain, roles}` where `roles` is a subset of `["http", "mail"]`). Rendered by the AREA 51 Home hero as orbit chips around the alien. Edit live in **Cloudflare → Pages → area51 → Settings → Variables and Secrets**; no redeploy needed — next page load picks up the new value. Handler is defensive: returns `{domains: []}` on missing or malformed env. |
+| `GET` | `/api/config/domains` | Returns `{domains: [{domain, roles}, …]}` read from the D1 `domains` table (`roles` is a subset of `["http", "mail"]`). Rendered by the AREA 51 Home hero as orbit chips around the alien, and read independently by the Autopilot worker. Edit via `wrangler d1 execute` against `domains`; no redeploy needed — next page load picks up the new value. Handler is defensive: returns `{domains: []}` on error or malformed rows. |
 
 The `headers` round-trip is asymmetric on purpose:
 - **Endpoints (write):** dashboard sends a line-separated string; server parses to JSON object before storing.
@@ -587,17 +598,16 @@ The first deploy creates the Pages project. Then in the dashboard:
 
 Redeploy once after adding the D1 binding so the new env is picked up: `./scripts/deploy-pages.sh`.
 
-### Step 8 — Configure the DOMAINS_CONFIG env var
+### Step 8 — Seed the `domains` table
 
-This is the variable that drives the orbit chips on the AREA 51 Home page and the `/api/config/domains` response.
+The configured black holes drive the orbit chips on the Home page, the `/api/config/domains` response, and the Autopilot worker's `list_black_holes`. They live in the D1 `domains` table (created by `schema.sql`). Seed it from `.env`'s `DOMAINS_CONFIG`, e.g.:
 
-**Cloudflare → Pages → `area51` → Settings → Variables and Secrets → Environment variables (Production) → Add variable.** Name `DOMAINS_CONFIG`; value a JSON-stringified array like:
-
-```json
-[{"domain":"<host-1>","roles":["http","mail"]},{"domain":"<host-2>","roles":["http"]}]
+```sh
+npx wrangler d1 execute area51 --remote --command \
+  "INSERT OR REPLACE INTO domains (domain, roles) VALUES ('<host-1>', '[\"http\",\"mail\"]'), ('<host-2>', '[\"http\"]')"
 ```
 
-Each entry's `roles` is a subset of `["http", "mail"]`. Save, then redeploy Pages so the new value is bound to the active deployment.
+`roles` is a JSON array, subset of `["http", "mail"]`. To add/remove a black hole later, run another `wrangler d1 execute` against `domains` — no redeploy needed; the next page load and the next agent call pick it up.
 
 ### Step 9 — Deploy the Autopilot worker (optional, for agent use)
 
@@ -740,7 +750,7 @@ Run these after any non-trivial deploy.
 
 ## 14. Autopilot — agent worker + MCP server
 
-**Autopilot** is the third runtime piece. A separate Cloudflare Worker (service name `agent-a51-worker`, code in `agent-worker/`) that exposes (a) the last 60 minutes of captured `requests` and `emails` and (b) CRUD over `/autopilot/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the Black Holes** — what's been falling into them recently, plus the ability to stage response stubs under `/autopilot/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
+**Autopilot** is the third runtime piece. A separate Cloudflare Worker (service name `agent-a51-worker`, code in `agent-worker/`) that exposes (a) the last 60 minutes of captured `requests` and `emails` and (b) CRUD over `/-/*` endpoint stubs to authorized Claude Code / Codex agents during pentests. Think of it as **programmatic access to the Black Holes** — what's been falling into them recently, plus the ability to stage response stubs under `/-/*` — wrapped in an MCP server so an LLM-driven agent can use the data and shape responses without any human in the loop.
 
 ### 14.1 What it serves
 
@@ -751,22 +761,23 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 | `GET` | `/requests` | `{served_at, window_minutes: 60, rows: [{id, ts, method, url, ip}, …]}` — newest-first, all rows in the last 60 minutes. |
 | `GET` | `/emails` | `{served_at, window_minutes: 60, rows: [{id, ts, from_addr, to_addr, subject, text}, …]}` — newest-first, all rows in the last 60 minutes. |
 | `GET` | `/emails/<id>/raw` | Raw `.eml` (`message/rfc822`) for one email. **Hard 60-minute gate:** serves only if `SELECT id FROM emails WHERE id=? AND ts>=now-60min` matches — otherwise 404. An old or unknown id can't be fetched even if the caller knows it. |
-| `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/autopilot/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. |
-| `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/autopilot/` — server returns 400 otherwise. |
-| `GET` | `/autopilot/endpoints/<uri>` | Read one. URI is URL-encoded in the path. Same `/autopilot/` prefix rule. |
+| `GET` | `/domains` | `{served_at, endpoint_prefix: "/-/", domains: [{domain, roles}, …]}` — the configured black holes (from the same D1 `domains` table the dashboard reads), so an agent can build `https://<domain>/-/<path>`. |
+| `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/-/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. |
+| `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/-/` — server returns 400 otherwise. |
+| `GET` | `/autopilot/endpoints/<uri>` | Read one. URI is URL-encoded in the path. Same `/-/` prefix rule. |
 | `DELETE` | `/autopilot/endpoints/<uri>` | Delete one. Same prefix rule. |
-| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Seven tools (see §14.4). |
+| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Eight tools (see §14.4). |
 
-**No parameters on the read endpoints.** Window (60 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows. The CRUD endpoints under `/autopilot/*` have no time restriction — the only guardrail there is the URI prefix.
+**No parameters on the read endpoints.** Window (60 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows. The CRUD endpoints under `/-/*` have no time restriction — the only guardrail there is the URI prefix.
 
-**The `/autopilot/` prefix is hardcoded** in the worker and applies to every CRUD path. The Autopilot worker has no ability to read, create, update, or delete an endpoint outside that namespace — a separate guardrail from AREA 51's full-namespace CRUD via `/api/endpoints`.
+**The `/-/` prefix is hardcoded** in the worker and applies to every CRUD path. The Autopilot worker has no ability to read, create, update, or delete an endpoint outside that namespace — a separate guardrail from AREA 51's full-namespace CRUD via `/api/endpoints`.
 
 ### 14.2 Why a separate worker
 
 - **Different domain semantics.** The Black Holes worker catches every path on every bound domain as a target endpoint; mixing in reserved paths there would pollute the namespace and let probes touch the reserved paths.
-- **Different read pattern.** The Black Holes worker is write-heavy on the request log path. Autopilot is read-oriented (with bounded writes via the `/autopilot/*` CRUD path).
+- **Different read pattern.** The Black Holes worker is write-heavy on the request log path. Autopilot is read-oriented (with bounded writes via the `/-/*` CRUD path).
 - **Different auth model.** The Black Holes are wide open (they have to be reachable by targets). Autopilot is locked behind a shared secret. Different surface, different rules.
-- **Different blast radius.** A runaway agent making mistakes through Autopilot is bounded to `/autopilot/*` and recent reads. It cannot touch the rest of the endpoint table or the blacklists.
+- **Different blast radius.** A runaway agent making mistakes through Autopilot is bounded to `/-/*` and recent reads. It cannot touch the rest of the endpoint table or the blacklists.
 
 Both workers share the same D1 binding (`area51` database). Schema doesn't change.
 
@@ -777,23 +788,24 @@ Earlier versions of the Autopilot worker wrapped the read endpoints in a 60-seco
 - During an active engagement an agent polling `/requests` or `/emails` wants the freshest possible view (a 60s stale snapshot can hide a just-arrived callback that the agent's reasoning depends on).
 - D1 read budget at realistic pentest volume is small enough that the cache wasn't earning its complexity — even with one agent polling every 30 seconds at 100 callbacks/min, you land at ~3M reads/day worst case across both endpoints, still under the 5M/day free quota.
 
-So every call hits D1. The `/autopilot/*` CRUD endpoints are also uncached — they're mutations or fresh reads. The `Cache-Control: no-store` header is set on all responses to discourage clients from caching on their end either.
+So every call hits D1. The `/-/*` CRUD endpoints are also uncached — they're mutations or fresh reads. The `Cache-Control: no-store` header is set on all responses to discourage clients from caching on their end either.
 
 ### 14.4 MCP server (what it is and how Claude Code uses it)
 
-The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Seven tools exposed:
+The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Eight tools exposed:
 
 | Tool | Wraps | Args |
 |---|---|---|
 | `requests_recent_1hr` | `GET /requests` | — |
 | `emails_recent_1hr` | `GET /emails` | — |
 | `email_raw` | `GET /emails/<id>/raw` | `{id}` — explicit, on-demand only; returns the raw `.eml` text. Not for routine polling. Subject to the same 60-min hard gate. |
+| `list_black_holes` | `GET /domains` | — returns the configured domains + `endpoint_prefix` so the agent can build `https://<domain>/-/<path>`. |
 | `autopilot_endpoints_list` | `GET /autopilot/endpoints` | — |
 | `autopilot_endpoints_get` | `GET /autopilot/endpoints/<uri>` | `{uri}` |
 | `autopilot_endpoints_upsert` | `POST /autopilot/endpoints` | `{uri, status, headers?, body?}` |
 | `autopilot_endpoints_delete` | `DELETE /autopilot/endpoints/<uri>` | `{uri}` |
 
-Each tool has an agent-friendly description in the tool schema explaining *when* to use it. The `initialize` response also returns an `instructions` field giving the agent a brief preamble: what the Black Holes are, what the tools do, and the `/autopilot/` prefix rule.
+Each tool has an agent-friendly description in the tool schema explaining *when* to use it. The `initialize` response also returns an `instructions` field giving the agent a brief preamble: what the Black Holes are, what the tools do, and the `/-/` prefix rule.
 
 To register Autopilot in Claude Code on a pentester's machine:
 
@@ -803,7 +815,7 @@ claude mcp add autopilot https://<autopilot-domain>/mcp \
   --header "X-A51-Secret: <secret-from-.env>"
 ```
 
-After that, any Claude Code session on that machine has all seven `mcp__autopilot__*` tools available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
+After that, any Claude Code session on that machine has all eight `mcp__autopilot__*` tools available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
 
 ### 14.5 Auth + secret management
 

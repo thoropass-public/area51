@@ -3,7 +3,7 @@ import { json, errResp, withErrorHandler } from '../_shared.js';
 // Purge:
 //   requests  → DELETE FROM requests WHERE ts < cutoff        (by age)
 //   emails    → DELETE FROM emails   WHERE ts < cutoff        (by age, + delete R2)
-//   endpoints → DELETE every /autopilot/* endpoint, REGARDLESS of days.
+//   endpoints → DELETE every /-/* (autopilot) endpoint, REGARDLESS of days.
 //               The endpoints table has no timestamp, so age-based purge
 //               doesn't apply; selecting it wipes the whole autopilot
 //               namespace. Manually-defined endpoints are never touched.
@@ -22,7 +22,7 @@ async function purge({ request, env }) {
   // Autopilot endpoints: delete all, ignore days (no ts on the table).
   if (table === 'endpoints') {
     const result = await env.DB.prepare(
-      "DELETE FROM endpoints WHERE uri LIKE '/autopilot/%'"
+      "DELETE FROM endpoints WHERE uri LIKE '/-/%'"
     ).run();
     return json({ ok: true, deleted: (result.meta && result.meta.changes) || 0 });
   }

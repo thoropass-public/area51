@@ -297,11 +297,11 @@ function Settings() {
     const olderThan = `every record from ${others.map(labelFor).join(" and ")} older than ${dayNum} ${dayLabel}`;
     let message;
     if (hasAuto && others.length === 0) {
-      message = "Permanently delete every endpoint under /autopilot/*. Manually-defined endpoints are not affected. This cannot be undone.";
+      message = <>Permanently delete every endpoint under <code>/-/*</code>. Manually-defined endpoints are not affected. This cannot be undone.</>;
     } else if (hasAuto) {
-      message = `Permanently delete every endpoint under /autopilot/*, and ${olderThan}. This cannot be undone.`;
+      message = <>Permanently delete every endpoint under <code>/-/*</code>, and {olderThan}. This cannot be undone.</>;
     } else {
-      message = `Permanently delete ${olderThan}. This cannot be undone.`;
+      message = <>Permanently delete {olderThan}. This cannot be undone.</>;
     }
     const ok = await confirm({
       title: "Purge data",

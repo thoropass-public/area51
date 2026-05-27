@@ -257,37 +257,67 @@ function Home({ setTab }) {
 // Settings
 // ----------------------------------------------------------------
 
+const PURGE_TABLES = [
+  { id: "requests", label: "Requests" },
+  { id: "emails", label: "Emails" },
+  { id: "endpoints", label: "Autopilot Endpoints" },
+];
+
 function Settings() {
   const toast = useToast();
   const confirm = useConfirm();
-  const [table, setTable] = useState("requests");
-  const [keep, setKeep] = useState(100);
+  const [tables, setTables] = useState(["requests", "emails", "endpoints"]);
+  const [days, setDays] = useState(30);
   const [purging, setPurging] = useState(false);
 
-  const isAutopilot = table === "autopilot";
-  // Plural noun used in the danger banner, confirm dialog, and toast.
-  // Same shape for all three purge targets so the UI reads uniformly.
-  const tableLabel = isAutopilot ? "autopilot endpoints" : table;
+  const labelFor = (id) => (PURGE_TABLES.find((t) => t.id === id) || {}).label || id;
+  const toggleTable = (id) =>
+    setTables((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
 
   const doPurge = async () => {
-    const keepNum = Number(keep);
-    if (!Number.isInteger(keepNum) || keepNum < 0) {
-      toast("Keep value must be a non-negative integer", "error");
-      return;
+    if (tables.length === 0) return;
+    const hasAuto = tables.includes("endpoints");
+    const others = tables.filter((t) => t !== "endpoints");
+
+    // Days only matters for requests/emails. Autopilot Endpoints is wiped
+    // wholesale regardless of the days value (no timestamp on that table).
+    const dayNum = Number(days);
+    if (others.length > 0) {
+      if (String(days).trim() === "") {
+        toast("Enter the number of days to keep", "error");
+        return;
+      }
+      if (!Number.isInteger(dayNum) || dayNum < 0) {
+        toast("Days must be a non-negative integer", "error");
+        return;
+      }
+    }
+
+    const dayLabel = dayNum === 1 ? "day" : "days";
+    const olderThan = `every record from ${others.map(labelFor).join(" and ")} older than ${dayNum} ${dayLabel}`;
+    let message;
+    if (hasAuto && others.length === 0) {
+      message = "Permanently delete every endpoint under /autopilot/*. Manually-defined endpoints are not affected. This cannot be undone.";
+    } else if (hasAuto) {
+      message = `Permanently delete every endpoint under /autopilot/*, and ${olderThan}. This cannot be undone.`;
+    } else {
+      message = `Permanently delete ${olderThan}. This cannot be undone.`;
     }
     const ok = await confirm({
-      title: "Purge " + tableLabel,
-      message: `This will keep the latest ${keepNum} ${tableLabel} and permanently delete all older rows. This cannot be undone.`,
+      title: "Purge data",
+      message,
       confirmLabel: "Purge",
       danger: true,
     });
     if (!ok) return;
     setPurging(true);
     try {
-      const res = isAutopilot
-        ? await API.purgeAutopilot({ keep: keepNum })
-        : await API.purge({ table, keep: keepNum });
-      toast(`Purged ${(res.deleted || 0).toLocaleString()} ${isAutopilot ? "autopilot endpoints" : "rows from " + table}`, "success");
+      let total = 0;
+      for (const t of tables) {
+        const res = await API.purge({ table: t, days: dayNum });
+        total += res.deleted || 0;
+      }
+      toast(`Purged ${total.toLocaleString()} row${total === 1 ? "" : "s"} across ${tables.map(labelFor).join(" + ")}`, "success");
     } catch (e) {
       toast("Purge failed: " + e.message, "error");
     } finally {
@@ -303,35 +333,63 @@ function Settings() {
         <div className="settings-section">
           <h2>Purge data</h2>
           <p className="desc">
-            Cloudflare D1 is free, but not unlimited. To make sure we stay under the limits, it is important to actively purge unwanted records.
+            Cloudflare is free, but not unlimited. To stay under the limits, actively purge old records. Select one or more data types, choose how many recent days to keep, and purge the rest.
           </p>
           <div className="settings-card">
             <div className="settings-row">
               <div className="field" style={{marginBottom:0}}>
-                <label>Target</label>
-                <select value={table} onChange={(e) => setTable(e.target.value)}>
-                  <option value="requests">Requests</option>
-                  <option value="emails">Emails</option>
-                  <option value="autopilot">Autopilot Endpoints</option>
-                </select>
+                <label>Data types</label>
+                <div className="pill-multi">
+                  {PURGE_TABLES.map((t) => {
+                    const active = tables.includes(t.id);
+                    return (
+                      <button
+                        key={t.id}
+                        className={`pill-toggle ${active ? "active" : ""}`}
+                        onClick={() => toggleTable(t.id)}
+                        aria-pressed={active}
+                      >
+                        <span className="pill-check" aria-hidden="true">
+                          {active ? (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5.3l2 2 4-4.6"/></svg>
+                          ) : null}
+                        </span>
+                        <span>{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="field" style={{marginBottom:0}}>
-                <label>Keep latest</label>
+                <label>Keep last (days)</label>
                 <input
                   type="number"
                   min="0"
-                  value={keep}
-                  onChange={(e) => setKeep(e.target.value)}
+                  max="3650"
+                  value={days}
+                  onChange={(e) => setDays(e.target.value)}
                 />
               </div>
-              <button className="btn danger" onClick={doPurge} disabled={purging}>
+              <button className="btn danger" onClick={doPurge} disabled={purging || tables.length === 0}>
                 {purging ? <><span className="spinner"/> purging</> : "Purge"}
               </button>
             </div>
             <div className="danger-banner">
               <span className="glyph">!</span>
               <span>
-                will keep the latest <b style={{color:"var(--s2)"}}>{keep}</b> {tableLabel} · older rows permanently deleted · no undo
+                {(() => {
+                  if (tables.length === 0) return <>no data types selected</>;
+                  const hasAuto = tables.includes("endpoints");
+                  const others = tables.filter((t) => t !== "endpoints");
+                  const daysB = <b style={{color:"var(--s2)"}}>{days} {Number(days) === 1 ? "day" : "days"}</b>;
+                  if (hasAuto && others.length === 0) {
+                    return <>will delete <b style={{color:"var(--s2)"}}>all</b> Autopilot Endpoints · destructive · no undo</>;
+                  }
+                  if (hasAuto) {
+                    return <>will delete <b style={{color:"var(--s2)"}}>all</b> Autopilot Endpoints and other selected data older than {daysB} · destructive · no undo</>;
+                  }
+                  return <>will delete the selected data older than {daysB} · destructive · no undo</>;
+                })()}
               </span>
             </div>
           </div>

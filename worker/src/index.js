@@ -11,15 +11,16 @@
 //                     request to `requests`. IPs on the ip_blacklist get a
 //                     403 immediately (no body read, no D1 write, no endpoint
 //                     serve).
-//   email(message)  — parse with postal-mime; insert structured columns into
-//                     `emails`; forward the original to FALLBACK_ADDRESS when
-//                     the message is too big or carries attachments. Senders
-//                     on the email_blacklist are rejected via
-//                     message.setReject so the upstream SMTP gets a bounce.
+//   email(message)  — all-or-nothing capture. On success the verbatim raw
+//                     .eml is in R2 (emails/<id>.eml) AND a lean row is in D1
+//                     (subject, text, attachment count). On ANY error both
+//                     are rolled back (no partial record) and the original is
+//                     forwarded to the fallback inbox. Senders on the
+//                     email_blacklist are rejected via message.setReject so
+//                     the upstream SMTP gets a bounce.
 
 import PostalMime from 'postal-mime';
 
-const FORWARD_THRESHOLD_BYTES = 1048576;
 // 60 minutes. Blacklist changes from the dashboard take up to this long to be
 // enforced (in both directions: adds, and removes). Acceptable for a noise
 // filter — the trade is dramatically fewer D1 lookups on the hot path.
@@ -162,11 +163,11 @@ async function forwardToFallback(message, env, id, reason) {
 
 async function insertEmail(env, row) {
   await env.DB.prepare(
-    `INSERT INTO emails (id, ts, from_addr, to_addr, subject, headers, text, html, attachments)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO emails (id, ts, from_addr, to_addr, subject, text, attachment_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     row.id, row.ts, row.from_addr, row.to_addr, row.subject,
-    row.headers, row.text, row.html, row.attachments,
+    row.text, row.attachment_count,
   ).run();
 }
 
@@ -175,14 +176,14 @@ async function handleEmail(message, env, ctx) {
   const ts = new Date().toISOString();
   const fromAddr = message.from || '';
   const toAddr = message.to || '';
+  const key = `emails/${id}.eml`;
 
   try {
-    const rawSize = Number(message.rawSize);
-    log('email_received', { id, from: fromAddr, to: toAddr, rawSize });
+    log('email_received', { id, from: fromAddr, to: toAddr, rawSize: Number(message.rawSize) });
 
     // Blacklist gate (active reject). message.setReject NACKs the message
-    // back to the upstream SMTP so the sender gets a clear bounce. No D1
-    // write, no fallback forward.
+    // back to the upstream SMTP so the sender gets a clear bounce. No R2
+    // object, no D1 write, no fallback.
     const normalizedFrom = normalizeEmail(fromAddr);
     if (normalizedFrom) {
       const emailBlacklist = await loadBlacklist(env, 'email');
@@ -193,72 +194,42 @@ async function handleEmail(message, env, ctx) {
       }
     }
 
-    const rawText = await new Response(message.raw).text();
+    // Buffer the raw EML once — it feeds both the R2 object and the parser.
+    const buf = await new Response(message.raw).arrayBuffer();
 
+    // Parse failure is non-fatal: the raw .eml is still valid and gets stored,
+    // and the rich view re-parses in the browser. We just lose the extracted
+    // subject/text/count on this row.
     let parsed = null;
     try {
-      parsed = await PostalMime.parse(rawText);
+      parsed = await PostalMime.parse(buf);
     } catch (err) {
       logErr('email_parse_failed', { id, error: String(err && err.message || err) });
     }
-
-    // postal-mime's parsed.subject is already decoded from RFC 2047 encoded-words
-    // (=?UTF-8?Q?...?=). The raw value in parsed.headers is not. Prefer the decoded one.
     const subject = (parsed && parsed.subject) ||
                     (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
                     '';
-    const headersJson = parsed && parsed.headers ? JSON.stringify(parsed.headers) : null;
-    const attachmentsMeta = parsed && parsed.attachments
-      ? parsed.attachments.map((a) => ({
-          filename: a.filename || '',
-          mime: a.mimeType || a.contentType || 'application/octet-stream',
-          size: a.content ? (a.content.byteLength || a.content.length || 0) : 0,
-        }))
-      : [];
-    const attachmentsJson = JSON.stringify(attachmentsMeta);
+    const text = (parsed && parsed.text) || null;
+    const attachmentCount = parsed && parsed.attachments ? parsed.attachments.length : 0;
 
-    const hasAttachments = attachmentsMeta.length > 0;
-    const tooBig = rawSize > FORWARD_THRESHOLD_BYTES;
-    const shouldForward = hasAttachments || tooBig;
-
-    if (shouldForward) {
-      log('email_fallback', { id, reason: tooBig ? 'oversize' : 'attachments', hasAttachments, tooBig, rawSize });
-      const forwardP = forwardToFallback(message, env, id, tooBig ? 'oversize' : 'attachments');
-      const insertP = insertEmail(env, {
-        id, ts,
-        from_addr: fromAddr,
-        to_addr: toAddr,
-        subject,
-        headers: headersJson,
-        text: (parsed && parsed.text) || null,
-        html: 'sent_to_fallback',
-        attachments: attachmentsJson,
-      })
-        .then(() => log('email_d1_insert_ok', { id, marker: true }))
-        .catch((err) => logErr('email_d1_insert_failed', { id, marker: true, error: String(err && err.message || err) }));
-      await Promise.allSettled([forwardP, insertP]);
-      return;
-    }
-
-    try {
-      await insertEmail(env, {
-        id, ts,
-        from_addr: fromAddr,
-        to_addr: toAddr,
-        subject,
-        headers: headersJson,
-        text: (parsed && parsed.text) || null,
-        html: (parsed && parsed.html) || null,
-        attachments: attachmentsJson,
-      });
-      log('email_d1_insert_ok', { id, marker: false });
-    } catch (err) {
-      logErr('email_d1_insert_failed', { id, marker: false, error: String(err && err.message || err) });
-      await forwardToFallback(message, env, id, 'd1_insert_failed');
-    }
+    // All-or-nothing: both writes must land. Either throwing sends us to the
+    // catch, which rolls back any partial write and forwards to fallback.
+    await env.EML.put(key, buf, { httpMetadata: { contentType: 'message/rfc822' } });
+    await insertEmail(env, {
+      id, ts, from_addr: fromAddr, to_addr: toAddr,
+      subject, text, attachment_count: attachmentCount,
+    });
+    log('email_stored', { id, key, attachment_count: attachmentCount });
   } catch (err) {
-    logErr('email_unhandled_error', { id, error: String(err && err.message || err) });
-    await forwardToFallback(message, env, id, 'unhandled_error');
+    // Anything failed (raw read, R2 PUT, D1 insert). Forward the original so
+    // it isn't lost, then roll back any partial write so D1/R2 never keep a
+    // half-record. Compensating deletes are best-effort (no shared txn).
+    logErr('email_capture_failed', { id, error: String(err && err.message || err) });
+    await forwardToFallback(message, env, id, 'capture_failed');
+    try { await env.EML.delete(key); }
+    catch (e) { logErr('email_rollback_r2_failed', { id, error: String(e && e.message || e) }); }
+    try { await env.DB.prepare('DELETE FROM emails WHERE id = ?').bind(id).run(); }
+    catch (e) { logErr('email_rollback_d1_failed', { id, error: String(e && e.message || e) }); }
   }
 }
 

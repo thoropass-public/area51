@@ -43,7 +43,7 @@ set +a
 # template doesn't silently become an empty string.
 allowed_vars='${CLOUDFLARE_API_TOKEN} ${CLOUDFLARE_ACCOUNT_ID} '\
 '${D1_DATABASE_NAME} ${D1_DATABASE_ID} '\
-'${WORKER_NAME} ${FALLBACK_ADDRESS} '\
+'${WORKER_NAME} ${FALLBACK_ADDRESS} ${R2_BUCKET_NAME} '\
 '${PAGES_PROJECT_NAME} '\
 '${AGENT_WORKER_NAME} ${AGENT_SECRET}'
 

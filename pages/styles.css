@@ -1475,6 +1475,46 @@ select {
 .attachment .size { color: var(--n4); text-align: right; }
 .attachment .ico { color: var(--f1); }
 
+/* Clickable attachment row (downloads on click) in the expanded email view. */
+.attachment.attachment-row {
+  grid-template-columns: 20px 1fr 160px 100px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--n2);
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.08s ease;
+}
+.attachment.attachment-row:last-child { border-bottom: none; }
+.attachment.attachment-row:hover { background: var(--n0); }
+.attachment.attachment-row:hover .name { color: var(--f1); }
+.attachment.attachment-row:hover .dl-affordance { color: var(--f1); }
+.attachment .dl-affordance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--n4);
+  transition: color 0.1s ease;
+}
+
+.section-title.section-title-toggle {
+  justify-content: space-between;
+  white-space: normal;
+}
+
+.notice.notice-error {
+  margin-top: 18px;
+  background: var(--red-soft);
+  border-color: var(--red-edge);
+}
+.notice.notice-error .glyph { color: var(--red); }
+
+.att-count { color: var(--s1); }
+.att-hint { color: var(--n4); font-style: normal; }
+
 .headers-collapse summary {
   cursor: pointer;
   font-family: var(--mono);
@@ -1559,6 +1599,59 @@ select {
   color: var(--s0);
 }
 .danger-banner .glyph { color: var(--red); }
+
+/* Multi-select pill toggles (Purge data → data types) */
+.pill-multi {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 1px 0;
+}
+.pill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px 0 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  color: var(--n4);
+  background: var(--n0);
+  border: 1px solid var(--n3);
+  cursor: pointer;
+  transition: color 0.1s ease, background 0.1s ease, border-color 0.1s ease;
+  user-select: none;
+}
+.pill-toggle:hover {
+  color: var(--s1);
+  border-color: var(--n4);
+}
+.pill-toggle.active {
+  color: var(--f1);
+  background: var(--f1-soft);
+  border-color: var(--f1-edge);
+}
+.pill-toggle.active:hover {
+  background: var(--f1-soft);
+  border-color: var(--f1);
+}
+.pill-toggle .pill-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--n3);
+  color: transparent;
+  transition: color 0.1s ease, background 0.1s ease, border-color 0.1s ease;
+}
+.pill-toggle.active .pill-check {
+  color: var(--on-primary);
+  background: var(--f1);
+  border-color: var(--f1);
+}
 
 .empty-banner {
   margin-top: 16px;

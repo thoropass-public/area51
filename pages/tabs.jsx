@@ -699,6 +699,11 @@ function EmailModal({ id, onClose }) {
   const confirm = useConfirm();
   const bl = useBlacklist();
   const [data, setData] = useState(null);
+  const [expanded, setExpanded] = useState(null);   // { buf: ArrayBuffer, parsed }
+  const [expanding, setExpanding] = useState(false);
+  const [expandError, setExpandError] = useState(null);
+  const [bodyView, setBodyView] = useState("html");
+
   useEffect(() => {
     let live = true;
     API.getEmail(id).then((d) => { if (live) setData(d); })
@@ -706,15 +711,13 @@ function EmailModal({ id, onClose }) {
     return () => { live = false; };
   }, [id, toast]);
 
-  const forwarded = data && data.html === "sent_to_fallback";
-
   const blockSender = async () => {
     if (!data) return;
     const addr = normalizeEmail(data.from_addr);
     if (!addr) { toast("Could not parse sender address", "error"); return; }
     const ok = await confirm({
       title: "Blacklist sender",
-      message: `Drop all future mail from ${addr}? Cloudflare's MX will continue accepting messages, but the worker will discard them without writing to D1 or forwarding. Existing captured rows are not affected.`,
+      message: `Drop all future mail from ${addr}? Cloudflare's MX will continue accepting messages, but the worker will reject them without writing to D1 or storing the raw email. Existing captured rows are not affected.`,
       confirmLabel: "Blacklist",
       danger: true,
     });
@@ -728,6 +731,48 @@ function EmailModal({ id, onClose }) {
     }
   };
 
+  // "More": fetch the raw .eml from R2 and parse it in-browser with postal-mime.
+  const expand = async () => {
+    if (expanding || expanded) return;
+    setExpanding(true);
+    setExpandError(null);
+    try {
+      const buf = await API.getEmailRaw(id);          // ArrayBuffer
+      if (!window.PostalMime) throw new Error("Email parser still loading — try again in a moment");
+      const p = await window.PostalMime.parse(buf);
+      const parsed = {
+        headers: Array.isArray(p.headers) ? p.headers : [],
+        html: p.html || "",
+        text: p.text || "",
+        attachments: (p.attachments || []).map((a) => ({
+          filename: a.filename || "",
+          mimeType: a.mimeType || "application/octet-stream",
+          content: a.content,
+          size: a.content ? (a.content.byteLength || a.content.length || 0) : 0,
+        })),
+      };
+      setExpanded({ buf, parsed });
+      setBodyView(parsed.html ? "html" : "text");
+    } catch (e) {
+      setExpandError(e.message || String(e));
+    } finally {
+      setExpanding(false);
+    }
+  };
+
+  const downloadRaw = () => {
+    if (!expanded) return;
+    const name = filenameFor(data);
+    triggerDownload(new Blob([expanded.buf], { type: "message/rfc822" }), name);
+    toast("Downloaded " + name, "success");
+  };
+
+  const downloadAttachment = (att) => {
+    const name = att.filename || "attachment.bin";
+    triggerDownload(new Blob([att.content], { type: att.mimeType || "application/octet-stream" }), name);
+    toast("Downloaded " + name, "success");
+  };
+
   return (
     <Modal open onClose={onClose} wide>
       <ModalHead title="EMAIL" id={data ? data.id : null} onClose={onClose}/>
@@ -735,23 +780,112 @@ function EmailModal({ id, onClose }) {
         {!data ? (
           <div className="loading"><span className="spinner"/> loading…</div>
         ) : (
-          <EmailView data={data} forwarded={forwarded} onBlockSender={blockSender}/>
+          <>
+            <dl className="detail-grid">
+              <dt>From</dt><dd><FromCell from={data.from_addr} onBlock={blockSender}/></dd>
+              <dt>To</dt><dd>{decodeMimeWord(data.to_addr)}</dd>
+              <dt>Subject</dt><dd style={{color:"var(--s2)"}}>{decodeMimeWord(data.subject)}</dd>
+              <dt>Received</dt><dd>{fmtTimeFull(data.ts)}</dd>
+              {data.attachment_count > 0 && (
+                <>
+                  <dt>Attachments</dt>
+                  <dd>
+                    <span className="att-count">{data.attachment_count} {data.attachment_count === 1 ? "file" : "files"}</span>
+                    {!expanded && <span className="att-hint"> · expand for details</span>}
+                  </dd>
+                </>
+              )}
+            </dl>
+
+            {expanded && (
+              <div className="section">
+                <details className="headers-collapse">
+                  <summary>
+                    <span className="caret"><Icon.chevron/></span>
+                    Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {expanded.parsed.headers.length}</span>
+                  </summary>
+                  <pre className="code-block">
+                    {expanded.parsed.headers.map((h) => `${h.key}: ${decodeMimeWord(h.value)}`).join("\n")}
+                  </pre>
+                </details>
+              </div>
+            )}
+
+            <div className="section">
+              <div className="section-title section-title-toggle">
+                <span>Body</span>
+                {expanded && expanded.parsed.html && expanded.parsed.text && (
+                  <div className="toggle-group">
+                    <button className={bodyView === "html" ? "active" : ""} onClick={() => setBodyView("html")}>HTML</button>
+                    <button className={bodyView === "text" ? "active" : ""} onClick={() => setBodyView("text")}>Plain</button>
+                  </div>
+                )}
+              </div>
+              {expanded && bodyView === "html" && expanded.parsed.html ? (
+                <div className="iframe-wrap">
+                  <iframe sandbox="" srcDoc={expanded.parsed.html} title="email html"/>
+                </div>
+              ) : (
+                <pre className="code-block wrap">
+                  {expanded ? (expanded.parsed.text || "(no plain text part)") : (data.text || "(no plain-text body stored — click More for the full email)")}
+                </pre>
+              )}
+            </div>
+
+            {expandError && (
+              <div className="notice notice-error">
+                <span className="glyph">!</span>
+                <span>Couldn't load full email: {expandError}</span>
+              </div>
+            )}
+
+            {expanded && expanded.parsed.attachments.length > 0 && (
+              <div className="section">
+                <div className="section-title">
+                  Attachments <span style={{color:"var(--n4)", fontWeight:400}}>· {expanded.parsed.attachments.length}</span>
+                  <span className="att-hint" style={{marginLeft:"8px", textTransform:"none", letterSpacing:0}}>click to download</span>
+                </div>
+                <div className="attachment-list">
+                  {expanded.parsed.attachments.map((a, i) => (
+                    <button
+                      key={i}
+                      className="attachment attachment-row"
+                      onClick={() => downloadAttachment(a)}
+                      title="Download attachment"
+                    >
+                      <span className="ico"><Icon.paper/></span>
+                      <span className="name">{a.filename || "(unnamed)"}</span>
+                      <span className="mime">{a.mimeType}</span>
+                      <span className="size">{fmtBytes(a.size)}</span>
+                      <span className="dl-affordance" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M7 1.5v8M4 6.5l3 3 3-3M2 12h10"/>
+                        </svg>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
       <div className="modal-foot">
         {data && (
-          <button
-            className="btn"
-            onClick={() => downloadEmailHtml(data, toast)}
-            title="Download as standalone .html"
-          >
-            <span className="dl-glyph" aria-hidden="true">
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M7 1.5v8M4 6.5l3 3 3-3M2 12h10"/>
-              </svg>
-            </span>
-            Download
-          </button>
+          expanded ? (
+            <button className="btn" onClick={downloadRaw} title="Download raw .eml">
+              <span className="dl-glyph" aria-hidden="true">
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M7 1.5v8M4 6.5l3 3 3-3M2 12h10"/>
+                </svg>
+              </span>
+              Download Raw
+            </button>
+          ) : (
+            <button className="btn" onClick={expand} disabled={expanding}>
+              {expanding ? <><span className="spinner"/> loading</> : "More"}
+            </button>
+          )
         )}
         <div className="spacer"/>
         <button className="btn ghost" onClick={onClose}>Close</button>
@@ -760,246 +894,44 @@ function EmailModal({ id, onClose }) {
   );
 }
 
-// Filename: <sanitized-subject>--<id8>.html, or email-<id8>.html when subject is empty.
-function emailFilename(data) {
-  if (!data) return "email.html";
-  const subj = String(data.subject || "")
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+// <ts>__<sanitized-subject>.eml
+function filenameFor(data) {
+  const ts = (data.ts || "").replace(/[:.]/g, "-").replace("T", "_").replace(/Z$/, "");
+  const subj = (data.subject || "email")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  const id8 = String(data.id || "").slice(0, 8) || "unknown";
-  return subj ? `${subj}--${id8}.html` : `email-${id8}.html`;
+    .slice(0, 40) || "email";
+  return `${ts || "email"}__${subj}.eml`;
 }
 
-function escHtml(s) {
-  return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-// Build the standalone archive HTML from a fetched email row.
-function buildEmailArchiveHtml(data) {
-  const forwarded = data.html === "sent_to_fallback";
-  const headers = Array.isArray(data.headers) ? data.headers : [];
-  const attachments = Array.isArray(data.attachments) ? data.attachments : [];
-  const subject = data.subject || "(no subject)";
-
-  const headerLines = headers
-    .map((h) => `${escHtml(h.key || "")}: ${escHtml(h.value || "")}`)
-    .join("\n");
-
-  const parts = [];
-  if (forwarded) {
-    parts.push(`<div class="body-part"><div class="notice">HTML body forwarded to the fallback inbox; not stored. The original email is in the fallback mailbox.</div></div>`);
-  }
-  if (!forwarded && data.html) {
-    parts.push(`<div class="body-part"><h3>HTML body</h3><iframe sandbox="" srcdoc="${escHtml(data.html)}" title="email html"></iframe></div>`);
-  }
-  if (data.text) {
-    parts.push(`<div class="body-part"><h3>Plaintext body</h3><pre class="text-body">${escHtml(data.text)}</pre></div>`);
-  }
-  if (parts.length === 0) {
-    parts.push(`<div class="body-part"><div class="notice muted">No body captured.</div></div>`);
-  }
-  const bodyBlock = parts.join("\n    ");
-
-  let attachmentsBlock = "";
-  if (attachments.length > 0) {
-    const rows = attachments
-      .map((a) => `<tr><td>${escHtml(a.filename || "(unnamed)")}</td><td>${escHtml(a.mime || "")}</td><td>${escHtml(fmtBytes(a.size || 0))}</td></tr>`)
-      .join("");
-    attachmentsBlock = `
-  <section class="attachments">
-    <h2>Attachments (${attachments.length})</h2>
-    <p class="muted">Metadata only — attachment bytes are not stored. The original email with full attachments is in the fallback inbox.</p>
-    <table>
-      <thead><tr><th>Filename</th><th>Type</th><th>Size</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </section>`;
-  }
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>${escHtml(subject)}</title>
-<style>
-  :root { --bg:#20242c; --surface:#2a2f3a; --border:#3b4252; --text:#d8dee9; --muted:#8893a8; --yellow:#ebcb8b; }
-  body { margin: 0; padding: 32px; background: var(--bg); color: var(--text); font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif; max-width: 920px; margin-inline: auto; }
-  h1 { font-size: 20px; margin: 0 0 18px; }
-  h2 { font-size: 12px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .env { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 22px; margin-bottom: 18px; }
-  .env dl { display: grid; grid-template-columns: 70px 1fr; gap: 6px 18px; margin: 0; font: 13px/1.55 ui-monospace, "JetBrains Mono", Menlo, monospace; }
-  .env dt { color: var(--muted); }
-  .env dd { margin: 0; word-break: break-word; }
-  details.headers { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 18px; }
-  details.headers summary { padding: 14px 18px; cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
-  details.headers[open] summary { border-bottom: 1px solid var(--border); }
-  details.headers pre { margin: 0; padding: 14px 18px; font: 12.5px/1.55 ui-monospace, "JetBrains Mono", monospace; color: var(--text); overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-  .body-section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 18px; overflow: hidden; }
-  .body-part { padding: 16px 18px; }
-  .body-part + .body-part { border-top: 1px solid var(--border); }
-  .body-part h3 { font-size: 11px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .body-part iframe { width: 100%; height: 600px; border: 1px solid var(--border); background: #fff; border-radius: 6px; display: block; }
-  .body-part .text-body { margin: 0; white-space: pre-wrap; word-break: break-word; font: 13px/1.6 ui-monospace, "JetBrains Mono", monospace; color: var(--text); max-height: 600px; overflow-y: auto; }
-  .notice { padding: 14px 16px; border-radius: 6px; background: rgba(235, 203, 139, 0.12); border: 1px solid var(--yellow); color: var(--yellow); }
-  .notice.muted { background: transparent; border-color: var(--border); color: var(--muted); }
-  .attachments { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; margin-bottom: 18px; }
-  .attachments p { margin: 0 0 12px; font-size: 13px; }
-  .attachments table { width: 100%; border-collapse: collapse; font: 13px/1.5 ui-monospace, "JetBrains Mono", monospace; }
-  .attachments th, .attachments td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-  .attachments th { color: var(--muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .attachments tr:last-child td { border-bottom: none; }
-  .muted { color: var(--muted); }
-  footer { margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--border); font: 12px/1.5 ui-monospace, "JetBrains Mono", monospace; color: var(--muted); }
-</style>
-</head>
-<body>
-  <header class="env">
-    <h1>${escHtml(subject)}</h1>
-    <dl>
-      <dt>From</dt><dd>${escHtml(data.from_addr || "")}</dd>
-      <dt>To</dt><dd>${escHtml(data.to_addr || "")}</dd>
-      <dt>Date</dt><dd>${escHtml(data.ts || "")}</dd>
-      <dt>ID</dt><dd>${escHtml(data.id || "")}</dd>
-    </dl>
-  </header>
-${headers.length > 0 ? `  <details class="headers">
-    <summary>Full headers (${headers.length})</summary>
-    <pre>${headerLines}</pre>
-  </details>` : ""}
-  <section class="body-section">
-    ${bodyBlock}
-  </section>
-${attachmentsBlock}
-  <footer>Archived from AREA 51 · ${escHtml(data.id || "")} · downloaded ${escHtml(new Date().toISOString())}</footer>
-</body>
-</html>
-`;
-}
-
-function downloadEmailHtml(data, toast) {
-  if (!data) return;
-  try {
-    const html = buildEmailArchiveHtml(data);
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const filename = emailFilename(data);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 500);
-    toast("Downloaded " + filename, "success");
-  } catch (e) {
-    toast("Download failed: " + (e && e.message || e), "error");
-  }
-}
-
-function EmailView({ data, forwarded, onBlockSender }) {
+function FromCell({ from, onBlock }) {
   const bl = useBlacklist();
-  const headers = Array.isArray(data.headers) ? data.headers : [];
-  const attachments = Array.isArray(data.attachments) ? data.attachments : [];
-  const text = data.text || "";
-  const html = forwarded ? "" : (data.html || "");
-  const hasText = !!text;
-  const hasHtml = !!html;
-  const [view, setView] = useState(hasHtml ? "html" : "text");
-  const senderBlocked = bl.isSenderBlocked(data.from_addr);
-
+  const addr = normalizeEmail(from);
   return (
-    <>
-      {forwarded && (
-        <div className="notice">
-          <span className="glyph">!</span>
-          <span>This email was forwarded to the fallback inbox due to attachments or size. The full message body is not stored here — check the fallback inbox for the original.</span>
-        </div>
+    <span className="dd-with-action">
+      <span>{decodeMimeWord(from)}</span>
+      {bl.isSenderBlocked(addr) ? (
+        <span className="blocked-tag" title="This sender is currently blacklisted">
+          <span className="ban-glyph">⊘</span> blacklisted
+        </span>
+      ) : (
+        <button className="ban-btn" onClick={onBlock} title="Blacklist this sender">
+          <span className="ban-glyph">⊘</span> blacklist
+        </button>
       )}
-
-      <div className={forwarded ? "section" : ""}>
-        <dl className="detail-grid">
-          <dt>From</dt>
-          <dd className="dd-with-action">
-            <span>{decodeMimeWord(data.from_addr)}</span>
-            {senderBlocked ? (
-              <span className="blocked-tag" title="This sender is currently blacklisted">
-                <span className="ban-glyph">⊘</span> blacklisted
-              </span>
-            ) : (
-              <button className="ban-btn" onClick={onBlockSender} title="Blacklist this sender">
-                <span className="ban-glyph">⊘</span> blacklist
-              </button>
-            )}
-          </dd>
-          <dt>To</dt><dd>{decodeMimeWord(data.to_addr)}</dd>
-          <dt>Subject</dt><dd style={{color:"var(--s2)"}}>{decodeMimeWord(data.subject)}</dd>
-          <dt>Received</dt><dd>{fmtTimeFull(data.ts)}</dd>
-        </dl>
-      </div>
-
-      {headers.length > 0 && (
-        <div className="section">
-          <details className="headers-collapse">
-            <summary>
-              <span className="caret"><Icon.chevron/></span>
-              Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {headers.length}</span>
-            </summary>
-            <pre className="code-block">
-              {headers.map((h) => `${h.key}: ${decodeMimeWord(h.value)}`).join("\n")}
-            </pre>
-          </details>
-        </div>
-      )}
-
-      {(hasHtml || hasText) && (
-        <div className="section">
-          <div className="section-title" style={{display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-            <span>Body</span>
-            {hasHtml && hasText && (
-              <div className="toggle-group">
-                <button className={view === "html" ? "active" : ""} onClick={() => setView("html")}>HTML</button>
-                <button className={view === "text" ? "active" : ""} onClick={() => setView("text")}>Plain</button>
-              </div>
-            )}
-          </div>
-          {view === "html" && hasHtml && (
-            <div className="iframe-wrap">
-              <iframe
-                sandbox=""
-                srcDoc={html}
-                title="email html"
-              />
-            </div>
-          )}
-          {view === "text" && hasText && (
-            <pre className="code-block wrap">{text}</pre>
-          )}
-        </div>
-      )}
-
-      {attachments.length > 0 && (
-        <div className="section">
-          <div className="section-title">Attachments <span style={{color:"var(--n4)", fontWeight:400}}>· {attachments.length}</span></div>
-          <div className="attachment-list">
-            {attachments.map((a, i) => (
-              <div className="attachment" key={i}>
-                <span className="ico"><Icon.paper/></span>
-                <span className="name">{a.filename || "(unnamed)"}</span>
-                <span className="mime">{a.mime}</span>
-                <span className="size">{fmtBytes(a.size)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </>
+    </span>
   );
 }
 

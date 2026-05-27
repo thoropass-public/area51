@@ -70,35 +70,40 @@ It is **not customer-facing**. All users are trusted Thoropass team members. Des
                 │                           │ │ D1: area51 database    │ │
                 │                           │ │  ├── endpoints         │ │
                 │                           │ │  ├── requests          │ │
-                │                           │ │  ├── emails            │ │
+                │                           │ │  ├── emails (lean)      │ │
                 │                           │ │  └── *_blacklist       │ │
                 │                           │ └────────────────────────┘ │
-                │                           │  ▲                         │
-                │                           │  │                         │
+                │           raw .eml ───────┤  ▲                         │
+                │           ▼               │  │                         │
+                │ ┌────────────────────────┐│  │                         │
+                │ │ R2: area51-emails      ││  │                         │
+                │ │  emails/<id>.eml       ││  │                         │
+                │ └────────────────────────┘│  │                         │
   Pentester ────┼─► AREA 51 dashboard       │  │                         │
    (browser)    │   (Cloudflare Pages)      │  │                         │
-                │   ├── index.html, *.jsx ──┘  │ (read/write via         │
-                │   └── /functions/api/* ──────┘  D1 binding)            │
+                │   ├── index.html, *.jsx ──┘  │ (read/write D1;         │
+                │   └── /functions/api/* ──────┘  read R2 for raw .eml)  │
                 │                              │                         │
   AI agent ─────┼─► Autopilot worker           │                         │
-   (REST / MCP) │   /requests, /emails, ───────┘                         │
+   (REST / MCP) │   /requests, /emails,        │                         │
+                │   /emails/<id>/raw, ─────────┘                         │
                 │   /autopilot/*, /mcp                                   │
                 │                                                        │
                 │                              ┌────────────────────────┐│
                 │ Email Routing fallback ─────►│  FALLBACK_ADDRESS      ││
-                │ (forwarded when rawSize >    │  (catch-all inbox)     ││
-                │  1 MB OR attachments         └────────────────────────┘│
-                │  present)                                              │
+                │ (only on capture error:      │  (catch-all inbox)     ││
+                │  R2 PUT / handler throws)    └────────────────────────┘│
                 └────────────────────────────────────────────────────────┘
 ```
 
-The same Cloudflare account hosts three runtime pieces, all backed by one D1 database:
+The same Cloudflare account hosts three runtime pieces, backed by one D1 database (lean rows) and one R2 bucket (raw `.eml` blobs):
 
 | Piece (user lingo) | Implementation | What it does |
 |---|---|---|
 | **AREA 51** (the dashboard) | Cloudflare Pages site (project `area51`) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, purge data, manage IP / email blacklists |
-| **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, parses, stores, optionally forwards |
-| **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads and `/autopilot/*` endpoint CRUD for authorized Claude Code / Codex agents |
+| **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, stores the raw `.eml` to R2, writes a lean index row to D1 |
+| **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/autopilot/*` endpoint CRUD for authorized Claude Code / Codex agents |
+| **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the modal's "More" / Download Raw and by Autopilot |
 | **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Pages and both workers |
 | **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the Black Holes worker's email handler |
 
@@ -133,26 +138,20 @@ sender ──► *@<black-hole>
          BlackHolesWorker.email(message)
               │
               ├─ id = uuid, ts = now
-              ├─ read message.raw stream → rawText (string)
-              ├─ parsed = postal-mime.parse(rawText)
-              ├─ hasAttachments = parsed.attachments.length > 0
-              ├─ tooBig = message.rawSize > 1 MiB
+              ├─ blacklist check → setReject + return if sender is listed
+              ├─ buf = await message.raw → ArrayBuffer   (read once)
+              ├─ parsed = postal-mime.parse(buf)         (subject, text, attachment count)
               │
-              ├─ if hasAttachments OR tooBig:
-              │     ├─ forward(message → FALLBACK_ADDRESS)                       } in parallel
-              │     └─ INSERT into emails: html = "sent_to_fallback"
-              │         (everything else — from/to/subject/headers/text/attachments — still written)
-              │   await both via Promise.allSettled
+              ├─ R2.put("emails/<id>.eml", buf)          (verbatim raw .eml)
+              ├─ INSERT lean row into emails
+              │     (id, ts, from, to, subject, text, attachment_count)
               │
-              ├─ else:
-              │     ├─ INSERT into emails with parsed.{headers, text, html, attachments}
-              │     └─ on INSERT failure: forward to FALLBACK_ADDRESS (compensating, no D1 row)
-              │
-              └─ on uncaught error anywhere above:
-                    forward(message → FALLBACK_ADDRESS)                          } last resort
+              └─ on ANY error (raw read / R2 PUT / D1 INSERT throws):
+                    forward(message → FALLBACK_ADDRESS)
+                    R2.delete + DELETE FROM emails   (roll back any partial write)
 ```
 
-The email handler **never throws out of the handler function** — any uncaught path triggers a last-resort forward so the email isn't dropped silently.
+Capture is **all-or-nothing**: on success both the R2 object and the D1 row exist; on any failure the original is forwarded to the fallback inbox and any partial write is rolled back, so D1 and R2 never keep a half-record — there are no marker rows. There is no size or attachment threshold; every email's raw `.eml` goes to R2 in full. The handler never re-throws. (D1 and R2 share no transaction, so the rollback is best-effort compensating deletes; a failed cleanup delete is logged and at worst leaves an invisible orphaned R2 object.)
 
 ### 2.3 Dashboard flow (pentester → AREA 51)
 
@@ -188,12 +187,12 @@ pentester ──► AREA 51 dashboard (Pages)
 │   ├── deploy-agent.sh        ← Autopilot worker (also installs AGENT_SECRET)
 │   └── deploy-pages.sh        ← AREA 51 dashboard (Pages)
 ├── worker/                    ← Black Holes worker (one Cloudflare Worker, many bound domains)
-│   ├── wrangler.toml.template ← Worker config template (D1 binding, FALLBACK_ADDRESS)
+│   ├── wrangler.toml.template ← Worker config template (D1 + R2 bindings, FALLBACK_ADDRESS)
 │   ├── package.json           ← deps: postal-mime, wrangler
 │   └── src/
 │       └── index.js           ← single-file Worker with fetch + email handlers
 ├── agent-worker/              ← Autopilot worker (REST + MCP server)
-│   ├── wrangler.toml.template ← Worker config template (D1 binding only; AGENT_SECRET is a Secret)
+│   ├── wrangler.toml.template ← Worker config template (D1 + R2 bindings; AGENT_SECRET is a Secret)
 │   └── src/
 │       └── index.js           ← REST handlers + MCP JSON-RPC 2.0 server
 └── pages/                     ← AREA 51 dashboard (Cloudflare Pages site)
@@ -208,19 +207,19 @@ pentester ──► AREA 51 dashboard (Pages)
             ├── config/domains.js       ← GET — reads DOMAINS_CONFIG env var, returns {domains:[…]}
             ├── endpoints/
             │   ├── index.js            ← GET (list+search+cursor), POST (upsert)
-            │   ├── [uri].js            ← GET (detail), DELETE
-            │   └── autopilot/purge.js  ← POST — wipe /autopilot/* endpoints, keep latest N
+            │   └── [uri].js            ← GET (detail), DELETE
             ├── requests/
             │   ├── index.js            ← GET (list+search+cursor)
             │   └── [id].js             ← GET (detail; headers parsed back to object)
             ├── emails/
             │   ├── index.js            ← GET (list+search+cursor)
-            │   └── [id].js             ← GET (detail; headers + attachments parsed back from JSON)
+            │   ├── [id].js             ← GET (lean detail: subject/from/to/text/attachment_count)
+            │   └── [id]/raw.js         ← GET — streams the raw .eml from R2 (EML binding)
             ├── blacklist/
             │   ├── ips/index.js & [ip].js       ← list/add, delete
             │   └── emails/index.js & [email].js ← list/add, delete
             └── purge/
-                └── index.js            ← POST (delete-all-except-latest-N, allowlisted tables only)
+                └── index.js            ← POST (delete older than N days; requests/emails/endpoints)
 ```
 
 The two workers and the Pages project are **deployed independently** but share a single D1 database via separate Wrangler bindings.
@@ -255,31 +254,19 @@ Note that step 5's `JSON.parse` is wrapped in try/catch and falls back to `{}` s
 
 ### 4.2 Email handler
 
-`handleEmail(message, env, ctx)` in `worker/src/index.js`. All operations wrapped in a top-level try/catch that triggers a last-resort forward on any uncaught error.
+`handleEmail(message, env, ctx)` in `worker/src/index.js`. Everything is wrapped in a top-level try/catch; the catch is the only path that forwards to the fallback inbox.
 
 Steps:
 
 1. `id = uuid`, `ts = now()`, `fromAddr = message.from`, `toAddr = message.to`.
-2. `rawSize = Number(message.rawSize)` — coerced through `Number()` to defend against a known Cloudflare bug where `rawSize` returns a `BigInt` despite type declarations.
-3. Read the raw EML into a string: `rawText = await new Response(message.raw).text()`. This consumes the `message.raw` stream, so it can only happen once. The raw text is never stored in D1 — only the structured fields parsed from it.
-4. `parsed = await PostalMime.parse(rawText)` — parse on the **string** (not the stream — already consumed). Used only to extract the subject for the D1 row; not used for any routing decision. Parse failures are caught and `parsed` stays `null`, but processing continues so the row is still stored.
-5. Extract `subject` from parsed headers (preferred) or `parsed.subject`.
-6. Decide the routing:
-   - `hasAttachments = (parsed.attachments || []).length > 0` — any item postal-mime found, inline or not.
-   - `tooBig = rawSize > 1048576` (1 MiB).
-   - `shouldForward = hasAttachments || tooBig`.
+2. **Blacklist gate.** If the normalized sender is on `email_blacklist`, `message.setReject('Address not accepted')` and return — no R2 object, no D1 row (see [§6.4](#64-ip_blacklist-and-email_blacklist)).
+3. Buffer the raw EML **once**: `buf = await new Response(message.raw).arrayBuffer()`. The same buffer feeds both R2 and the parser. The `message.raw` stream can only be read once.
+4. `parsed = await PostalMime.parse(buf)` — used to extract `subject`, `text`, and `attachment_count` (`parsed.attachments.length`). Parse failures are caught and logged; processing continues (the raw `.eml` is still stored, so the rich view works even when the worker's parse fails).
+5. **`R2.put('emails/<id>.eml', buf)`** with `Content-Type: message/rfc822` — the verbatim raw message. If this throws, control falls to the catch (step 7).
+6. **Lean `INSERT into emails`**: `(id, ts, from_addr, to_addr, subject, text, attachment_count)`. No `headers` / `html` / attachment bytes are stored in D1; those live only in the R2 object. If this throws, control falls to the catch (step 7).
+7. **Catch (error path):** anything above throwing (raw read, R2 PUT, **or** the D1 INSERT) → `forward(message, env.FALLBACK_ADDRESS)` so the original isn't lost, then roll back any partial write: `EML.delete('emails/<id>.eml')` and `DELETE FROM emails WHERE id = ?`. Both are best-effort (no shared transaction) and logged on failure. The handler never re-throws.
 
-   `message.rawSize` is what Cloudflare reports for the inbound — it runs several times larger than the EML body length we read from `message.raw` because it includes SMTP envelope / routing metadata. The 1 MB cap is set against `message.rawSize`, not body length, and is comfortable for routine Gmail-forwarded mail (including signatures with inline images).
-7. **If `shouldForward`:**
-   - Start `message.forward(env.FALLBACK_ADDRESS)` — the original email lands in the fallback inbox.
-   - Start `INSERT into emails` with the same structured fields as a normal store **except** `html = "sent_to_fallback"` (the literal sentinel string). `text`, `headers`, `attachments` (metadata), `subject`, `from_addr`, `to_addr`, `ts` are all populated normally so the dashboard can still show the email's metadata.
-   - `await Promise.allSettled([forwardP, insertP])` — neither blocks the other.
-8. **Else (store normally):**
-   - `INSERT into emails` with `headers = JSON(parsed.headers)`, `text = parsed.text`, `html = parsed.html`, `attachments = JSON([{filename, mime, size}, …])`. **Attachment content (bytes) is never stored — only metadata.**
-   - On INSERT failure: compensating action — forward to `FALLBACK_ADDRESS` so the email isn't lost. (No D1 row exists in this failure case — the marker-row path only fires for the size/attachment triggers.)
-9. **Catch-all:** any uncaught error from steps 1–8 → `forward(message, env.FALLBACK_ADDRESS)`. The handler never re-throws.
-
-The `"sent_to_fallback"` literal in the `html` column is what the dashboard's email modal checks to show the yellow "forwarded to fallback inbox" notice (see `tabs.jsx` `EmailModal` / `EmailView`). All other columns are still readable — only the `html` body is replaced with the marker.
+Capture is **all-or-nothing** — success means both R2 and D1 hold the email; any failure means neither does and the original is in the fallback inbox. There is no size or attachment threshold. The dashboard's email modal shows the lean row by default and fetches the raw `.eml` from R2 (via `/api/emails/<id>/raw`) only when the user clicks **More**.
 
 ### 4.3 Bindings & env vars
 
@@ -288,7 +275,8 @@ In `worker/wrangler.toml` (rendered by `scripts/render-wrangler.sh` from `worker
 | Binding / Var | Purpose |
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
-| `FALLBACK_ADDRESS` (var) | Email forward target for oversized (>1 MB) and attachment cases. Value set in `.env` and substituted into `worker/wrangler.toml` at render time. |
+| `EML` (R2) | R2 bucket `area51-emails`; the worker PUTs every email's raw `.eml` to `emails/<id>.eml`. Bucket name from `R2_BUCKET_NAME` in `.env`. |
+| `FALLBACK_ADDRESS` (var) | Last-resort email forward target — used only on the error path (R2 PUT / handler throws). Value set in `.env` and substituted into `worker/wrangler.toml` at render time. |
 | `workers_dev = false` | Disables the auto-generated `*.workers.dev` URL — the worker is reachable only via the Custom Domains bound to it in the dashboard |
 | `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
 
@@ -316,13 +304,12 @@ Event names emitted:
 | `http_endpoint_lookup_failed` | D1 lookup threw (rare) |
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the `ctx.waitUntil` request log |
 | `email_received` | top of email handler |
-| `email_rejected_blacklist` | sender on the email_blacklist; `setReject` invoked, no D1 write, no forward |
-| `email_parse_failed` | postal-mime threw (D1 row still gets written with whatever metadata we have) |
-| `email_fallback` | shouldForward branch fired; logs `{reason, hasAttachments, tooBig, rawSize}` |
-| `email_oversized` | decision to forward (rawSize > 1 MB) |
-| `email_d1_insert_ok` / `email_d1_insert_failed` | emails table INSERT result |
+| `email_rejected_blacklist` | sender on the email_blacklist; `setReject` invoked, no R2 object, no D1 write |
+| `email_parse_failed` | postal-mime threw (non-fatal — raw `.eml` still stored, row still written) |
+| `email_stored` | success: raw `.eml` in R2 **and** lean row in D1 |
+| `email_capture_failed` | error path fired — forwarded to fallback, then rolled back partial writes |
+| `email_rollback_r2_failed` / `email_rollback_d1_failed` | a compensating delete failed (possible orphan) |
 | `email_forward_ok` / `email_forward_failed` | message.forward result |
-| `email_unhandled_error` | top-level catch fired — last-resort forward attempted |
 
 Tail with `wrangler tail` (see [Operations](#10-operations)).
 
@@ -356,7 +343,7 @@ File responsibilities:
   - The effective list of search terms sent to the API is `[<live-input-text>, ...pins]` (built per-tab via the `effectiveSearch(input, pins)` helper) — all ORed server-side (any term matches → row included).
   - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens.
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
-  - `EmailsTab` + `EmailModal` — modal hands off to a single `EmailView` component that reads the structured fields directly from the API response (`data.headers`, `data.text`, `data.html`, `data.attachments`). No postal-mime in the browser any more — the worker parses once on write, the dashboard reads parsed columns on read. The yellow "forwarded to fallback" notice fires when `data.html === "sent_to_fallback"`; all other fields are still shown alongside the notice.
+  - `EmailsTab` + `EmailModal` — the modal opens with the **lean** row (from/to/subject/received/plain-text body/attachment count) — no R2 fetch. A **More** button then fetches the raw `.eml` from `/api/emails/<id>/raw`, parses it in the browser with postal-mime (loaded lazily as `window.PostalMime`), and reveals the full headers (collapsible), HTML body (in a strict `sandbox=""` iframe), and a clickable attachment list (each downloads its decoded bytes as a Blob). Once expanded, **More** becomes **Download Raw** (saves the in-memory `.eml`). Every D1 row has a matching R2 object (capture is all-or-nothing), so **More** always resolves.
   - HTML body is rendered in a strict-sandbox `<iframe sandbox="" srcDoc={...}>`. Plain-text body in a `<pre>`. Attachments are surfaced as `{filename, mime, size}` rows — content bytes are never stored or exposed.
   - `decodeMimeWord(s)` (in `ui.jsx`) decodes RFC 2047 encoded-words (`=?charset?B?...?=` / `=?charset?Q?...?=`) before display. Applied to `from_addr`, `to_addr`, `subject`, and rendered header values. Worker-side extraction prefers postal-mime's already-decoded `parsed.subject` over the raw header value, so new rows arrive decoded; `decodeMimeWord` is a defense-in-depth pass for any encoded-word that slips through (older rows, display names in envelope fields, header values).
 
@@ -364,7 +351,7 @@ File responsibilities:
   - `App` — top-level component. Tab state, keyboard shortcut handler (⌘/Ctrl + 1–4 → endpoints/requests/emails/settings), wraps everything in `ConfirmProvider` + `ToastProvider`.
   - `TopBar` — brand mark + tabs + a refresh button on the far right that's visible only on list tabs (endpoints / requests / emails). The button increments an `App`-level `refreshTick` counter that the active list tab consumes as a `refreshKey` prop in its `fetchFirst` `useEffect` dependency array, causing a re-fetch of the first page. The icon spins briefly (~600ms) on click for visual feedback; the spin isn't synced to the actual loading state since each tab already shows its own spinner over the list rows.
   - `Home` — the marketing-style landing tab: AREA 51 hero, intro copy, four navigation tiles.
-  - `Settings` — purge UI. Pick table (requests/emails/autopilot), pick keep-N, click Purge (red, confirmation-gated). The danger banner reads "will keep the latest N · older rows permanently deleted · no undo" — no live count of what's about to be deleted, because we don't want to query `COUNT(*)` (see [§15](#15-design-decision-log)).
+  - `Settings` — purge UI. Multi-select any of the three data types (Requests / Emails / Autopilot Endpoints) via pill toggles, enter how many recent **days** to keep, click Purge (red, confirmation-gated). Purges each selected type via `API.purge({table, days})` in a loop. **Autopilot Endpoints is an exception** — selecting it wipes the entire `/autopilot/*` namespace regardless of the days value (no timestamp on that table); the confirm dialog and danger banner reword to say "all" for that case. No live row count, because we don't want to query `COUNT(*)` (see [§15](#15-design-decision-log)).
 
 ### 5.2 HTML iframe sandbox for email bodies
 
@@ -384,9 +371,9 @@ The full HTTP API contract is in [§7](#7-http-api-contract-pages-functions). No
 
 ---
 
-## 6. D1 database
+## 6. D1 database (+ R2 for raw emails)
 
-Schema in `schema.sql`. Three tables, two indexes. Apply with:
+Schema in `schema.sql`. Five tables (`endpoints`, `requests`, `emails`, `ip_blacklist`, `email_blacklist`) plus the R2 bucket for raw `.eml` blobs ([§6.6](#66-r2-raw-eml-storage)). Apply the schema with:
 
 ```sh
 wrangler d1 execute area51 --file=schema.sql --remote
@@ -403,7 +390,7 @@ The map of `URI path → response` that the worker serves.
 | `headers` | `TEXT` | JSON-stringified `{key: value}` object. Stored as JSON so D1 can hold arbitrary header sets without a side table. |
 | `body` | `TEXT` | Raw response body (text or encoded binary). Capped at D1's 2 MB row limit. |
 
-No `ts` / `created_at` — the worker doesn't need it, and nothing in the dashboard surfaces it. Add one if a feature requires it.
+No `ts` / `created_at` — the worker doesn't need it, and nothing surfaces it. (This is why the Autopilot Endpoints purge wipes the whole `/autopilot/*` namespace rather than purging by age — there's no timestamp to age against.)
 
 ### 6.2 `requests`
 
@@ -424,25 +411,21 @@ Index: `idx_requests_ts ON requests(ts DESC)` — supports the dashboard's "newe
 
 ### 6.3 `emails`
 
-Every email captured by the worker.
+A **lean index row** per captured email. The full message — all headers, HTML body, attachment bytes — lives only in the raw `.eml` in R2 ([§6.6](#66-r2-raw-eml-storage)); D1 holds just what the list, quick preview, search, and Autopilot need.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `TEXT PRIMARY KEY` | UUIDv4 generated in the worker |
+| `id` | `TEXT PRIMARY KEY` | UUIDv4 generated in the worker; also the R2 key (`emails/<id>.eml`) |
 | `ts` | `TEXT NOT NULL` | ISO 8601 UTC. Indexed `DESC`. |
 | `from_addr` | `TEXT NOT NULL` | `message.from` (envelope sender) |
 | `to_addr` | `TEXT NOT NULL` | `message.to` (envelope recipient) |
-| `subject` | `TEXT` | Extracted from parsed headers if available |
-| `headers` | `TEXT` | JSON-stringified array `[{key, value}, …]` from postal-mime. May be `NULL` if parsing failed. |
-| `text` | `TEXT` | Plain-text body from postal-mime's `parsed.text`. May be `NULL` if no text part. Still populated on fallback rows. |
-| `html` | `TEXT` | HTML body from postal-mime's `parsed.html`, **OR** the literal string `"sent_to_fallback"` on rows whose original was forwarded to the fallback inbox due to size or attachments. |
-| `attachments` | `TEXT` | JSON-stringified `[{filename, mime, size}, …]`. **Metadata only — no attachment bytes are ever stored.** May be `NULL` if parsing failed; `'[]'` if the email parsed but had no attachments. |
+| `subject` | `TEXT` | Extracted from parsed headers / `parsed.subject` |
+| `text` | `TEXT` | Plain-text body from `parsed.text`. May be `NULL` if no text part. Powers the quick preview, search, and Autopilot reads. |
+| `attachment_count` | `INTEGER NOT NULL DEFAULT 0` | `parsed.attachments.length`. Shown as a count in the modal; full attachment details come from the raw `.eml`. |
 
 Index: `idx_emails_ts ON emails(ts DESC)`.
 
-The literal `"sent_to_fallback"` marker in the `html` column distinguishes "stored normally" rows from "the original was forwarded to the fallback inbox" rows. Both the worker (when writing) and the dashboard's email modal (when reading `data.html`) treat that exact string as the sentinel. Don't change the marker, or the column it lives in, without updating both sides.
-
-Note: even on fallback rows, **everything except `html` is written**: `subject`, `from_addr`, `to_addr`, `ts`, `headers`, `text`, and `attachments` (metadata) are populated from what postal-mime parsed before the fallback decision. The yellow notice in the dashboard appears alongside this real metadata — clicking a fallback row still tells you who sent what, when, and what files were attached.
+Every row has a matching `emails/<id>.eml` object in R2 — capture is all-or-nothing (see [§4.2](#42-email-handler)), so there are no marker or partial rows. A failed capture leaves nothing in D1 and forwards the original to the fallback inbox instead.
 
 ### 6.4 `ip_blacklist` and `email_blacklist`
 
@@ -468,8 +451,12 @@ The cache miss path returns an empty set on D1 error so a transient D1 outage ne
 
 - **No counters table.** Tab badges and stats panels were dropped because counting rows on D1 bills per row scanned. Re-litigate this before adding counters; see [§15](#15-design-decision-log).
 - **No foreign keys.** Endpoints, requests, and emails are independent — request rows are NOT linked to the endpoint that matched. The dashboard treats them as separate logs.
-- **No soft-delete columns.** Delete is delete. Purge is delete-by-position. Recovery is via fallback inbox (for emails) or "we just lost the row" (for requests).
+- **No soft-delete columns.** Delete is delete. Purge is delete-by-position (and drops the matching R2 objects for emails). No recovery once purged.
 - **No created_by / actor tracking.** The dashboard is single-tenant from the database's perspective. Access control happens at the network edge, not in the data model.
+
+### 6.6 R2 raw `.eml` storage
+
+Bucket `area51-emails`, bound as `EML` on the worker, agent worker, and Pages. One object per email at key `emails/<id>.eml` — the verbatim raw RFC-822 message (`Content-Type: message/rfc822`). Written by the worker on capture; read on demand by the dashboard (`/api/emails/<id>/raw`) and Autopilot (`/emails/<id>/raw`). Deleting an email (purge) deletes its object too. R2's free tier (10 GB storage, no egress fees) is the reason emails no longer threaten the 500 MB D1 limit — D1 now carries only the lean rows.
 
 ---
 
@@ -491,9 +478,9 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 | `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
 | `GET` | `/api/requests/[id]` | Detail. Returns the full row including `headers` (parsed back to an object) and `body`. 404 if missing. |
 | `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
-| `GET` | `/api/emails/[id]` | Detail. Returns `{id, ts, from_addr, to_addr, subject, headers, text, html, attachments}` with `headers` and `attachments` parsed back from JSON into arrays. 404 if missing. |
-| `POST` | `/api/purge` | Body: `{table: "requests"\|"emails", keep: <non-negative int>}`. Deletes all rows in `table` except the most-recent `keep` by `ts`. Returns `{ok: true, deleted: N}`. **`table` is validated against an allowlist before being interpolated into SQL** — don't remove that validation. |
-| `POST` | `/api/endpoints/autopilot/purge` | Body: `{keep: <non-negative int>}` (optional; defaults to 0). Deletes every `/autopilot/*` endpoint EXCEPT the latest `keep` by SQLite ROWID (effectively insertion order). With `keep=0` or no body, wipes them all. Returns `{ok: true, deleted: N}`. Manually-defined endpoints outside `/autopilot/*` are not touched. |
+| `GET` | `/api/emails/[id]` | Lean detail. Returns `{id, ts, from_addr, to_addr, subject, text, attachment_count}`. Headers / HTML / attachment bytes are **not** here — they're in the raw `.eml`. 404 if missing. |
+| `GET` | `/api/emails/[id]/raw` | Streams the verbatim raw `.eml` from R2 (`message/rfc822`). 404 if no object (fallback rows, purged, or never stored). Consumed by the modal's More / Download Raw. |
+| `POST` | `/api/purge` | Body: `{table: "requests"\|"emails"\|"endpoints", days: <non-negative int>}`. For `requests`/`emails`: deletes rows older than `days` days (`ts < now - days`), keeping the last `days` days (`days=0` deletes everything); for `emails` it also deletes the matching `emails/<id>.eml` R2 objects (best-effort, batched). For `endpoints`: **`days` is ignored** — deletes every `uri LIKE '/autopilot/%'` (the table has no timestamp), never manually-defined endpoints. Returns `{ok: true, deleted: N}`. The dashboard calls this once per selected type. **`table` is validated against an allowlist** — don't remove that. |
 | `GET` | `/api/blacklist/ips` | List blacklisted IPs. Returns `[{ip, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/ips` | Body: `{ip, note?}`. IP validated (IPv4 dotted quad, IPv6 with colons, or the literal `unknown`). `INSERT OR IGNORE` semantics — duplicate adds return success without writing. |
 | `DELETE` | `/api/blacklist/ips/[ip]` | Remove. 404 if not present. |
@@ -532,6 +519,16 @@ npx wrangler d1 create area51
 ```
 
 Copy the printed `database_id` into `.env` under `D1_DATABASE_ID`. (Each deploy script renders `wrangler.toml` from the template + `.env` — the live `wrangler.toml` files are gitignored.)
+
+### Step 2b — Create the R2 bucket
+
+Enable R2 on the account (Dashboard → R2; the free tier may still ask for a card), then:
+
+```sh
+npx wrangler r2 bucket create area51-emails
+```
+
+The bucket name must match `R2_BUCKET_NAME` in `.env`. The worker and agent worker bind it as `EML` via their templates automatically; the Pages binding is added by hand in Step 7.
 
 ### Step 3 — Apply the schema
 
@@ -585,6 +582,7 @@ After this, any email to `*@<that-zone>` invokes the worker's `email` handler.
 The first deploy creates the Pages project. Then in the dashboard:
 
 - **Pages → `area51` → Settings → Functions → D1 database bindings:** add a binding `DB` → `area51` for **both Production and Preview**. ⚠️ Without this, every `/api/*` call returns 500.
+- **Pages → `area51` → Settings → Functions → R2 bucket bindings:** add a binding `EML` → `area51-emails` for **both Production and Preview**. ⚠️ Without this, `/api/emails/<id>/raw` (the modal's More / Download Raw) 500s.
 - **Pages → `area51` → Custom domains:** add the dashboard domain.
 
 Redeploy once after adding the D1 binding so the new env is picked up: `./scripts/deploy-pages.sh`.
@@ -693,13 +691,13 @@ Run these after any non-trivial deploy.
 1. **Schema applied** — `wrangler d1 execute area51 --command "SELECT name FROM sqlite_master WHERE type='table'" --remote` lists `endpoints`, `requests`, `emails`, `ip_blacklist`, `email_blacklist`.
 2. **HTTP 404 + capture** — `curl https://<black-hole>/test` returns `404! Not Found`. A row appears in `requests`.
 3. **HTTP endpoint serving** — Create an endpoint via AREA 51 for `/health` returning `200 ok`. `curl https://<black-hole>/health` returns it. A request row is logged.
-4. **Email basic** — Send a plain text email under 1 MB and with no attachments to `anything@<mail-enabled-black-hole>`. A row appears in `emails` with populated `headers`, `text`, `html`, `attachments='[]'`. No forward.
-5. **Email with attachment** — Send any email with an attachment. A row appears with `html = "sent_to_fallback"` while `text`, `headers`, `attachments` (metadata) are still populated. The original lands in the fallback inbox.
-6. **Email oversized** — Send a >1 MB email (no attachment required). Same outcome as #5.
+4. **Email basic** — Send a plain-text email to `anything@<mail-enabled-black-hole>`. A lean row appears in `emails` (`attachment_count=0`) and an object exists at `emails/<id>.eml` in R2 (`wrangler r2 object get area51-emails emails/<id>.eml`). No forward.
+5. **Email with attachment** — Send an email with an attachment. Row shows the right `attachment_count`; in the modal, **More** reveals headers + HTML body + the attachment, and clicking it downloads the file. **Download Raw** saves the `.eml`.
+6. **Email large** — Send a multi-MB email. Same outcome as #4/#5 — no threshold, it's stored in full. (Only a worker error would forward to fallback, leaving no D1 row and no R2 object.)
 7. **AREA 51 CRUD** — Create, edit, delete an endpoint via the modal; live behavior on the worker updates immediately.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
-10. **Purge** — With ≥15 rows in `requests`, purge with keep=10; only the 10 most recent remain.
+10. **Purge** — With some old + some recent `requests`, select Requests + Emails, set days=1, Purge; rows (and emails' R2 objects) older than 1 day go, recent ones stay. Multi-select purges each selected type.
 11. **Blacklist reject (HTTP)** — Add a test IP to `ip_blacklist`; hit a black hole from that IP within an hour; confirm the response is `403 Forbidden` and no row appears in `requests`. Also expect a `http_rejected_blacklist` log line in `wrangler tail`.
 12. **Blacklist reject (email)** — Add a test sender to `email_blacklist`; send from that address within an hour; confirm the sender receives a bounce ("Address not accepted") and no row appears in `emails`. Expect `email_rejected_blacklist` in the tail.
 13. **Autopilot** (only if deployed) — see [§14.7](#147-smoke-tests-for-the-autopilot-worker).
@@ -715,7 +713,7 @@ Run these after any non-trivial deploy.
 | Endpoint exists but worker returns 404 | URI mismatch (case, trailing slash, query) | `endpoints.uri` matches `url.pathname` **exactly**. Re-check the path stored. |
 | Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → the black hole zone → Email → Email Routing. Catch-all destination must be `area51-worker`. |
 | Email arrives but body is empty / parse fails | postal-mime parse threw on the worker | Check Workers Logs for `email_parse_failed`. The D1 row still gets written, but `headers`, `text`, `html`, `attachments` may be `NULL`. AREA 51 will just show the minimal envelope (from/to/subject/ts). |
-| Request count keeps dropping | Someone purged; or a deploy with the wrong `keep` value | Check Pages Functions logs for `/api/purge` calls. There's no audit trail. |
+| Request count keeps dropping | Someone purged; or a purge with too small a `days` value | Check Pages Functions logs for `/api/purge` calls. There's no audit trail. |
 | Worker logs show `http_log_insert_failed` | D1 transient error or quota | Logs are best-effort by design — but if it's repeated, check D1 health and storage. |
 | AREA 51's Endpoints search misses matches | LIKE search is `uri LIKE '%query%'` — full-table scan, but exact-substring | Try a shorter / different substring. There's no fuzzy search. |
 | Wrong timestamps in AREA 51 | Browser timezone vs UTC | `ts` is UTC ISO 8601; AREA 51 renders in the local timezone via `Intl.DateTimeFormat`. Confirm system tz. |
@@ -724,7 +722,8 @@ Run these after any non-trivial deploy.
 
 ## 13. Known constraints & caveats
 
-- **D1 row size limit: 2 MB.** Mitigated for emails by the 1 MB forward threshold; the actual body length we write to D1 is typically a fraction of `message.rawSize` (Cloudflare's reported size includes envelope/routing overhead), so 1 MB against `rawSize` leaves comfortable headroom against the 2 MB row cap. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
+- **D1 row size limit: 2 MB.** No longer a concern for emails — the lean row only holds metadata + plain text, and the raw `.eml` (which can be large) lives in R2, not D1. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
+- **Email memory ceiling.** The worker buffers the whole raw `.eml` in memory to PUT it to R2 and parse it. Workers cap at 128 MB; SMTP messages are typically ≤25–50 MB, so this is comfortable, but a pathologically huge message would error and fall to the fallback path.
 - **D1 storage limit: 500 MB on Free tier.** Purge regularly. No automatic eviction.
 - **Search is full-table scan.** `LIKE '%query%'` doesn't use indexes. Fine at thousands of rows; switch to FTS5 if volume grows.
 - **Pagination is best-effort during writes.** Cursor pagination is stable only as long as the data between pages doesn't change. New emails arriving during a scroll won't appear until you re-search/refresh.
@@ -751,11 +750,12 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 |---|---|---|
 | `GET` | `/requests` | `{served_at, window_minutes: 60, rows: [{id, ts, method, url, ip}, …]}` — newest-first, all rows in the last 60 minutes. |
 | `GET` | `/emails` | `{served_at, window_minutes: 60, rows: [{id, ts, from_addr, to_addr, subject, text}, …]}` — newest-first, all rows in the last 60 minutes. |
+| `GET` | `/emails/<id>/raw` | Raw `.eml` (`message/rfc822`) for one email. **Hard 60-minute gate:** serves only if `SELECT id FROM emails WHERE id=? AND ts>=now-60min` matches — otherwise 404. An old or unknown id can't be fetched even if the caller knows it. |
 | `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/autopilot/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. |
 | `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/autopilot/` — server returns 400 otherwise. |
 | `GET` | `/autopilot/endpoints/<uri>` | Read one. URI is URL-encoded in the path. Same `/autopilot/` prefix rule. |
 | `DELETE` | `/autopilot/endpoints/<uri>` | Delete one. Same prefix rule. |
-| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Six tools (see §14.4). |
+| `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Seven tools (see §14.4). |
 
 **No parameters on the read endpoints.** Window (60 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows. The CRUD endpoints under `/autopilot/*` have no time restriction — the only guardrail there is the URI prefix.
 
@@ -781,12 +781,13 @@ So every call hits D1. The `/autopilot/*` CRUD endpoints are also uncached — t
 
 ### 14.4 MCP server (what it is and how Claude Code uses it)
 
-The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Six tools exposed:
+The Model Context Protocol is Anthropic's spec for letting LLMs talk to external tools through a typed interface. `POST /mcp` on this worker speaks MCP's JSON-RPC 2.0 transport (single-request HTTP, no SSE needed because our tools complete fast). Seven tools exposed:
 
 | Tool | Wraps | Args |
 |---|---|---|
 | `requests_recent_1hr` | `GET /requests` | — |
 | `emails_recent_1hr` | `GET /emails` | — |
+| `email_raw` | `GET /emails/<id>/raw` | `{id}` — explicit, on-demand only; returns the raw `.eml` text. Not for routine polling. Subject to the same 60-min hard gate. |
 | `autopilot_endpoints_list` | `GET /autopilot/endpoints` | — |
 | `autopilot_endpoints_get` | `GET /autopilot/endpoints/<uri>` | `{uri}` |
 | `autopilot_endpoints_upsert` | `POST /autopilot/endpoints` | `{uri, status, headers?, body?}` |
@@ -802,7 +803,7 @@ claude mcp add autopilot https://<autopilot-domain>/mcp \
   --header "X-A51-Secret: <secret-from-.env>"
 ```
 
-After that, any Claude Code session on that machine has all six `mcp__autopilot__*` tools available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
+After that, any Claude Code session on that machine has all seven `mcp__autopilot__*` tools available as native tool calls. The model invokes them directly; no curl, no header juggling, no JSON-parsing instructions in the system prompt. The bearer header lives in Claude Code's config (`~/.claude/...`), not in the conversation.
 
 ### 14.5 Auth + secret management
 
@@ -890,33 +891,29 @@ Why this shape:
 
 ### 15.3 Purge banner doesn't show a row delete count
 
-To keep "will delete X of Y rows" accurate, we'd need to fetch the current table count every time the user changes the `keep` input. Same row-scan cost as the counts decision. The simplified banner ("will keep the latest N · older rows permanently deleted · no undo") communicates the action; the user sees the resulting `deleted: N` count via the success toast.
+To keep "will delete X of Y rows" accurate, we'd need to fetch the current table count every time the user changes the `days` input. Same row-scan cost as the counts decision. The simplified banner ("will delete data older than N days · destructive · no undo") communicates the action; the user sees the resulting `deleted: N` count via the success toast.
 
 ### 15.4 No build pipeline for the frontend
 
 React + Babel-standalone loaded from unpkg, JSX transpiled in the browser. **Pro:** zero build deps, zero version-skew chores, deploys are pure file uploads. **Con:** ~3 MB of JS on first load, no tree-shaking, no TypeScript. For a 5-person internal tool, the trade is worth it. If the dashboard grows past ~2 k lines of frontend code, revisit Vite + a real build.
 
-### 15.5 Worker parses once; dashboard reads parsed columns
+### 15.5 Raw `.eml` in R2; D1 stays lean; browser parses on demand
 
-The earlier design kept the raw EML in D1 and re-parsed it in the browser on every modal open. We replaced that with worker-side parsing into structured columns (`headers`, `text`, `html`, `attachments`). Tradeoffs:
+This area went through two designs. The first stored the raw EML in D1 and re-parsed in the browser. The second parsed worker-side into wide D1 columns (`headers`/`html`/`attachments`) and forwarded oversized/attachment mail to a fallback inbox to dodge D1's 2 MB row / 500 MB store limits. **The current design moves the raw `.eml` to R2** and keeps D1 to a lean index row.
 
-- **Wider schema** — `emails` went from `{id, ts, from_addr, to_addr, subject, raw_eml}` (6 cols) to a 9-col table.
-- **Worker does parsing work on the write path** — small CPU cost, well within Cloudflare's free Worker CPU budget.
-- **Frontend loses the postal-mime dependency entirely** — no `esm.sh` runtime fetch, no lazy-load latency, no extra `~50 KB` JS on first email open.
-- **No re-parsing on read** — dashboard is a thin renderer of the columns.
-- **Attachment content is never persisted.** Only metadata. Pentest mail attachments stay in the fallback inbox; D1 carries the filename/mime/size for reference.
+- **Why:** D1's 500 MB limit made emails the one table that could realistically fill it, and the forward-on-attachment behavior meant attachments were *lost* to a mailbox rather than retained. R2 (10 GB free, no egress) is the right home for opaque blobs, retains everything, and removes the size/attachment thresholds entirely — one write path instead of two.
+- **D1 holds** only `subject`, `from`, `to`, `ts`, `text`, `attachment_count` — enough for the list, quick preview, search, and Autopilot, with no R2 fetch.
+- **Browser parses on demand again** — this deliberately reverses the "parse once on the worker" decision, but only behind the modal's **More** button (one R2 GET + one postal-mime parse), not on every open. Justified because D1 no longer carries the parsed HTML/headers, and the common glance (lean view) stays cheap.
+- **Attachments are retained** in the raw `.eml` and downloadable from the parsed bytes — they're no longer metadata-only.
 
-### 15.6 `html = "sent_to_fallback"` as a sentinel
+### 15.6 All-or-nothing email capture (no marker rows)
 
-We could add a separate `was_forwarded` boolean column. Instead, we overload the `html` column with a literal string marker on rows whose original got forwarded to the fallback inbox (due to size > 1 MB or any attachment present).
+Earlier designs kept "partial" email records — a `"sent_to_fallback"` sentinel, then an `is_fallback` marker row — for messages that couldn't be fully stored. We dropped that entirely. Capture is now binary:
 
-- **Pro:** schema stays narrow. Frontend already knows how to render `data.html` — checking for the marker is one extra comparison.
-- **Con:** the dashboard has to know the magic string. Both sides reference it directly:
-  - Worker writes: `html: 'sent_to_fallback'` in the INSERT
-  - Dashboard reads: `data.html === "sent_to_fallback"` to flip on the yellow notice
-- **Why `html` and not `text`?** The other fields (`text`, `headers`, `attachments`) are still populated on fallback rows so the user can see *what* triggered the fallback. The `html` body is the one piece we don't want to render (could be huge / not present), so it's the natural home for the sentinel.
+- **Success:** the raw `.eml` is in R2 **and** the lean row is in D1.
+- **Failure (anything throws):** the original is forwarded to the fallback inbox and any partial write is rolled back (`R2.delete` + `DELETE FROM emails`), so neither system keeps a half-record.
 
-If you change the marker or the column it lives in, change both sites in the same commit.
+Why: a row that exists but can't be opened (no R2 object) is worse than no row — it's a dead end in the UI and a trap for Autopilot. Keeping D1 and R2 strictly in lockstep means every row the dashboard or an agent sees is fully retrievable, and the schema loses a column and a special-case render path. The trade-off is that D1 and R2 have no shared transaction, so rollback is best-effort compensating deletes; a failed cleanup delete is logged (`email_rollback_*`) and at worst leaves an invisible orphaned R2 object — never a visible half-email.
 
 ### 15.7 Endpoints are exact-match, not glob
 

@@ -30,5 +30,11 @@ binding = "DB"
 database_name = "${D1_DATABASE_NAME}"
 database_id = "${D1_DATABASE_ID}"
 
+# Raw .eml storage. Every captured email's verbatim source is written to
+# emails/<id>.eml here. Bucket is created manually (wrangler r2 bucket create).
+[[r2_buckets]]
+binding = "EML"
+bucket_name = "${R2_BUCKET_NAME}"
+
 [vars]
 FALLBACK_ADDRESS = "${FALLBACK_ADDRESS}"

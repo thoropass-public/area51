@@ -55,19 +55,24 @@ const API = {
     apiFetch('/api/emails' + qs({ cursor, search })),
   getEmail: (id) =>
     apiFetch(`/api/emails/${encodeURIComponent(id)}`),
+  // Raw .eml bytes from R2 (message/rfc822, not JSON) — returns an ArrayBuffer.
+  getEmailRaw: async (id) => {
+    const resp = await fetch(`/api/emails/${encodeURIComponent(id)}/raw`);
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch { /* not json */ }
+      throw new Error(msg);
+    }
+    return resp.arrayBuffer();
+  },
 
-  purge: ({ table, keep }) =>
+  // Purge by age: delete records older than `days` across one table.
+  // table ∈ {requests, emails, endpoints}; endpoints purges /autopilot/* only.
+  purge: ({ table, days }) =>
     apiFetch('/api/purge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table, keep: Number(keep) }),
-    }),
-
-  purgeAutopilot: ({ keep } = {}) =>
-    apiFetch('/api/endpoints/autopilot/purge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keep: Number(keep) || 0 }),
+      body: JSON.stringify({ table, days: Number(days) }),
     }),
 
   listDomains: () => apiFetch('/api/config/domains'),

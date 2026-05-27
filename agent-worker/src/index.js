@@ -12,6 +12,7 @@
 // Endpoints:
 //   GET    /requests                     →  last 60 minutes of `requests` rows
 //   GET    /emails                       →  last 60 minutes of `emails`   rows
+//   GET    /emails/<id>/raw              →  raw .eml from R2 (hard 60-min check)
 //   GET    /autopilot/endpoints          →  list all endpoints under /autopilot/*
 //   POST   /autopilot/endpoints          →  upsert (body: {uri, status, headers, body})
 //   GET    /autopilot/endpoints/<uri>    →  read one
@@ -22,6 +23,7 @@
 // MCP tools exposed:
 //   requests_recent_1hr
 //   emails_recent_1hr
+//   email_raw  (explicit, on-demand: full raw .eml for one recent email)
 //   autopilot_endpoints_list
 //   autopilot_endpoints_get
 //   autopilot_endpoints_upsert
@@ -111,6 +113,39 @@ async function handleEmails(env) {
     served_at: new Date().toISOString(),
     window_minutes: WINDOW_MINUTES,
     rows: results || [],
+  });
+}
+
+// ----- raw .eml fetch (hard freshness gate) -----
+//
+// Returns the verbatim raw .eml from R2, but ONLY if the email is within the
+// same 60-minute window the read tools expose. The gate is enforced in D1,
+// never trusted from the caller: an id older than the window or unknown simply
+// won't match the SELECT, so the object is never fetched. Knowing an old id is
+// not enough. (Every D1 row has a matching R2 object — capture is all-or-nothing.)
+async function handleEmailRaw(env, id) {
+  if (!id || typeof id !== 'string') return errResp('id is required', 400);
+  const cutoff = new Date(Date.now() - WINDOW_MS).toISOString();
+  const row = await env.DB.prepare(
+    'SELECT id FROM emails WHERE id = ? AND ts >= ?'
+  ).bind(id, cutoff).first();
+  if (!row) {
+    log('agent_email_raw_denied', { id });
+    return errResp('Email not available: outside the last 60 minutes or unknown', 404);
+  }
+  const obj = await env.EML.get(`emails/${id}.eml`);
+  if (!obj) {
+    log('agent_email_raw_missing', { id });
+    return errResp('Raw email object not found', 404);
+  }
+  log('agent_email_raw_ok', { id });
+  return new Response(obj.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'message/rfc822',
+      'Content-Disposition': `attachment; filename="${id}.eml"`,
+      'Cache-Control': 'no-store',
+    },
   });
 }
 
@@ -241,6 +276,26 @@ const MCP_TOOLS = [
       "live (no server-side cache). No parameters.",
     ].join(' '),
     inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'email_raw',
+    description: [
+      "Fetches the full raw .eml source for one captured email by id. Use this",
+      "ONLY when explicitly asked for the full email — e.g. to read all headers,",
+      "the HTML body, or to inspect/extract attachments. Routine monitoring should",
+      "use emails_recent_1hr; do NOT call this for every email. The id must come",
+      "from emails_recent_1hr and must still be within the 60-minute window — the",
+      "server hard-checks freshness and refuses anything older or unknown.",
+      "Returns the verbatim RFC-822 message (headers +",
+      "bodies + base64-encoded attachment parts); parse it as MIME to extract parts.",
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: "Email id from emails_recent_1hr. Must be within the last 60 minutes." },
+      },
+      required: ['id'],
+    },
   },
   {
     name: 'autopilot_endpoints_list',
@@ -391,6 +446,8 @@ async function handleMcp(request, env) {
           dataResp = await handleRequests(env);
         } else if (name === 'emails_recent_1hr') {
           dataResp = await handleEmails(env);
+        } else if (name === 'email_raw') {
+          dataResp = await handleEmailRaw(env, args.id);
         } else if (name === 'autopilot_endpoints_list') {
           dataResp = await autopilotList(env);
         } else if (name === 'autopilot_endpoints_get') {
@@ -435,6 +492,12 @@ export default {
       // Read endpoints.
       if (path === '/requests' && request.method === 'GET') return handleRequests(env);
       if (path === '/emails'   && request.method === 'GET') return handleEmails(env);
+
+      // Raw .eml download (hard 60-minute freshness gate inside handleEmailRaw).
+      if (request.method === 'GET' && path.startsWith('/emails/') && path.endsWith('/raw')) {
+        const id = decodeURIComponent(path.slice('/emails/'.length, -('/raw'.length)));
+        return handleEmailRaw(env, id);
+      }
 
       // Autopilot CRUD.
       if (path === '/autopilot/endpoints') {

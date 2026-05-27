@@ -25,6 +25,13 @@ binding = "DB"
 database_name = "${D1_DATABASE_NAME}"
 database_id = "${D1_DATABASE_ID}"
 
+# Same R2 bucket the Black Holes worker writes raw .eml into. Autopilot reads
+# it (never writes) to serve raw .eml downloads to agents, gated by a 60-min
+# freshness check against D1.
+[[r2_buckets]]
+binding = "EML"
+bucket_name = "${R2_BUCKET_NAME}"
+
 # AGENT_SECRET is installed as a Worker Secret (encrypted in Cloudflare's
 # vault), not as a [vars] entry. Installed by scripts/deploy-agent.sh via
 # `wrangler secret put AGENT_SECRET`.

@@ -17,16 +17,20 @@ CREATE TABLE IF NOT EXISTS requests (
 );
 CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts DESC);
 
-CREATE TABLE IF NOT EXISTS emails (
+-- Emails are stored lean in D1; the full raw .eml lives in R2 at emails/<id>.eml.
+-- D1 holds only what the list view, quick preview, search, and Autopilot need.
+-- Capture is all-or-nothing: a row exists here only when its R2 object also
+-- exists. On any capture error the worker rolls back both and forwards the
+-- original to the fallback inbox, so there are never partial/marker rows.
+DROP TABLE IF EXISTS emails;
+CREATE TABLE emails (
   id TEXT PRIMARY KEY,
   ts TEXT NOT NULL,
   from_addr TEXT NOT NULL,
   to_addr TEXT NOT NULL,
   subject TEXT,
-  headers TEXT,        -- JSON-stringified array [{key, value}, ...] from postal-mime
-  text TEXT,           -- postal-mime parsed.text (plain body); NULL on fallback rows
-  html TEXT,           -- postal-mime parsed.html (rendered body); literal "sent_to_fallback" on fallback rows
-  attachments TEXT     -- JSON-stringified [{filename, mime, size}, ...]; metadata only, no content bytes
+  text TEXT,                            -- plain-text body: preview + search + Autopilot
+  attachment_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_emails_ts ON emails(ts DESC);
 

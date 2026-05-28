@@ -174,10 +174,10 @@ async function insertEmail(env, row) {
 async function handleEmail(message, env, ctx) {
   const id = crypto.randomUUID();
   const ts = new Date().toISOString();
-  const envelopeFrom = message.from || '';   // SMTP MAIL FROM — kept only for logs / parse-failure fallback
+  const envelopeFrom = message.from || '';   // SMTP MAIL FROM — kept only for diagnostic logging
   const toAddr = message.to || '';
   const key = `emails/${id}.eml`;
-  let fromAddr = '';                          // populated from parsed.from.address below
+  let fromAddr = '';                          // populated from parsed.from.address below; never falls back to envelope
 
   try {
     log('email_received', { id, envelope_from: envelopeFrom, to: toAddr, rawSize: Number(message.rawSize) });
@@ -197,10 +197,12 @@ async function handleEmail(message, env, ctx) {
       logErr('email_parse_failed', { id, error: String(err && err.message || err) });
     }
 
-    // From: header address — the canonical sender for storage, display, and
-    // blacklisting. Falls back to envelope-from only when parsing failed or
-    // the message has no From: header at all.
-    fromAddr = (parsed && parsed.from && typeof parsed.from.address === 'string' && parsed.from.address) || envelopeFrom;
+    // From: header address — the canonical (and only) sender we store, show,
+    // and blacklist against. If parsing failed or the message has no From:
+    // header, fromAddr stays empty: the row is still captured, but the
+    // blacklist gate below skips (nothing to compare) and D1 stores ''.
+    // The envelope sender is intentionally NOT consulted as a fallback.
+    fromAddr = (parsed && parsed.from && typeof parsed.from.address === 'string' && parsed.from.address) || '';
 
     // Blacklist gate (active reject) — matches the From: header that the
     // dashboard displays, so "blacklist this sender" actually catches future

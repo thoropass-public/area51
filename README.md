@@ -256,8 +256,8 @@ Note that step 5's `JSON.parse` is wrapped in try/catch and falls back to `{}` s
 
 Steps:
 
-1. `id = uuid`, `ts = now()`, `fromAddr = message.from`, `toAddr = message.to`.
-2. **Blacklist gate.** If the normalized sender is on `email_blacklist`, `message.setReject('Address not accepted')` and return — no R2 object, no D1 row (see [§6.4](#64-ip_blacklist-and-email_blacklist)).
+1. `id = uuid`, `ts = now()`, `toAddr = message.to`. Envelope-from (`message.from`) is kept only for diagnostic logging and as a parse-failure fallback — the canonical sender is derived after parse (step 4).
+2. Buffer the raw EML once → parse with `postal-mime` (step 3 below) → derive `fromAddr = parsed.from.address` (the `From:` header). **Blacklist gate runs on this value** (not the envelope), so it matches what the dashboard shows; `message.setReject('Address not accepted')` and return on a hit — no R2 object, no D1 row (see [§6.4](#64-ip_blacklist-and-email_blacklist)).
 3. Buffer the raw EML **once**: `buf = await new Response(message.raw).arrayBuffer()`. The same buffer feeds both R2 and the parser. The `message.raw` stream can only be read once.
 4. `parsed = await PostalMime.parse(buf)` — used to extract `subject`, `text`, and `attachment_count` (`parsed.attachments.length`). Parse failures are caught and logged; processing continues (the raw `.eml` is still stored, so the rich view works even when the worker's parse fails).
 5. **`R2.put('emails/<id>.eml', buf)`** with `Content-Type: message/rfc822` — the verbatim raw message. If this throws, control falls to the catch (step 7).
@@ -415,7 +415,7 @@ A **lean index row** per captured email. The full message — all headers, HTML 
 |---|---|---|
 | `id` | `TEXT PRIMARY KEY` | UUIDv4 generated in the worker; also the R2 key (`emails/<id>.eml`) |
 | `ts` | `TEXT NOT NULL` | ISO 8601 UTC. Indexed `DESC`. |
-| `from_addr` | `TEXT NOT NULL` | `message.from` (envelope sender) |
+| `from_addr` | `TEXT NOT NULL` | The `From:` header address (`parsed.from.address`), i.e. what the dashboard shows. Falls back to the envelope sender (`message.from`) only if parsing failed or the message has no `From:` header. The full envelope is recoverable from the raw `.eml` in R2 if you need it. |
 | `to_addr` | `TEXT NOT NULL` | `message.to` (envelope recipient) |
 | `subject` | `TEXT` | Extracted from parsed headers / `parsed.subject` |
 | `text` | `TEXT` | Plain-text body from `parsed.text`. May be `NULL` if no text part. Powers the quick preview, search, and Autopilot reads. |
@@ -431,7 +431,7 @@ Active-reject lists consulted by the worker at the top of each handler. Exact-ma
 
 | Column | Type | Notes |
 |---|---|---|
-| `ip` / `email` | `TEXT PRIMARY KEY` | Exact value. `email` is stored lowercase; the worker lowercases the envelope sender before comparing. |
+| `ip` / `email` | `TEXT PRIMARY KEY` | Exact value. `email` is stored lowercase; the worker lowercases the `From:` header address before comparing. |
 | `ts` | `TEXT NOT NULL` | ISO 8601 UTC when added |
 | `note` | `TEXT` | Optional human label (e.g. "shodan scanner"). Not currently surfaced in the UI but available in the API. |
 

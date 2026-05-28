@@ -174,16 +174,38 @@ async function insertEmail(env, row) {
 async function handleEmail(message, env, ctx) {
   const id = crypto.randomUUID();
   const ts = new Date().toISOString();
-  const fromAddr = message.from || '';
+  const envelopeFrom = message.from || '';   // SMTP MAIL FROM — kept only for logs / parse-failure fallback
   const toAddr = message.to || '';
   const key = `emails/${id}.eml`;
+  let fromAddr = '';                          // populated from parsed.from.address below
 
   try {
-    log('email_received', { id, from: fromAddr, to: toAddr, rawSize: Number(message.rawSize) });
+    log('email_received', { id, envelope_from: envelopeFrom, to: toAddr, rawSize: Number(message.rawSize) });
 
-    // Blacklist gate (active reject). message.setReject NACKs the message
-    // back to the upstream SMTP so the sender gets a clear bounce. No R2
-    // object, no D1 write, no fallback.
+    // Buffer the raw EML once — it feeds the parser, the R2 object, and lets
+    // us derive the From: header address (what the dashboard shows and the
+    // blacklist gates on).
+    const buf = await new Response(message.raw).arrayBuffer();
+
+    // Parse failure is non-fatal: the raw .eml is still valid and gets stored,
+    // and the rich view re-parses in the browser. We just lose the extracted
+    // subject/text/count and fall back to envelope-from for the row.
+    let parsed = null;
+    try {
+      parsed = await PostalMime.parse(buf);
+    } catch (err) {
+      logErr('email_parse_failed', { id, error: String(err && err.message || err) });
+    }
+
+    // From: header address — the canonical sender for storage, display, and
+    // blacklisting. Falls back to envelope-from only when parsing failed or
+    // the message has no From: header at all.
+    fromAddr = (parsed && parsed.from && typeof parsed.from.address === 'string' && parsed.from.address) || envelopeFrom;
+
+    // Blacklist gate (active reject) — matches the From: header that the
+    // dashboard displays, so "blacklist this sender" actually catches future
+    // mail from the same visible address. message.setReject NACKs upstream
+    // so the sender gets a clear bounce; no R2 object, no D1 write.
     const normalizedFrom = normalizeEmail(fromAddr);
     if (normalizedFrom) {
       const emailBlacklist = await loadBlacklist(env, 'email');
@@ -194,18 +216,6 @@ async function handleEmail(message, env, ctx) {
       }
     }
 
-    // Buffer the raw EML once — it feeds both the R2 object and the parser.
-    const buf = await new Response(message.raw).arrayBuffer();
-
-    // Parse failure is non-fatal: the raw .eml is still valid and gets stored,
-    // and the rich view re-parses in the browser. We just lose the extracted
-    // subject/text/count on this row.
-    let parsed = null;
-    try {
-      parsed = await PostalMime.parse(buf);
-    } catch (err) {
-      logErr('email_parse_failed', { id, error: String(err && err.message || err) });
-    }
     const subject = (parsed && parsed.subject) ||
                     (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
                     '';

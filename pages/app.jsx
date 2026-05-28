@@ -299,7 +299,12 @@ function Settings() {
     if (hasAuto && others.length === 0) {
       message = <>Permanently delete every endpoint under <code>/-/*</code>. Manually-defined endpoints are not affected. This cannot be undone.</>;
     } else if (hasAuto) {
-      message = <>Permanently delete every endpoint under <code>/-/*</code>, and {olderThan}. This cannot be undone.</>;
+      message = <>
+        Permanently delete:<br/>
+        • <b>All</b> endpoints under <code>/-/*</code> — every one, regardless of the days value.<br/>
+        • Every record from {others.map(labelFor).join(" and ")} older than {dayNum} {dayLabel}.<br/><br/>
+        This cannot be undone.
+      </>;
     } else {
       message = <>Permanently delete {olderThan}. This cannot be undone.</>;
     }
@@ -373,24 +378,6 @@ function Settings() {
               <button className="btn danger" onClick={doPurge} disabled={purging || tables.length === 0}>
                 {purging ? <><span className="spinner"/> purging</> : "Purge"}
               </button>
-            </div>
-            <div className="danger-banner">
-              <span className="glyph">!</span>
-              <span>
-                {(() => {
-                  if (tables.length === 0) return <>no data types selected</>;
-                  const hasAuto = tables.includes("endpoints");
-                  const others = tables.filter((t) => t !== "endpoints");
-                  const daysB = <b style={{color:"var(--s2)"}}>{days} {Number(days) === 1 ? "day" : "days"}</b>;
-                  if (hasAuto && others.length === 0) {
-                    return <>will delete <b style={{color:"var(--s2)"}}>all</b> Autopilot Endpoints · destructive · no undo</>;
-                  }
-                  if (hasAuto) {
-                    return <>will delete <b style={{color:"var(--s2)"}}>all</b> Autopilot Endpoints and other selected data older than {daysB} · destructive · no undo</>;
-                  }
-                  return <>will delete the selected data older than {daysB} · destructive · no undo</>;
-                })()}
-              </span>
             </div>
           </div>
         </div>

@@ -66,15 +66,6 @@ const API = {
     return resp.arrayBuffer();
   },
 
-  // Purge by age: delete records older than `days` across one table.
-  // table ∈ {requests, emails, endpoints}; endpoints purges /autopilot/* only.
-  purge: ({ table, days }) =>
-    apiFetch('/api/purge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table, days: Number(days) }),
-    }),
-
   listDomains: () => apiFetch('/api/config/domains'),
 
   listBlacklistIps: () => apiFetch('/api/blacklist/ips'),

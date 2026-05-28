@@ -32,7 +32,7 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 
 Internal out-of-band callback infrastructure for the Thoropass pentest team. Pentesters interact with three named pieces:
 
-- **AREA 51** — the dashboard. Configure endpoints, browse captured requests and emails, purge data, manage blacklists.
+- **AREA 51** — the dashboard. Configure endpoints, browse captured requests and emails, manage blacklists.
 - **Black Holes** — attacker-controlled domains, each acting as an entry-point for incoming **HTTP requests**, incoming **email**, or both. Anything a target sends to a black hole ends up captured in D1 for the pentester to inspect via AREA 51.
 - **Autopilot** — the MCP server (with a REST mirror) that authorized Claude Code / Codex agents connect to during engagements. Surfaces recent requests + emails and CRUD over a reserved `/-/*` endpoint namespace so an agent can stage response stubs and observe callbacks on its own.
 
@@ -100,7 +100,7 @@ The same Cloudflare account hosts three runtime pieces, backed by one D1 databas
 
 | Piece (user lingo) | Implementation | What it does |
 |---|---|---|
-| **AREA 51** (the dashboard) | Cloudflare Pages site (project `area51`) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, purge data, manage IP / email blacklists |
+| **AREA 51** (the dashboard) | Cloudflare Pages site (project `area51`) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, manage IP / email blacklists |
 | **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, stores the raw `.eml` to R2, writes a lean index row to D1 |
 | **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/-/*` endpoint CRUD for authorized Claude Code / Codex agents |
 | **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the modal's "More" / Download Raw and by Autopilot |
@@ -163,8 +163,7 @@ pentester ──► AREA 51 dashboard (Pages)
                             ▼
                        { GET /api/endpoints, POST, GET/[uri], DELETE /[uri],
                          GET /api/requests, GET /[id],
-                         GET /api/emails, GET /[id],
-                         POST /api/purge,
+                         GET /api/emails, GET /[id], GET /[id]/raw,
                          GET/POST/DELETE /api/blacklist/{ips,emails},
                          GET /api/config/domains }
                             │
@@ -185,7 +184,8 @@ pentester ──► AREA 51 dashboard (Pages)
 │   ├── render-wrangler.sh     ← envsubst worker/wrangler.toml.template → worker/wrangler.toml
 │   ├── deploy-worker.sh       ← Black Holes worker
 │   ├── deploy-agent.sh        ← Autopilot worker (also installs AGENT_SECRET)
-│   └── deploy-pages.sh        ← AREA 51 dashboard (Pages)
+│   ├── deploy-pages.sh        ← AREA 51 dashboard (Pages)
+│   └── purge.sh               ← interactive admin purge (D1 + R2)
 ├── worker/                    ← Black Holes worker (one Cloudflare Worker, many bound domains)
 │   ├── wrangler.toml.template ← Worker config template (D1 + R2 bindings, FALLBACK_ADDRESS)
 │   ├── package.json           ← deps: postal-mime, wrangler
@@ -215,11 +215,9 @@ pentester ──► AREA 51 dashboard (Pages)
             │   ├── index.js            ← GET (list+search+cursor)
             │   ├── [id].js             ← GET (lean detail: subject/from/to/text/attachment_count)
             │   └── [id]/raw.js         ← GET — streams the raw .eml from R2 (EML binding)
-            ├── blacklist/
-            │   ├── ips/index.js & [ip].js       ← list/add, delete
-            │   └── emails/index.js & [email].js ← list/add, delete
-            └── purge/
-                └── index.js            ← POST (delete older than N days; requests/emails/endpoints)
+            └── blacklist/
+                ├── ips/index.js & [ip].js       ← list/add, delete
+                └── emails/index.js & [email].js ← list/add, delete
 ```
 
 The two workers and the Pages project are **deployed independently** but share a single D1 database via separate Wrangler bindings.
@@ -351,7 +349,7 @@ File responsibilities:
   - `App` — top-level component. Tab state, keyboard shortcut handler (⌘/Ctrl + 1–4 → endpoints/requests/emails/settings), wraps everything in `ConfirmProvider` + `ToastProvider`.
   - `TopBar` — brand mark + tabs + a refresh button on the far right that's visible only on list tabs (endpoints / requests / emails). The button increments an `App`-level `refreshTick` counter that the active list tab consumes as a `refreshKey` prop in its `fetchFirst` `useEffect` dependency array, causing a re-fetch of the first page. The icon spins briefly (~600ms) on click for visual feedback; the spin isn't synced to the actual loading state since each tab already shows its own spinner over the list rows.
   - `Home` — the marketing-style landing tab: AREA 51 hero, intro copy, four navigation tiles.
-  - `Settings` — purge UI. Multi-select any of the three data types (Requests / Emails / Autopilot Endpoints) via pill toggles, enter how many recent **days** to keep, click Purge (red, confirmation-gated). Purges each selected type via `API.purge({table, days})` in a loop. **Autopilot Endpoints is an exception** — selecting it wipes the entire `/-/*` namespace regardless of the days value (no timestamp on that table); the confirm dialog and danger banner reword to say "all" for that case. No live row count, because we don't want to query `COUNT(*)` (see [§15](#15-design-decision-log)).
+  - `Settings` — blacklist management only. Purging data is intentionally not exposed in the UI; see [Operations → Manual purge](#manual-purge).
 
 ### 5.2 HTML iframe sandbox for email bodies
 
@@ -367,7 +365,7 @@ When `ParsedEmailView` renders an email's HTML body, it does so in:
 
 Each file under `pages/functions/api/` exports `onRequestGet` / `onRequestPost` / `onRequestDelete` named handlers. Every handler is wrapped in `withErrorHandler` (`_shared.js`), which try/catches, logs the error via `console.error`, and returns `{ error: "Internal error" }` with HTTP 500 on any uncaught throw.
 
-The full HTTP API contract is in [§7](#7-http-api-contract-pages-functions). Note: the `/-/*` namespace inside `endpoints` is reserved for the **Autopilot** worker (see [§14](#14-autopilot--agent-worker--mcp-server)); AREA 51's UI treats it as a normal endpoint table, but the Settings purge UI exposes a dedicated "Autopilot Endpoints" purge target for convenience.
+The full HTTP API contract is in [§7](#7-http-api-contract-pages-functions). Note: the `/-/*` namespace inside `endpoints` is reserved for the **Autopilot** worker (see [§14](#14-autopilot--agent-worker--mcp-server)); AREA 51's UI treats it as a normal endpoint table.
 
 ---
 
@@ -390,7 +388,7 @@ The map of `URI path → response` that the worker serves.
 | `headers` | `TEXT` | JSON-stringified `{key: value}` object. Stored as JSON so D1 can hold arbitrary header sets without a side table. |
 | `body` | `TEXT` | Raw response body (text or encoded binary). Capped at D1's 2 MB row limit. |
 
-No `ts` / `created_at` — the worker doesn't need it, and nothing surfaces it. (This is why the Autopilot Endpoints purge wipes the whole `/-/*` namespace rather than purging by age — there's no timestamp to age against.)
+No `ts` / `created_at` — the worker doesn't need it, and nothing surfaces it. (This is why the Autopilot Endpoints purge in `scripts/purge.sh` wipes the whole `/-/*` namespace rather than purging by age — there's no timestamp to age against.)
 
 ### 6.2 `requests`
 
@@ -451,12 +449,12 @@ The cache miss path returns an empty set on D1 error so a transient D1 outage ne
 
 - **No counters table.** Tab badges and stats panels were dropped because counting rows on D1 bills per row scanned. Re-litigate this before adding counters; see [§15](#15-design-decision-log).
 - **No foreign keys.** Endpoints, requests, and emails are independent — request rows are NOT linked to the endpoint that matched. The dashboard treats them as separate logs.
-- **No soft-delete columns.** Delete is delete. Purge is delete-by-position (and drops the matching R2 objects for emails). No recovery once purged.
+- **No soft-delete columns.** Delete is delete. Purging is done out-of-band via `scripts/purge.sh` (which handles the email R2 coupling) or D1-console SQL for requests / autopilot endpoints. No recovery once purged.
 - **No created_by / actor tracking.** The dashboard is single-tenant from the database's perspective. Access control happens at the network edge, not in the data model.
 
 ### 6.6 R2 raw `.eml` storage
 
-Bucket `area51-emails`, bound as `EML` on the worker, agent worker, and Pages. One object per email at key `emails/<id>.eml` — the verbatim raw RFC-822 message (`Content-Type: message/rfc822`). Written by the worker on capture; read on demand by the dashboard (`/api/emails/<id>/raw`) and Autopilot (`/emails/<id>/raw`). Deleting an email (purge) deletes its object too. R2's free tier (10 GB storage, no egress fees) is the reason emails no longer threaten the 500 MB D1 limit — D1 now carries only the lean rows.
+Bucket `area51-emails`, bound as `EML` on the worker, agent worker, and Pages. One object per email at key `emails/<id>.eml` — the verbatim raw RFC-822 message (`Content-Type: message/rfc822`). Written by the worker on capture; read on demand by the dashboard (`/api/emails/<id>/raw`) and Autopilot (`/emails/<id>/raw`). To delete emails, use `scripts/purge.sh` — it drops the D1 row **and** the R2 object together. A raw D1 `DELETE FROM emails` leaves orphaned `.eml` blobs (invisible storage leak), so prefer the script. R2's free tier (10 GB storage, no egress fees) is the reason emails no longer threaten the 500 MB D1 limit — D1 now carries only the lean rows.
 
 ### 6.7 `domains`
 
@@ -476,7 +474,7 @@ Read live by the dashboard's `/api/config/domains` (Home orbit chips) and by the
 Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is consumed by the AREA 51 frontend.
 
 **Response conventions:**
-- Success: JSON body, HTTP 200. Lists return a bare JSON array. Detail endpoints return the row object. Mutations return `{ok: true}` (purge also returns `deleted: N`).
+- Success: JSON body, HTTP 200. Lists return a bare JSON array. Detail endpoints return the row object. Mutations return `{ok: true}`.
 - Error: `{error: "message"}` with status 400 (bad input) or 500 (server error). 404 returns `{error: "Not found"}`.
 - Pagination: cursor-based. Page size is fixed at 50 (`PAGE_SIZE` in `_shared.js`). The cursor is the natural sort key of the last row returned — pass it as `?cursor=` for the next page. `hasMore` is inferred client-side from `results.length === PAGE_SIZE`.
 
@@ -491,7 +489,6 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 | `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
 | `GET` | `/api/emails/[id]` | Lean detail. Returns `{id, ts, from_addr, to_addr, subject, text, attachment_count}`. Headers / HTML / attachment bytes are **not** here — they're in the raw `.eml`. 404 if missing. |
 | `GET` | `/api/emails/[id]/raw` | Streams the verbatim raw `.eml` from R2 (`message/rfc822`). 404 if no object (fallback rows, purged, or never stored). Consumed by the modal's More / Download Raw. |
-| `POST` | `/api/purge` | Body: `{table: "requests"\|"emails"\|"endpoints", days: <non-negative int>}`. For `requests`/`emails`: deletes rows older than `days` days (`ts < now - days`), keeping the last `days` days (`days=0` deletes everything); for `emails` it also deletes the matching `emails/<id>.eml` R2 objects (best-effort, batched). For `endpoints`: **`days` is ignored** — deletes every `uri LIKE '/-/%'` (the table has no timestamp), never manually-defined endpoints. Returns `{ok: true, deleted: N}`. The dashboard calls this once per selected type. **`table` is validated against an allowlist** — don't remove that. |
 | `GET` | `/api/blacklist/ips` | List blacklisted IPs. Returns `[{ip, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/ips` | Body: `{ip, note?}`. IP validated (IPv4 dotted quad, IPv6 with colons, or the literal `unknown`). `INSERT OR IGNORE` semantics — duplicate adds return success without writing. |
 | `DELETE` | `/api/blacklist/ips/[ip]` | Remove. 404 if not present. |
@@ -678,15 +675,31 @@ wrangler d1 execute area51 --command "SELECT uri, status FROM endpoints ORDER BY
 wrangler d1 execute area51 --command "SELECT (SELECT COUNT(*) FROM endpoints) endpoints, (SELECT COUNT(*) FROM requests) requests, (SELECT COUNT(*) FROM emails) emails" --remote
 ```
 
-### Purging data
+### Manual purge
 
-- **Via the dashboard:** Settings tab → pick `requests` or `emails`, enter `keep`, click **Purge**, confirm.
-- **Via wrangler (manual):**
-  ```sh
-  wrangler d1 execute area51 --command "DELETE FROM requests WHERE id NOT IN (SELECT id FROM requests ORDER BY ts DESC LIMIT 1000)" --remote
-  ```
+Purging is intentionally **not** in the dashboard — there's no UI and no API endpoint. Two paths to keep the stores tidy:
 
-D1 storage limit on Free is **500 MB**. Check usage in the Cloudflare dashboard (D1 → area51). If Pages Functions logs show "exceeded maximum DB size," purge aggressively or upgrade.
+**Option 1 — `scripts/purge.sh` (recommended for emails).** Interactive admin script in the repo. Sources `.env`, no arguments. Run it:
+
+```sh
+./scripts/purge.sh
+```
+
+Menu offers: 1) Autopilot Endpoints (wipes every `/-/*` row), 2) Requests (older than N days), 3) Emails (older than N days). The emails branch is the reason this script exists — it deletes the D1 rows **and** the matching `emails/<id>.eml` objects in R2 so they stay in lockstep.
+
+**Option 2 — D1 console (Cloudflare web app).** For requests and autopilot endpoints, raw SQL is fine:
+
+```sql
+-- requests older than 30 days
+DELETE FROM requests WHERE ts < datetime('now','-30 days');
+
+-- every autopilot endpoint
+DELETE FROM endpoints WHERE uri LIKE '/-/%';
+```
+
+⚠️ **Don't** purge `emails` from the D1 console directly — `DELETE FROM emails` leaves the `.eml` blobs orphaned in R2 (invisible storage leak). Use `scripts/purge.sh` for emails.
+
+D1 storage limit on Free is **500 MB**. Check usage in the Cloudflare dashboard (D1 → area51). R2 is **10 GB** on Free (D1 → R2 dashboard). Purge when either gets uncomfortable.
 
 ### Rotating the fallback inbox
 
@@ -707,7 +720,7 @@ Run these after any non-trivial deploy.
 7. **AREA 51 CRUD** — Create, edit, delete an endpoint via the modal; live behavior on the worker updates immediately.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
-10. **Purge** — With some old + some recent `requests`, select Requests + Emails, set days=1, Purge; rows (and emails' R2 objects) older than 1 day go, recent ones stay. Multi-select purges each selected type.
+10. **Purge** — Run `./scripts/purge.sh`; pick a target, confirm. For emails, verify a doomed `emails/<id>.eml` is gone from R2 too (not just D1).
 11. **Blacklist reject (HTTP)** — Add a test IP to `ip_blacklist`; hit a black hole from that IP within an hour; confirm the response is `403 Forbidden` and no row appears in `requests`. Also expect a `http_rejected_blacklist` log line in `wrangler tail`.
 12. **Blacklist reject (email)** — Add a test sender to `email_blacklist`; send from that address within an hour; confirm the sender receives a bounce ("Address not accepted") and no row appears in `emails`. Expect `email_rejected_blacklist` in the tail.
 13. **Autopilot** (only if deployed) — see [§14.7](#147-smoke-tests-for-the-autopilot-worker).
@@ -723,7 +736,7 @@ Run these after any non-trivial deploy.
 | Endpoint exists but worker returns 404 | URI mismatch (case, trailing slash, query) | `endpoints.uri` matches `url.pathname` **exactly**. Re-check the path stored. |
 | Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → the black hole zone → Email → Email Routing. Catch-all destination must be `area51-worker`. |
 | Email arrives but body is empty / parse fails | postal-mime parse threw on the worker | Check Workers Logs for `email_parse_failed`. The D1 row still gets written, but `headers`, `text`, `html`, `attachments` may be `NULL`. AREA 51 will just show the minimal envelope (from/to/subject/ts). |
-| Request count keeps dropping | Someone purged; or a purge with too small a `days` value | Check Pages Functions logs for `/api/purge` calls. There's no audit trail. |
+| Request count keeps dropping | Someone ran `scripts/purge.sh` (or a D1-console `DELETE`) | No audit trail. Ask. |
 | Worker logs show `http_log_insert_failed` | D1 transient error or quota | Logs are best-effort by design — but if it's repeated, check D1 health and storage. |
 | AREA 51's Endpoints search misses matches | LIKE search is `uri LIKE '%query%'` — full-table scan, but exact-substring | Try a shorter / different substring. There's no fuzzy search. |
 | Wrong timestamps in AREA 51 | Browser timezone vs UTC | `ts` is UTC ISO 8601; AREA 51 renders in the local timezone via `Intl.DateTimeFormat`. Confirm system tz. |
@@ -901,9 +914,15 @@ Why this shape:
 - **Headers count and body length aren't** — both require either an extra round-trip per row or fattening the list payload, and neither tells you anything that the modal doesn't show better.
 - One query per page (10 rows) instead of 11 (1 list + 10 lazy details).
 
-### 15.3 Purge banner doesn't show a row delete count
+### 15.3 No purge in the dashboard (script-only, intentionally)
 
-To keep "will delete X of Y rows" accurate, we'd need to fetch the current table count every time the user changes the `days` input. Same row-scan cost as the counts decision. The simplified banner ("will delete data older than N days · destructive · no undo") communicates the action; the user sees the resulting `deleted: N` count via the success toast.
+The dashboard originally had a purge UI and a `/api/purge` Pages Function; both were removed. Reasons:
+
+- **Emails couple D1 + R2.** The right purge has to drop the lean row and the matching `.eml` from R2 in lockstep. Doable from a single API, but it adds a chunky destructive surface inside the dashboard for a once-in-a-while admin task.
+- **D1 console SQL handles two of three tables trivially** — `DELETE FROM requests WHERE ts < …` and `DELETE FROM endpoints WHERE uri LIKE '/-/%'`. Adding a UI for those is pure churn.
+- **`scripts/purge.sh` covers the email case** with the right R2 coupling, plus a y/N gate per step. CLI + an admin keeps a destructive-by-design tool out of the casual-click surface.
+
+If purging ever needs to be team-accessible (not just admin-only), the right path is to bring back the Pages Function (which already handled the R2 coupling correctly) and re-add a UI — not to make `scripts/purge.sh` a service.
 
 ### 15.4 No build pipeline for the frontend
 

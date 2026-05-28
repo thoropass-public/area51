@@ -257,131 +257,13 @@ function Home({ setTab }) {
 // Settings
 // ----------------------------------------------------------------
 
-const PURGE_TABLES = [
-  { id: "requests", label: "Requests" },
-  { id: "emails", label: "Emails" },
-  { id: "endpoints", label: "Autopilot Endpoints" },
-];
-
 function Settings() {
   const toast = useToast();
-  const confirm = useConfirm();
-  const [tables, setTables] = useState(["requests", "emails", "endpoints"]);
-  const [days, setDays] = useState(30);
-  const [purging, setPurging] = useState(false);
-
-  const labelFor = (id) => (PURGE_TABLES.find((t) => t.id === id) || {}).label || id;
-  const toggleTable = (id) =>
-    setTables((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
-
-  const doPurge = async () => {
-    if (tables.length === 0) return;
-    const hasAuto = tables.includes("endpoints");
-    const others = tables.filter((t) => t !== "endpoints");
-
-    // Days only matters for requests/emails. Autopilot Endpoints is wiped
-    // wholesale regardless of the days value (no timestamp on that table).
-    const dayNum = Number(days);
-    if (others.length > 0) {
-      if (String(days).trim() === "") {
-        toast("Enter the number of days to keep", "error");
-        return;
-      }
-      if (!Number.isInteger(dayNum) || dayNum < 0) {
-        toast("Days must be a non-negative integer", "error");
-        return;
-      }
-    }
-
-    const dayLabel = dayNum === 1 ? "day" : "days";
-    const olderThan = `every record from ${others.map(labelFor).join(" and ")} older than ${dayNum} ${dayLabel}`;
-    let message;
-    if (hasAuto && others.length === 0) {
-      message = <>Permanently delete every endpoint under <code>/-/*</code>. Manually-defined endpoints are not affected. This cannot be undone.</>;
-    } else if (hasAuto) {
-      message = <>
-        Permanently delete:<br/>
-        • <b>All</b> endpoints under <code>/-/*</code> — every one, regardless of the days value.<br/>
-        • Every record from {others.map(labelFor).join(" and ")} older than {dayNum} {dayLabel}.<br/><br/>
-        This cannot be undone.
-      </>;
-    } else {
-      message = <>Permanently delete {olderThan}. This cannot be undone.</>;
-    }
-    const ok = await confirm({
-      title: "Purge data",
-      message,
-      confirmLabel: "Purge",
-      danger: true,
-    });
-    if (!ok) return;
-    setPurging(true);
-    try {
-      let total = 0;
-      for (const t of tables) {
-        const res = await API.purge({ table: t, days: dayNum });
-        total += res.deleted || 0;
-      }
-      toast(`Purged ${total.toLocaleString()} row${total === 1 ? "" : "s"} across ${tables.map(labelFor).join(" + ")}`, "success");
-    } catch (e) {
-      toast("Purge failed: " + e.message, "error");
-    } finally {
-      setPurging(false);
-    }
-  };
-
   const bl = useBlacklist();
 
   return (
     <div className="content">
       <div className="settings">
-        <div className="settings-section">
-          <h2>Purge data</h2>
-          <p className="desc">
-            Cloudflare is free, but not unlimited. To stay under the limits, actively purge old records. Select one or more data types, choose how many recent days to keep, and purge the rest.
-          </p>
-          <div className="settings-card">
-            <div className="settings-row">
-              <div className="field" style={{marginBottom:0}}>
-                <label>Data types</label>
-                <div className="pill-multi">
-                  {PURGE_TABLES.map((t) => {
-                    const active = tables.includes(t.id);
-                    return (
-                      <button
-                        key={t.id}
-                        className={`pill-toggle ${active ? "active" : ""}`}
-                        onClick={() => toggleTable(t.id)}
-                        aria-pressed={active}
-                      >
-                        <span className="pill-check" aria-hidden="true">
-                          {active ? (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5.3l2 2 4-4.6"/></svg>
-                          ) : null}
-                        </span>
-                        <span>{t.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="field" style={{marginBottom:0}}>
-                <label>Keep last (days)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="3650"
-                  value={days}
-                  onChange={(e) => setDays(e.target.value)}
-                />
-              </div>
-              <button className="btn danger" onClick={doPurge} disabled={purging || tables.length === 0}>
-                {purging ? <><span className="spinner"/> purging</> : "Purge"}
-              </button>
-            </div>
-          </div>
-        </div>
-
         <div className="settings-section">
           <h2>Blacklists</h2>
           <p className="desc">

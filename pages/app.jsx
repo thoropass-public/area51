@@ -110,14 +110,13 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
 // Home
 // ----------------------------------------------------------------
 
-// Black Holes (domains bound to the Black Holes worker) are configured as a
-// Cloudflare Pages environment variable named DOMAINS_CONFIG, served to the
-// frontend by the /api/config/domains Pages Function. To edit them:
-// Cloudflare → Pages → <project> → Settings → Variables and Secrets →
-// DOMAINS_CONFIG → set the value to a JSON string like:
-//   [{"domain":"<host>","roles":["http","mail"]}, ...]
-// where each `roles` entry is "http", "mail", or both. Save. The next page
-// load reads the new value; no redeploy needed.
+// Black Holes (domains bound to the Black Holes worker) live in the D1
+// `domains` table and are served to the frontend by the /api/config/domains
+// Pages Function. To edit them, write to D1 directly (no redeploy needed; the
+// next page load reads the new value):
+//   wrangler d1 execute area51 --remote --command \
+//     "INSERT OR REPLACE INTO domains (domain, roles) VALUES ('<host>', '[\"http\",\"mail\"]')"
+// where each `roles` entry is "http", "mail", or both.
 
 function fmtRoles(roles) {
   return (roles || []).map((r) => r.toLowerCase()).join(" · ");

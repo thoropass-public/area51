@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS email_blacklist (
 -- DOMAINS_CONFIG Pages env var): read live by the dashboard's
 -- /api/config/domains (Home orbit chips) and by the Autopilot worker (so an
 -- agent can build full callback URLs like https://<domain>/-/<path>).
--- Seeded at deploy from .env's DOMAINS_CONFIG; edit with `wrangler d1 execute`.
+-- Not seeded automatically — populate/edit it directly with `wrangler d1 execute`
+-- (see README §8 Step 8); changes take effect on the next page load / agent call.
 CREATE TABLE IF NOT EXISTS domains (
   domain TEXT PRIMARY KEY,
   roles TEXT NOT NULL       -- JSON array, subset of ["http","mail"]

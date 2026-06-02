@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# render-wrangler.sh <worker|agent>
+# render-wrangler.sh <worker|agent|cleanup>
 #
 # Reads the repo-root .env file and substitutes ${VAR} placeholders in
 # <target>/wrangler.toml.template, writing the result to <target>/wrangler.toml.
@@ -8,15 +8,16 @@
 
 set -euo pipefail
 
-if [ $# -ne 1 ] || ! { [ "$1" = "worker" ] || [ "$1" = "agent" ]; }; then
-  echo "usage: $0 <worker|agent>" >&2
+if [ $# -ne 1 ] || ! { [ "$1" = "worker" ] || [ "$1" = "agent" ] || [ "$1" = "cleanup" ]; }; then
+  echo "usage: $0 <worker|agent|cleanup>" >&2
   exit 2
 fi
 
 target="$1"
 case "$target" in
-  worker) dir="worker" ;;
-  agent)  dir="agent-worker" ;;
+  worker)  dir="worker" ;;
+  agent)   dir="agent-worker" ;;
+  cleanup) dir="cleanup-worker" ;;
 esac
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,7 +46,8 @@ allowed_vars='${CLOUDFLARE_API_TOKEN} ${CLOUDFLARE_ACCOUNT_ID} '\
 '${D1_DATABASE_NAME} ${D1_DATABASE_ID} '\
 '${WORKER_NAME} ${FALLBACK_ADDRESS} ${R2_BUCKET_NAME} '\
 '${PAGES_PROJECT_NAME} '\
-'${AGENT_WORKER_NAME} ${AGENT_SECRET}'
+'${AGENT_WORKER_NAME} ${AGENT_SECRET} '\
+'${CLEANUP_WORKER_NAME} ${CLEANUP_REQUESTS_KEEP} ${CLEANUP_EMAIL_MAX_AGE_DAYS} ${CLEANUP_CRON}'
 
 envsubst "$allowed_vars" < "$template" > "$output"
 

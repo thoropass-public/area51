@@ -25,6 +25,7 @@ The original design spec (`pre-context.md`) and the Claude Design handoff bundle
 13. [Known constraints & caveats](#13-known-constraints--caveats)
 14. [Autopilot — agent worker + MCP server](#14-autopilot--agent-worker--mcp-server)
 15. [Design decisions](#15-design-decision-log)
+16. [The area51-cleanup worker](#16-the-area51-cleanup-worker)
 
 ---
 
@@ -103,6 +104,7 @@ The same Cloudflare account hosts three runtime pieces, backed by one D1 databas
 | **AREA 51** (the dashboard) | Cloudflare Pages site (project `area51`) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, manage IP / email blacklists |
 | **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, stores the raw `.eml` to R2, writes a lean index row to D1 |
 | **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/-/*` endpoint CRUD for authorized Claude Code / Codex agents |
+| **area51-cleanup** (scheduled retention) | a third Worker (service `area51-cleanup`), **no Custom Domain** — cron-triggered only | Runs daily; trims `requests` to the newest N rows and deletes `emails` older than M days (D1 rows **and** their R2 `.eml` blobs, in lockstep). See [§16](#16-the-area51-cleanup-worker) |
 | **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the modal's "More" / Download Raw and by Autopilot |
 | **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Pages and both workers |
 | **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the Black Holes worker's email handler |
@@ -184,6 +186,7 @@ pentester ──► AREA 51 dashboard (Pages)
 │   ├── render-wrangler.sh     ← envsubst worker/wrangler.toml.template → worker/wrangler.toml
 │   ├── deploy-worker.sh       ← Black Holes worker
 │   ├── deploy-agent.sh        ← Autopilot worker (also installs AGENT_SECRET)
+│   ├── deploy-cleanup.sh      ← area51-cleanup worker (scheduled retention; no Custom Domain)
 │   ├── deploy-pages.sh        ← AREA 51 dashboard (Pages)
 │   └── purge.sh               ← interactive admin purge (D1 + R2)
 ├── worker/                    ← Black Holes worker (one Cloudflare Worker, many bound domains)
@@ -195,6 +198,11 @@ pentester ──► AREA 51 dashboard (Pages)
 │   ├── wrangler.toml.template ← Worker config template (D1 + R2 bindings; AGENT_SECRET is a Secret)
 │   └── src/
 │       └── index.js           ← REST handlers + MCP JSON-RPC 2.0 server
+├── cleanup-worker/            ← area51-cleanup worker (scheduled retention trimmer)
+│   ├── wrangler.toml.template ← Worker config template (D1 + R2 bindings, cron trigger, [vars] thresholds)
+│   ├── package.json           ← deps: wrangler only (no runtime deps)
+│   └── src/
+│       └── index.js           ← single-file Worker with only a scheduled() handler
 └── pages/                     ← AREA 51 dashboard (Cloudflare Pages site)
     ├── index.html             ← entry point; loads React/Babel UMD + the three .jsx files
     ├── styles.css             ← Nord-inspired dark dashboard, dense developer UI
@@ -220,7 +228,7 @@ pentester ──► AREA 51 dashboard (Pages)
                 └── emails/index.js & [email].js ← list/add, delete
 ```
 
-The two workers and the Pages project are **deployed independently** but share a single D1 database via separate Wrangler bindings.
+The three workers and the Pages project are **deployed independently** but share a single D1 database (and the `area51-emails` R2 bucket) via separate Wrangler bindings.
 
 ---
 
@@ -465,7 +473,7 @@ The configured black holes — the single source of truth (replaces the old `DOM
 | `domain` | `TEXT PRIMARY KEY` | The black hole host, e.g. `oob.example` |
 | `roles` | `TEXT NOT NULL` | JSON array, subset of `["http", "mail"]` |
 
-Read live by the dashboard's `/api/config/domains` (Home orbit chips) and by the Autopilot worker's `/domains` + `list_black_holes` tool (so an agent can build `https://<domain>/-/<path>`). Both workers/sites share the D1 binding, so there's no drift. Seeded at deploy from `.env`'s `DOMAINS_CONFIG`; edit afterward with `wrangler d1 execute` (e.g. `INSERT OR REPLACE INTO domains (domain, roles) VALUES ('oob.example', '["http","mail"]')`).
+Read live by the dashboard's `/api/config/domains` (Home orbit chips) and by the Autopilot worker's `/domains` + `list_black_holes` tool (so an agent can build `https://<domain>/-/<path>`). Both workers/sites share the D1 binding, so there's no drift. **Not seeded automatically** — populate and edit it directly with `wrangler d1 execute` (e.g. `INSERT OR REPLACE INTO domains (domain, roles) VALUES ('oob.example', '["http","mail"]')`); there is no longer a `DOMAINS_CONFIG` mirror in `.env`.
 
 ---
 
@@ -597,7 +605,7 @@ Redeploy once after adding the D1 binding so the new env is picked up: `./script
 
 ### Step 8 — Seed the `domains` table
 
-The configured black holes drive the orbit chips on the Home page, the `/api/config/domains` response, and the Autopilot worker's `list_black_holes`. They live in the D1 `domains` table (created by `schema.sql`). Seed it from `.env`'s `DOMAINS_CONFIG`, e.g.:
+The configured black holes drive the orbit chips on the Home page, the `/api/config/domains` response, and the Autopilot worker's `list_black_holes`. They live in the D1 `domains` table (created by `schema.sql`). There's no `.env` seed and no script for this — write the rows directly, e.g.:
 
 ```sh
 npx wrangler d1 execute area51 --remote --command \
@@ -610,7 +618,17 @@ npx wrangler d1 execute area51 --remote --command \
 
 If pentesters will be driving the platform via Claude Code / Codex agents, also deploy the Autopilot worker. See [§14](#14-autopilot--agent-worker--mcp-server) for the full setup.
 
-### Step 10 — Smoke
+### Step 10 — Deploy the area51-cleanup worker (recommended)
+
+Keeps the shared stores from growing unbounded. From the repo root:
+
+```sh
+./scripts/deploy-cleanup.sh
+```
+
+This renders `cleanup-worker/wrangler.toml` from its template + `.env` and runs `wrangler deploy`. Deploying registers the daily cron automatically — **no Custom Domain and no secret to install**. Confirm the trigger landed under **Workers → `area51-cleanup` → Settings → Triggers → Cron Triggers** (should show `0 6 * * *`). See [§16](#16-the-area51-cleanup-worker) for what it does and how to tune it.
+
+### Step 11 — Smoke
 
 Run the tests in [§11](#11-smoke-tests).
 
@@ -674,6 +692,10 @@ wrangler d1 execute area51 --command "SELECT uri, status FROM endpoints ORDER BY
 # Storage-ish indicator: count rows per table (note: this scans, do sparingly)
 wrangler d1 execute area51 --command "SELECT (SELECT COUNT(*) FROM endpoints) endpoints, (SELECT COUNT(*) FROM requests) requests, (SELECT COUNT(*) FROM emails) emails" --remote
 ```
+
+### Automated retention (area51-cleanup worker)
+
+The `area51-cleanup` worker ([§16](#16-the-area51-cleanup-worker)) runs **daily at 06:00 UTC** and keeps the two high-churn stores bounded without anyone touching them: it trims `requests` to the newest `CLEANUP_REQUESTS_KEEP` rows (default 1000) and deletes `emails` (D1 rows **and** their R2 `.eml` blobs) older than `CLEANUP_EMAIL_MAX_AGE_DAYS` days (default 90). It does **not** touch `endpoints` (including the Autopilot `/-/*` namespace), `domains`, or the blacklists. Watch a run with `wrangler tail area51-cleanup` (look for the `cleanup_finished` summary line). The manual paths below remain for ad-hoc purges and for the things the worker leaves alone.
 
 ### Manual purge
 
@@ -953,3 +975,89 @@ The worker matches `url.pathname` against `endpoints.uri` with `WHERE uri = ?`. 
 - Simplicity: a `WHERE uri = ?` against the primary key is the cheapest possible lookup.
 
 If you need patterns, add a separate `endpoint_patterns` table queried only on cache miss, and document the precedence order here.
+
+### 15.8 Retention is a scheduled worker, not a cron'd `purge.sh`
+
+`scripts/purge.sh` already deletes old requests/emails with the right R2 coupling, so automated retention *could* have been the same script run from a host crontab or a CI schedule. We made it a dedicated Cloudflare Worker ([§16](#16-the-area51-cleanup-worker)) instead because:
+
+- **No host to own the cron.** The rest of the platform is serverless on Cloudflare; a crontab on someone's laptop or a CI runner is an out-of-band dependency that silently stops when that machine/account changes. A Worker cron trigger lives in the same account as everything else and is visible in the same dashboard.
+- **It already has the bindings.** A Worker gets the `DB` and `EML` bindings natively — the same coupling `purge.sh` reaches for via the R2 REST API and `wrangler d1 execute`, but in-process and without an API token on disk.
+- **Different guarantee.** `purge.sh` is interactive, admin-run, and **age-based for both tables** (and can wipe the `/-/*` namespace). The worker is unattended and intentionally narrower: requests are trimmed by **count** (keep newest N), emails by **age**, and it never touches endpoints/domains/blacklists. The two coexist — see the split in [Operations](#10-operations).
+- **Coupling preserved, made self-healing.** Like `purge.sh`, the worker deletes R2 objects before D1 rows. It goes one step further: it deletes D1 rows only for the ids whose R2 delete succeeded, so a transient R2 error leaves the row to be retried on the next daily run rather than orphaning the blob.
+
+Why **count**-based for requests but **age**-based for emails: requests are high-volume, uniform, and cheap (D1-only) — "keep the last 1000" is a predictable cap regardless of traffic spikes. Emails are lower-volume but each owns an R2 blob and is worth keeping for a fixed investigation window; age is the natural axis there and matches how `purge.sh` already framed it.
+
+---
+
+## 16. The area51-cleanup worker
+
+The third runtime piece. A Cloudflare Worker (service name `area51-cleanup`, code in `cleanup-worker/`) whose **only** entry point is a `scheduled()` handler — there's no `fetch`, no `email`, and no Custom Domain. A cron trigger in its `wrangler.toml` fires it **once a day at 06:00 UTC**, and it trims the two high-churn stores so neither D1 (500 MB Free limit) nor the request log grows without bound. It is the unattended counterpart to `scripts/purge.sh`; see [§15.8](#158-retention-is-a-scheduled-worker-not-a-crond-purgesh) for why it's a worker and not a cron'd script.
+
+### 16.1 What each run does
+
+```
+cron (06:00 UTC daily)
+   │
+   ▼
+scheduled(event, env, ctx)
+   │
+   ├─ purgeRequests(keep = CLEANUP_REQUESTS_KEEP)
+   │     DELETE FROM requests
+   │      WHERE id NOT IN (SELECT id FROM requests ORDER BY ts DESC LIMIT ?)
+   │     → keeps the newest N rows by ts; deletes the rest. D1-only (requests
+   │       have no R2 objects).
+   │
+   └─ purgeEmails(maxAgeDays = CLEANUP_EMAIL_MAX_AGE_DAYS)
+         1. SELECT id FROM emails WHERE ts < (now - M days)
+         2. EML.delete([...emails/<id>.eml]) in batches of ≤1000 keys   ← R2 first
+         3. DELETE FROM emails WHERE id IN (...confirmed-deleted ids)    ← then D1
+```
+
+- **Requests — keep newest N (count-based).** Default `N = 1000`. The `id NOT IN (… ORDER BY ts DESC LIMIT N)` form expresses "keep the most recent N" exactly, with no boundary/tie ambiguity. It costs one full scan of `requests` per day (D1 bills per row read) — negligible against the 5M reads/day Free budget at our volume, and it's not a UI `COUNT(*)` (the thing [§15.1](#151-no-row-counts-anywhere-in-the-ui) warns about), it's a once-daily maintenance delete.
+- **Emails — older than M days (age-based), D1 + R2 in lockstep.** Default `M = 90`. The cutoff is `new Date(Date.now() - M*86400000).toISOString()`, the same ISO-8601 format stored in `ts`, so the comparison is a plain string compare. R2 objects are deleted **before** the D1 rows, and the D1 delete targets only the ids whose R2 delete succeeded — a transient R2 failure leaves that row in place to retry on the next run instead of orphaning the blob ([§4.2](#42-email-handler) / [§6.6](#66-r2-raw-eml-storage) explain why orphaned blobs are the failure mode to avoid).
+- **What it never touches:** `endpoints` (including the Autopilot `/-/*` namespace — wipe those with `scripts/purge.sh` if needed), `domains`, `ip_blacklist`, `email_blacklist`. Retention is scoped to the two append-only logs.
+
+The two tables are purged independently inside a try/catch each, and the handler never throws — a failure in one (or a transient D1/R2 error) is logged and the next daily run simply retries from the current state.
+
+### 16.2 Bindings & vars
+
+Rendered into `cleanup-worker/wrangler.toml` by `scripts/render-wrangler.sh cleanup` from `cleanup-worker/wrangler.toml.template` + `.env`:
+
+| Binding / Var | Purpose |
+|---|---|
+| `DB` (D1) | The shared `area51` database — same binding the other two workers use. |
+| `EML` (R2) | The shared `area51-emails` bucket. The cleanup worker only **deletes** from it (`emails/<id>.eml`). |
+| `CLEANUP_REQUESTS_KEEP` (var) | How many newest `requests` rows to retain. Default `1000`. From `.env`, substituted into `[vars]` at render. |
+| `CLEANUP_EMAIL_MAX_AGE_DAYS` (var) | Max age in days for `emails` before purge. Default `90`. From `.env`. |
+| `[triggers] crons` | From `CLEANUP_CRON` in `.env` (default `0 6 * * *` = daily at 06:00 UTC), substituted into the template at render. Change it there and `./scripts/deploy-cleanup.sh`. |
+| `workers_dev` / `preview_urls` `= false` | No public surface; the worker is cron-only. |
+
+All three knobs live in `.env` so they can be tuned without a code edit, then applied with `./scripts/deploy-cleanup.sh`: the thresholds (`CLEANUP_REQUESTS_KEEP` / `CLEANUP_EMAIL_MAX_AGE_DAYS`) and the schedule (`CLEANUP_CRON`). The thresholds are quoted in the template (arrive as strings) and parsed in the worker with a safe non-negative-integer fallback (`1000` / `90`) so a malformed value degrades gracefully instead of purging everything or nothing.
+
+### 16.3 Deploying & operating
+
+```sh
+./scripts/deploy-cleanup.sh        # render wrangler.toml + wrangler deploy; registers the cron
+```
+
+No secret, no Custom Domain, no Email Routing — deploying is the whole setup. Verify the trigger under **Workers → `area51-cleanup` → Settings → Triggers** (`0 6 * * *`).
+
+Logging is structured JSON via `console.log` / `console.error`, same convention as the other workers. Tail it with `wrangler tail area51-cleanup`. Event names:
+
+| Event | When |
+|---|---|
+| `cleanup_started` | top of the scheduled handler (includes resolved `keep` / `maxAgeDays`) |
+| `cleanup_requests_done` | requests trim finished (`{keep, deleted}`) |
+| `cleanup_emails_done` | emails purge finished (`{cutoff, matched, r2_deleted, d1_deleted, r2_failed}`) |
+| `cleanup_emails_r2_failed` | an R2 batch delete threw — those ids are left for the next run |
+| `cleanup_requests_failed` / `cleanup_emails_failed` | the whole table's purge threw (caught; the other table still runs) |
+| `cleanup_finished` | end of run, with the combined summary |
+
+To run it on demand for testing without waiting for 06:00 UTC, trigger the scheduled handler locally:
+
+```sh
+cd cleanup-worker
+npx wrangler dev --test-scheduled     # then hit http://localhost:8787/__scheduled?cron=0+6+*+*+*
+```
+
+(`wrangler dev` talks to the remote D1/R2 by default, so this exercises the real stores — point it at a local D1 with `--local` first if you want a dry run.)

@@ -5,6 +5,7 @@ pre-context.md
 # directory's wrangler.toml.template. Regenerate via scripts/render-wrangler.sh.
 worker/wrangler.toml
 agent-worker/wrangler.toml
+cleanup-worker/wrangler.toml
 
 # Node
 node_modules/

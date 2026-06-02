@@ -1,0 +1,43 @@
+# Template for cleanup-worker/wrangler.toml — processed by scripts/render-wrangler.sh.
+# Placeholders (in dollar-brace form) are substituted from the repo-root .env
+# file. DO NOT edit cleanup-worker/wrangler.toml directly — it's a generated
+# artifact and will be overwritten on the next render. Edit this template or .env.
+
+name = "${CLEANUP_WORKER_NAME}"
+main = "src/index.js"
+compatibility_date = "2024-10-11"
+
+# No public surface. This worker has only a scheduled() handler — it is invoked
+# by the cron trigger below, never bound to a Custom Domain. The disabled public
+# URLs are belt-and-suspenders (nothing serves HTTP here anyway).
+workers_dev = false
+preview_urls = false
+
+# Cron schedule, in UTC. Trims the shared area51 D1 database + R2 bucket.
+# The value comes from CLEANUP_CRON in .env (default "0 6 * * *" = 06:00 UTC daily);
+# change it there and redeploy. Cron syntax: min hour dom mon dow.
+[triggers]
+crons = ["${CLEANUP_CRON}"]
+
+# Persist Workers Logs so the run summaries are queryable in the dashboard.
+[observability]
+enabled = true
+
+# Same D1 + R2 bindings as the Black Holes / Autopilot workers — one shared
+# area51 database, one shared area51-emails bucket. The cleanup worker reads ids
+# from D1, deletes the matching R2 .eml objects, then deletes the D1 rows.
+[[d1_databases]]
+binding = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id = "${D1_DATABASE_ID}"
+
+[[r2_buckets]]
+binding = "EML"
+bucket_name = "${R2_BUCKET_NAME}"
+
+# Retention thresholds, tunable from .env without a code edit (substituted at
+# render time). Quoted so they arrive as strings; the worker parses them with a
+# safe integer fallback.
+[vars]
+CLEANUP_REQUESTS_KEEP = "${CLEANUP_REQUESTS_KEEP}"
+CLEANUP_EMAIL_MAX_AGE_DAYS = "${CLEANUP_EMAIL_MAX_AGE_DAYS}"

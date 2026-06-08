@@ -605,11 +605,32 @@ select {
 }
 
 .row {
+  position: relative;
   border-bottom: 1px solid var(--n2);
   cursor: pointer;
   color: var(--s0);
   transition: background 0.06s ease;
 }
+
+/* Filter-match color spine — one segment per matching pin, stacked top→bottom */
+.pin-ribbon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+}
+.pin-ribbon > i {
+  flex: 1;
+  display: block;
+  min-height: 2px;
+}
+/* On Emails the colored ribbon takes over the left edge from the unread rail */
+.row.email-grid.unread.has-ribbon { box-shadow: none; }
 
 .row:hover {
   background: var(--n1);
@@ -631,9 +652,9 @@ select {
   grid-template-columns: 28px 190px 80px 1fr 150px;
 }
 
-/* Emails columns */
+/* Emails columns (trailing track is the star toggle) */
 .email-grid {
-  grid-template-columns: 28px 190px 1fr 1fr 1fr;
+  grid-template-columns: 28px 190px 1fr 1fr 1fr 36px;
 }
 
 .cell-trunc {
@@ -686,6 +707,95 @@ select {
 }
 
 .row .row-icon svg { width: 13px; height: 13px; }
+
+/* Interactive row-icon buttons (copy URL, read/unread toggle) */
+button.row-icon {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  color: inherit;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+button.row-icon:active { transform: scale(0.88); }
+button.row-icon:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--f1-edge);
+  border-radius: 4px;
+}
+button.row-icon.copy-link { color: var(--n4); }
+button.row-icon.copy-link:hover { color: var(--f1); }
+button.row-icon.copy-link.copied { color: var(--green); }
+
+/* ===== Emails: read / unread / star ===== */
+
+/* Default-state column colors (overridden by .unread / .read below) */
+.row.email-grid .from { color: var(--s0); }
+.row.email-grid .subject { color: var(--s1); }
+
+/* Unread — bright, weighted, with a frost accent rail */
+.row.email-grid.unread { box-shadow: inset 2px 0 0 var(--f1); }
+.row.email-grid.unread .from { color: var(--s1); }
+.row.email-grid.unread .subject { color: var(--s2); font-weight: 600; }
+.row.email-grid.unread .mail-toggle { color: var(--f1); }
+
+/* Read — muted but legible, open envelope */
+.row.email-grid.read .from { color: var(--n4); }
+.row.email-grid.read .subject { color: var(--n4); }
+.row.email-grid.read .mail-toggle { color: var(--n4); }
+
+.row.email-grid .mail-toggle:hover { color: var(--s2); }
+
+/* Star toggle — reveals on row hover, gold when on */
+.star-toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  color: var(--n4);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+.row.email-grid:hover .star-toggle { opacity: 0.65; }
+.star-toggle:hover { color: var(--yellow); opacity: 1; }
+.star-toggle:active { transform: scale(0.82); }
+.star-toggle.on { color: var(--yellow); opacity: 1; }
+.star-toggle:focus-visible {
+  outline: none;
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--yellow-edge);
+  border-radius: 4px;
+}
+
+/* Star pin chip glyph stays fully opaque (color comes from its assigned pin color) */
+.pin-chip.pin-special .pin-glyph { opacity: 1; }
+
+/* Star toggle inside the email modal header */
+.modal-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 6px;
+  border-radius: 4px;
+  color: var(--n4);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.modal-star:hover { color: var(--yellow); background: var(--yellow-soft); }
+.modal-star.on { color: var(--yellow); }
 
 .loadmore-wrap {
   padding: 18px 22px 40px;
@@ -828,6 +938,47 @@ select {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+/* Hosts that serve http can become the default; mail-only hosts are locked. */
+.orbit-domain.selectable {
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
+}
+.orbit-domain.selectable:hover {
+  border-color: var(--f2);
+}
+.orbit-domain.selectable:focus-visible {
+  outline: none;
+  border-color: var(--f1);
+  box-shadow: 0 0 0 2px var(--f1-edge), 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.orbit-domain.locked {
+  cursor: default;
+}
+
+/* The selected default host — bound to the alien, unmistakably lit up. */
+.orbit-domain.selected {
+  border-color: var(--f1);
+  color: var(--s2);
+  background: var(--n0);
+  box-shadow:
+    0 0 0 1px var(--f1),
+    0 0 24px var(--f1-edge),
+    0 6px 18px rgba(0, 0, 0, 0.30);
+}
+.orbit-domain.selected .addr { font-weight: 600; }
+.orbit-domain.selected .dot {
+  background: var(--f1);
+  box-shadow: 0 0 10px var(--f1);
+  animation: none;
+}
+.orbit-domain.selected .scope { color: var(--f1); }
+[data-theme="light"] .orbit-domain.selected {
+  box-shadow:
+    0 0 0 1px var(--f1),
+    0 0 18px var(--f1-edge),
+    0 4px 14px rgba(45, 42, 35, 0.12);
 }
 
 @keyframes orbit-pulse {

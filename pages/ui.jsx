@@ -51,10 +51,18 @@ const API = {
   getRequest: (id) =>
     apiFetch(`/api/requests/${encodeURIComponent(id)}`),
 
-  listEmails: ({ cursor, search } = {}) =>
-    apiFetch('/api/emails' + qs({ cursor, search })),
+  listEmails: ({ cursor, search, starred } = {}) =>
+    apiFetch('/api/emails' + qs({ cursor, search, starred: starred ? 1 : undefined })),
   getEmail: (id) =>
     apiFetch(`/api/emails/${encodeURIComponent(id)}`),
+  // Set per-email UI state. `patch` carries read and/or starred (booleans).
+  // Dashboard-only writer; returns the updated {read, starred}.
+  setEmailFlags: (id, patch) =>
+    apiFetch(`/api/emails/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
   // Raw .eml bytes from R2 (message/rfc822, not JSON) — returns an ArrayBuffer.
   getEmailRaw: async (id) => {
     const resp = await fetch(`/api/emails/${encodeURIComponent(id)}/raw`);
@@ -403,6 +411,194 @@ function useDebouncedValue(value, ms) {
   return v;
 }
 
+// ---- Pinned filters (per-tab localStorage, with curated colors) ----
+//
+// Same persistence model as the old usePins (storage key `area51:pins:<tab>`),
+// plus a parallel color map at `area51:pins:<tab>:colors`. Each value gets a
+// color the first time it's pinned. Returns addPin/removePin/clearPins (addPin
+// returns true on a non-empty input so the caller can clear the field) plus
+// `colors` and `pinColor(value)`.
+
+// Yellow is reserved for the ":star:" email filter, so it's excluded here.
+const PIN_PALETTE = ["purple", "orange", "green", "red", "frost"];
+const PIN_COLOR_VARS = {
+  red:    { base: "var(--red)",    soft: "var(--red-soft)",    edge: "var(--red-edge)" },
+  orange: { base: "var(--orange)", soft: "var(--orange-soft)", edge: "var(--orange-edge)" },
+  yellow: { base: "var(--yellow)", soft: "var(--yellow-soft)", edge: "var(--yellow-edge)" },
+  green:  { base: "var(--green)",  soft: "var(--green-soft)",  edge: "var(--green-edge)" },
+  purple: { base: "var(--purple)", soft: "var(--purple-soft)", edge: "var(--purple-edge)" },
+  frost:  { base: "var(--f1)",     soft: "var(--f1-soft)",     edge: "var(--f1-edge)" },
+};
+function pinColorVars(name) { return PIN_COLOR_VARS[name] || PIN_COLOR_VARS.frost; }
+
+function usePinnedFilters(tab) {
+  const key = `area51:pins:${tab}`;
+  const colorsKey = `${key}:colors`;
+  const [pins, setPins] = useState(() => {
+    const raw = lsGet(key, []);
+    return Array.isArray(raw) ? raw.filter((x) => typeof x === "string" && x.length > 0) : [];
+  });
+  const [colors, setColors] = useState(() => {
+    const raw = lsGet(colorsKey, {});
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  });
+  useEffect(() => { lsSet(key, pins); }, [key, pins]);
+  useEffect(() => { lsSet(colorsKey, colors); }, [colorsKey, colors]);
+
+  const addPin = useCallback((value) => {
+    const v = String(value || "").trim();
+    if (!v) return false;
+    setPins((xs) => (xs.some((p) => p.toLowerCase() === v.toLowerCase()) ? xs : [...xs, v]));
+    // Assign a color the first time a value is pinned. Yellow is reserved for
+    // ":star:"; everything else draws from the palette, preferring an unused color.
+    setColors((prev) => {
+      if (Object.keys(prev).some((k) => k.toLowerCase() === v.toLowerCase())) return prev;
+      if (v.toLowerCase() === ":star:") return { ...prev, [v]: "yellow" };
+      const used = new Set(Object.values(prev));
+      const free = PIN_PALETTE.filter((c) => !used.has(c));
+      const pool = free.length ? free : PIN_PALETTE;
+      const color = pool[Math.floor(Math.random() * pool.length)];
+      return { ...prev, [v]: color };
+    });
+    return true;
+  }, []);
+  const removePin = useCallback((value) => {
+    setPins((xs) => xs.filter((x) => x !== value));
+    setColors((prev) => {
+      if (!(value in prev)) return prev;
+      const n = { ...prev }; delete n[value]; return n;
+    });
+  }, []);
+  const clearPins = useCallback(() => { setPins([]); setColors({}); }, []);
+  const pinColor = useCallback((value) => colors[value], [colors]);
+  return { pins, addPin, removePin, clearPins, colors, pinColor };
+}
+
+// Which pins match a row's field, in pin order. ":star:" matches when isStarred.
+function pinMatches(pins, colors, text, isStarred) {
+  if (!pins || !pins.length) return [];
+  const lc = String(text || "").toLowerCase();
+  const out = [];
+  for (const p of pins) {
+    const hit = p.toLowerCase() === ":star:" ? !!isStarred : lc.includes(String(p).toLowerCase());
+    if (hit) out.push({ value: p, color: colors ? colors[p] : undefined });
+  }
+  return out;
+}
+
+// Left-edge color spine — one segment per matching pin.
+function PinRibbon({ matches }) {
+  if (!matches || !matches.length) return null;
+  return (
+    <span className="pin-ribbon" aria-hidden="true">
+      {matches.map((m, i) => (
+        <i key={m.value + i} style={{ background: pinColorVars(m.color).base }}/>
+      ))}
+    </span>
+  );
+}
+
+// ---- Black hole domains (shared cache + active-default selection) ----
+//
+// The configured black holes are fetched once from /api/config/domains and
+// cached on window.DOMAINS as [{addr, roles}], so both the Home orbit chips
+// (useDomains) and the endpoint copy button (useActiveDomain) read one source
+// regardless of which tab loads first.
+
+const ACTIVE_DOMAIN_KEY = "area51:activeDomain";
+let _domainsPromise = null;
+
+function loadDomains() {
+  if (_domainsPromise) return _domainsPromise;
+  _domainsPromise = API.listDomains()
+    .then((res) => {
+      const list = Array.isArray(res && res.domains) ? res.domains : [];
+      window.DOMAINS = list.map((d) => ({ addr: d.domain, roles: Array.isArray(d.roles) ? d.roles : [] }));
+      window.dispatchEvent(new Event("area51:domains"));
+      return window.DOMAINS;
+    })
+    .catch(() => { window.DOMAINS = window.DOMAINS || []; return window.DOMAINS; });
+  return _domainsPromise;
+}
+
+// A host can be the default as long as it serves http (with or without mail).
+// A mail-only host cannot be the default.
+function isDefaultEligible(roles) {
+  return (roles || []).map((r) => String(r).toLowerCase()).includes("http");
+}
+
+// Resolve the effective default: the stored choice if it's still present and
+// eligible, otherwise the first eligible host so a default always exists when
+// one is possible.
+function resolveActiveDomain() {
+  const eligible = (window.DOMAINS || []).filter((d) => isDefaultEligible(d.roles));
+  if (!eligible.length) return null;
+  let stored = null;
+  try { stored = window.localStorage.getItem(ACTIVE_DOMAIN_KEY); } catch {}
+  if (stored && eligible.some((d) => d.addr === stored)) return stored;
+  return eligible[0].addr;
+}
+
+// Live list of black holes for rendering (Home orbit chips).
+function useDomains() {
+  const [domains, setDomains] = useState(() => window.DOMAINS || []);
+  useEffect(() => {
+    let live = true;
+    const sync = () => { if (live) setDomains(window.DOMAINS || []); };
+    window.addEventListener("area51:domains", sync);
+    loadDomains().then(sync);
+    return () => { live = false; window.removeEventListener("area51:domains", sync); };
+  }, []);
+  return domains;
+}
+
+function useActiveDomain() {
+  const [addr, setAddr] = useState(resolveActiveDomain);
+  useEffect(() => {
+    const sync = () => setAddr(resolveActiveDomain());
+    window.addEventListener("area51:domains", sync);
+    window.addEventListener("area51:activeDomain", sync);
+    window.addEventListener("storage", sync);
+    loadDomains().then(sync);
+    return () => {
+      window.removeEventListener("area51:domains", sync);
+      window.removeEventListener("area51:activeDomain", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+  const select = useCallback((value) => {
+    const d = (window.DOMAINS || []).find((x) => x.addr === value);
+    if (!d || !isDefaultEligible(d.roles)) return;
+    try { window.localStorage.setItem(ACTIVE_DOMAIN_KEY, value); } catch {}
+    window.dispatchEvent(new Event("area51:activeDomain"));
+  }, []);
+  return [addr, select];
+}
+
+// ---- Clipboard ----
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to legacy path */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+
 // ---- Icons ----
 
 const Icon = {
@@ -411,6 +607,10 @@ const Icon = {
   link: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M5.5 8.5l3-3M6 9.5l-1.2 1.2a2 2 0 1 1-2.8-2.8L3.2 6.7M8 4.5l1.2-1.2a2 2 0 1 1 2.8 2.8L10.8 7.3"/></svg>,
   req: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2 4h10M2 7h7M2 10h10"/></svg>,
   mail: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><rect x="1.5" y="2.5" width="11" height="9" rx="1"/><path d="M1.5 4l5.5 4 5.5-4"/></svg>,
+  mailOpen: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"><path d="M1.5 6.4L7 2.5l5.5 3.9v4.1a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/><path d="M1.5 6.4L7 10l5.5-3.6"/></svg>,
+  star: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"><path d="M7 1.8l1.62 3.28 3.63.53-2.63 2.56.62 3.62L7 10.06 3.74 11.79l.62-3.62L1.73 5.61l3.63-.53z"/></svg>,
+  starOn: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1.8l1.62 3.28 3.63.53-2.63 2.56.62 3.62L7 10.06 3.74 11.79l.62-3.62L1.73 5.61l3.63-.53z"/></svg>,
+  check: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 7.5l3 3 6-6.5"/></svg>,
   doc: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M3 1.5h5l3 3v8H3z"/><path d="M8 1.5V5h3"/></svg>,
   paper: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M8.5 3v6a2.5 2.5 0 0 1-5 0V3a1.5 1.5 0 1 1 3 0v6a.5.5 0 0 1-1 0V4"/></svg>,
   refresh: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 6.5A4.5 4.5 0 0 0 3.7 4"/><path d="M2.5 7.5A4.5 4.5 0 0 0 10.3 10"/><path d="M11.5 2.5v4h-4M2.5 11.5v-4h4"/></svg>,
@@ -427,4 +627,6 @@ Object.assign(window, {
   BlacklistProvider, useBlacklist,
   ToastProvider, useToast, Modal, ModalHead,
   ConfirmProvider, useConfirm, useDebouncedValue, Icon,
+  usePinnedFilters, pinColorVars, pinMatches, PinRibbon,
+  useDomains, useActiveDomain, isDefaultEligible, copyText,
 });

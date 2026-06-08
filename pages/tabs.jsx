@@ -764,7 +764,7 @@ function EmailsTab() {
             key={r.id}
             row={r}
             active={activeId === r.id}
-            matches={pinMatches(pins, colors, r.to_addr, !!r.starred)}
+            matches={pinMatches(pins, colors, r.to_addr)}
             onOpen={() => open(r.id)}
             onToggleRead={() => toggleRead(r.id)}
             onToggleStar={() => toggleStar(r.id)}

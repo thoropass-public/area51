@@ -104,7 +104,7 @@ The same Cloudflare account hosts three runtime pieces, backed by one D1 databas
 | **AREA 51** (the dashboard) | Cloudflare Pages site (project `area51`) | Static React dashboard + Pages Functions JSON API; manage endpoints, browse captures, manage IP / email blacklists |
 | **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, stores the raw `.eml` to R2, writes a lean index row to D1 |
 | **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/-/*` endpoint CRUD for authorized Claude Code / Codex agents |
-| **area51-cleanup** (scheduled retention) | a third Worker (service `area51-cleanup`), **no Custom Domain** — cron-triggered only | Runs daily; trims `requests` to the newest N rows and deletes `emails` older than M days (D1 rows **and** their R2 `.eml` blobs, in lockstep). See [§16](#16-the-area51-cleanup-worker) |
+| **area51-cleanup** (scheduled retention) | a third Worker (service `area51-cleanup`), **no Custom Domain** — cron-triggered only | Runs daily; trims `requests` to the newest N rows and deletes `emails` older than M days (D1 rows **and** their R2 `.eml` blobs, in lockstep), **except starred emails, which are kept indefinitely**. See [§16](#16-the-area51-cleanup-worker) |
 | **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the modal's "More" / Download Raw and by Autopilot |
 | **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Pages and both workers |
 | **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the Black Holes worker's email handler |
@@ -704,7 +704,7 @@ wrangler d1 execute area51 --command "SELECT (SELECT COUNT(*) FROM endpoints) en
 
 ### Automated retention (area51-cleanup worker)
 
-The `area51-cleanup` worker ([§16](#16-the-area51-cleanup-worker)) runs **daily at 06:00 UTC** and keeps the two high-churn stores bounded without anyone touching them: it trims `requests` to the newest `CLEANUP_REQUESTS_KEEP` rows (default 1000) and deletes `emails` (D1 rows **and** their R2 `.eml` blobs) older than `CLEANUP_EMAIL_MAX_AGE_DAYS` days (default 90). It does **not** touch `endpoints` (including the Autopilot `/-/*` namespace), `domains`, or the blacklists. Watch a run with `wrangler tail area51-cleanup` (look for the `cleanup_finished` summary line). The manual paths below remain for ad-hoc purges and for the things the worker leaves alone.
+The `area51-cleanup` worker ([§16](#16-the-area51-cleanup-worker)) runs **daily at 06:00 UTC** and keeps the two high-churn stores bounded without anyone touching them: it trims `requests` to the newest `CLEANUP_REQUESTS_KEEP` rows (default 1000) and deletes `emails` (D1 rows **and** their R2 `.eml` blobs) older than `CLEANUP_EMAIL_MAX_AGE_DAYS` days (default 90), **excluding starred emails, which are retained indefinitely**. It does **not** touch `endpoints` (including the Autopilot `/-/*` namespace), `domains`, or the blacklists. Watch a run with `wrangler tail area51-cleanup` (look for the `cleanup_finished` summary line). The manual paths below remain for ad-hoc purges and for the things the worker leaves alone.
 
 ### Manual purge
 
@@ -1017,13 +1017,13 @@ scheduled(event, env, ctx)
    │       have no R2 objects).
    │
    └─ purgeEmails(maxAgeDays = CLEANUP_EMAIL_MAX_AGE_DAYS)
-         1. SELECT id FROM emails WHERE ts < (now - M days)
+         1. SELECT id FROM emails WHERE ts < (now - M days) AND starred = 0
          2. EML.delete([...emails/<id>.eml]) in batches of ≤1000 keys   ← R2 first
          3. DELETE FROM emails WHERE id IN (...confirmed-deleted ids)    ← then D1
 ```
 
 - **Requests — keep newest N (count-based).** Default `N = 1000`. The `id NOT IN (… ORDER BY ts DESC LIMIT N)` form expresses "keep the most recent N" exactly, with no boundary/tie ambiguity. It costs one full scan of `requests` per day (D1 bills per row read) — negligible against the 5M reads/day Free budget at our volume, and it's not a UI `COUNT(*)` (the thing [§15.1](#151-no-row-counts-anywhere-in-the-ui) warns about), it's a once-daily maintenance delete.
-- **Emails — older than M days (age-based), D1 + R2 in lockstep.** Default `M = 90`. The cutoff is `new Date(Date.now() - M*86400000).toISOString()`, the same ISO-8601 format stored in `ts`, so the comparison is a plain string compare. R2 objects are deleted **before** the D1 rows, and the D1 delete targets only the ids whose R2 delete succeeded — a transient R2 failure leaves that row in place to retry on the next run instead of orphaning the blob ([§4.2](#42-email-handler) / [§6.6](#66-r2-raw-eml-storage) explain why orphaned blobs are the failure mode to avoid).
+- **Emails — older than M days (age-based), D1 + R2 in lockstep.** Default `M = 90`. The cutoff is `new Date(Date.now() - M*86400000).toISOString()`, the same ISO-8601 format stored in `ts`, so the comparison is a plain string compare. R2 objects are deleted **before** the D1 rows, and the D1 delete targets only the ids whose R2 delete succeeded — a transient R2 failure leaves that row in place to retry on the next run instead of orphaning the blob ([§4.2](#42-email-handler) / [§6.6](#66-r2-raw-eml-storage) explain why orphaned blobs are the failure mode to avoid). **Starred emails are exempt** — the selection carries `AND starred = 0`, so a starred row (and its `.eml`) is kept indefinitely regardless of age. Unstar it to let a future run reclaim it.
 - **What it never touches:** `endpoints` (including the Autopilot `/-/*` namespace — wipe those with `scripts/purge.sh` if needed), `domains`, `ip_blacklist`, `email_blacklist`. Retention is scoped to the two append-only logs.
 
 The two tables are purged independently inside a try/catch each, and the handler never throws — a failure in one (or a transient D1/R2 error) is logged and the next daily run simply retries from the current state.

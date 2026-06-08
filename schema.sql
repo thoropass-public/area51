@@ -30,7 +30,13 @@ CREATE TABLE emails (
   to_addr TEXT NOT NULL,
   subject TEXT,
   text TEXT,                            -- plain-text body: preview + search + Autopilot
-  attachment_count INTEGER NOT NULL DEFAULT 0
+  attachment_count INTEGER NOT NULL DEFAULT 0,
+  -- Per-email UI state. Both default to 0 (unread / unstarred) and are written
+  -- ONLY by the dashboard (PATCH /api/emails/<id>). The capture worker inserts
+  -- with the defaults and never sets them; Autopilot/MCP is read-only and can
+  -- never change them. `starred` backs the dashboard's :star: filter.
+  read INTEGER NOT NULL DEFAULT 0,
+  starred INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_emails_ts ON emails(ts DESC);
 

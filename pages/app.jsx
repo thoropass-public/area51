@@ -168,17 +168,12 @@ function Home({ setTab }) {
     { id: "emails",    num: "03", title: "Emails",    desc: "Inbound emails are received and parsed entirely client-side, with HTML bodies rendered in a sandboxed context to contain untrusted content." },
   ];
 
-  // Fetch the domain list from the Pages env var (via /api/config/domains).
-  // Empty array on miss/error so the alien renders with no chips rather
-  // than blocking the whole hero.
-  const [domains, setDomains] = useState([]);
-  useEffect(() => {
-    let live = true;
-    API.listDomains()
-      .then((res) => { if (live) setDomains(Array.isArray(res && res.domains) ? res.domains : []); })
-      .catch(() => { /* no chips on failure — silent */ });
-    return () => { live = false; };
-  }, []);
+  // The orbit chips double as a default-host picker. `useDomains` reads the
+  // shared /api/config/domains cache as [{addr, roles}] (empty on miss/error so
+  // the alien still renders); `useActiveDomain` holds the persisted selection.
+  // Only hosts that serve http are selectable; mail-only hosts are locked out.
+  const domains = useDomains();
+  const [activeDomain, selectDomain] = useActiveDomain();
 
   return (
     <div className="content">
@@ -201,18 +196,30 @@ function Home({ setTab }) {
             </svg>
             {domains.map((d, i) => {
               const p = chipPlacement(i, domains.length);
+              const eligible = isDefaultEligible(d.roles);
+              const selected = eligible && d.addr === activeDomain;
               return (
                 <div
-                  key={d.domain}
+                  key={d.addr}
                   className="orbit-anchor"
                   style={{ left: `${p.leftPct}%`, top: `${p.topPct}%` }}
                 >
                   <div
-                    className="orbit-domain"
+                    className={`orbit-domain${eligible ? " selectable" : " locked"}${selected ? " selected" : ""}`}
                     style={{ animationDelay: `${-(i * 1.7) % 7}s` }}
+                    onClick={eligible ? () => selectDomain(d.addr) : undefined}
+                    onKeyDown={eligible ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectDomain(d.addr); }
+                    } : undefined}
+                    role={eligible ? "button" : undefined}
+                    tabIndex={eligible ? 0 : undefined}
+                    aria-pressed={eligible ? selected : undefined}
+                    title={eligible
+                      ? (selected ? `${d.addr} is the default host for copied URLs` : `Set ${d.addr} as the default host`)
+                      : `${d.addr} serves mail only — can't be a default host`}
                   >
                     <span className="dot"/>
-                    <span className="addr">{d.domain}</span>
+                    <span className="addr">{d.addr}</span>
                     <span className="scope">{fmtRoles(d.roles)}</span>
                   </div>
                 </div>

@@ -6,7 +6,7 @@
 function ListView({
   search, setSearch,
   pins, onPin, onUnpin, onClearPins,
-  pinPlaceholder,
+  pinPlaceholder, pinColor, specialPins,
   rows, loading, hasMore, onLoadMore, loadingMore,
   onRefresh,
   header, renderRow, emptyText, gridClass, total,
@@ -42,19 +42,28 @@ function ListView({
         <div className="search-wrap">
           <span className="icon"><Icon.search/></span>
           <div className="pin-strip">
-            {hasPins && pins.map((p) => (
-              <span key={p} className="pin-chip" title={`Pinned filter "${p}" — click × to remove`}>
-                <span className="pin-glyph"><Icon.pin/></span>
-                <span className="pin-val">{p}</span>
-                <button
-                  className="pin-x"
-                  onClick={() => onUnpin && onUnpin(p)}
-                  aria-label={`Remove pin ${p}`}
+            {hasPins && pins.map((p) => {
+              const sp = specialPins && specialPins[p];
+              const cv = pinColorVars(pinColor && pinColor(p));
+              return (
+                <span
+                  key={p}
+                  className={`pin-chip${sp ? " pin-special" : ""}`}
+                  title={sp ? sp.title : `Pinned filter "${p}" — click × to remove`}
+                  style={{ background: cv.soft, borderColor: cv.edge, color: cv.base }}
                 >
-                  <Icon.x/>
-                </button>
-              </span>
-            ))}
+                  <span className="pin-glyph" style={{ color: cv.base }}>{sp ? sp.glyph : <Icon.pin/>}</span>
+                  <span className="pin-val">{sp ? sp.label : p}</span>
+                  <button
+                    className="pin-x"
+                    onClick={() => onUnpin && onUnpin(p)}
+                    aria-label={`Remove pin ${sp ? sp.label : p}`}
+                  >
+                    <Icon.x/>
+                  </button>
+                </span>
+              );
+            })}
             <input
               type="text"
               placeholder={hasPins ? "+ filter" : (pinPlaceholder || "Search…  ↵ to pin")}
@@ -133,32 +142,8 @@ function ListView({
   );
 }
 
-// Shared hook: pins state persisted to localStorage under `area51:pins:<tab>`.
-// Returns { pins, addPin, removePin, clearPins }. addPin returns true if the
-// input was non-empty (so the caller can clear the search field); the dedupe
-// (case-insensitive) happens inside the setPins updater and is a no-op when
-// already pinned. We deliberately do NOT track "was this actually added" via
-// a closure variable — React 18 may run setState updaters lazily, so the
-// closure read can be stale at return time.
-function usePins(tab) {
-  const key = `area51:pins:${tab}`;
-  const [pins, setPins] = useState(() => {
-    const raw = lsGet(key, []);
-    return Array.isArray(raw) ? raw.filter((x) => typeof x === "string" && x.length > 0) : [];
-  });
-  useEffect(() => { lsSet(key, pins); }, [key, pins]);
-  const addPin = useCallback((value) => {
-    const v = String(value || "").trim();
-    if (!v) return false;
-    setPins((xs) => (xs.some((p) => p.toLowerCase() === v.toLowerCase()) ? xs : [...xs, v]));
-    return true;
-  }, []);
-  const removePin = useCallback((value) => {
-    setPins((xs) => xs.filter((x) => x !== value));
-  }, []);
-  const clearPins = useCallback(() => setPins([]), []);
-  return { pins, addPin, removePin, clearPins };
-}
+// Pin state + colors live in usePinnedFilters (ui.jsx), persisted under
+// `area51:pins:<tab>` (values) and `area51:pins:<tab>:colors` (color map).
 
 // Build the effective list of search terms = current input (if any) + pins.
 function effectiveSearch(input, pins) {
@@ -178,7 +163,7 @@ function EndpointsTab() {
 
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
-  const { pins, addPin, removePin, clearPins } = usePins("endpoints");
+  const { pins, addPin, removePin, clearPins, colors, pinColor } = usePinnedFilters("endpoints");
   const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -255,7 +240,7 @@ function EndpointsTab() {
     <>
       <ListView
         search={search} setSearch={setSearch}
-        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
         pinPlaceholder="Search URIs…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
@@ -274,15 +259,13 @@ function EndpointsTab() {
           </button>
         }
         renderRow={(r) => (
-          <div
+          <EndpointRow
             key={r.uri}
-            className={`row endpoint-grid ${activeId === r.uri ? "active" : ""}`}
-            onClick={() => open(r.uri)}
-          >
-            <span className="row-icon"><Icon.link/></span>
-            <span className="mono cell-trunc" title={r.uri}>{r.uri}</span>
-            <span><span className={`status-tag ${statusClass(r.status)}`}>{r.status}</span></span>
-          </div>
+            row={r}
+            active={activeId === r.uri}
+            matches={pinMatches(pins, colors, r.uri)}
+            onOpen={() => open(r.uri)}
+          />
         )}
       />
       {modal && (
@@ -295,6 +278,49 @@ function EndpointsTab() {
         />
       )}
     </>
+  );
+}
+
+// Endpoint row. The leading icon is a copy button: it copies the full URL
+// (https:// + the active default host + the URI) and never opens the edit
+// modal. Clicking anywhere else on the row opens the editor.
+function EndpointRow({ row, active, matches, onOpen }) {
+  const toast = useToast();
+  const [activeDomain] = useActiveDomain();
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef(null);
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
+
+  const copyUrl = async (e) => {
+    e.stopPropagation();
+    if (!activeDomain) { toast("No default host selected — pick one on Home", "error"); return; }
+    const url = `https://${activeDomain}${row.uri}`;
+    const ok = await copyText(url);
+    if (!ok) { toast("Copy failed", "error"); return; }
+    setCopied(true);
+    clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(false), 1400);
+    toast(`Copied ${activeDomain}${row.uri}`, "success");
+  };
+
+  return (
+    <div
+      className={`row endpoint-grid ${active ? "active" : ""}${matches.length ? " has-ribbon" : ""}`}
+      onClick={onOpen}
+    >
+      <PinRibbon matches={matches}/>
+      <button
+        type="button"
+        className={`row-icon copy-link${copied ? " copied" : ""}`}
+        onClick={copyUrl}
+        title={activeDomain ? `Copy https://${activeDomain}${row.uri}` : "Pick a default host on Home to copy URLs"}
+        aria-label="Copy endpoint URL to clipboard"
+      >
+        {copied ? <Icon.check/> : <Icon.link/>}
+      </button>
+      <span className="mono cell-trunc" title={row.uri}>{row.uri}</span>
+      <span><span className={`status-tag ${statusClass(row.status)}`}>{row.status}</span></span>
+    </div>
   );
 }
 
@@ -433,7 +459,7 @@ function RequestsTab() {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
-  const { pins, addPin, removePin, clearPins } = usePins("requests");
+  const { pins, addPin, removePin, clearPins, colors, pinColor } = usePinnedFilters("requests");
   const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -476,7 +502,7 @@ function RequestsTab() {
     <>
       <ListView
         search={search} setSearch={setSearch}
-        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
         pinPlaceholder="Search URLs…  ↵ to pin"
         rows={rows} loading={loading} hasMore={hasMore}
@@ -491,19 +517,23 @@ function RequestsTab() {
           <span>IP</span>
         </>}
         emptyText={search ? "no requests match" : "no requests captured yet"}
-        renderRow={(r) => (
-          <div
-            key={r.id}
-            className={`row request-grid ${activeId === r.id ? "active" : ""}`}
-            onClick={() => setActiveId(r.id)}
-          >
-            <span className="row-icon"><Icon.req/></span>
-            <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(r.ts)}</span>
-            <span><span className={`method-tag method-${r.method}`}>{r.method}</span></span>
-            <span className="mono cell-trunc" title={r.url}>{stripOrigin(r.url)}</span>
-            <span className="mono" style={{color:"var(--n4)"}}>{r.ip}</span>
-          </div>
-        )}
+        renderRow={(r) => {
+          const matches = pinMatches(pins, colors, r.url);
+          return (
+            <div
+              key={r.id}
+              className={`row request-grid ${activeId === r.id ? "active" : ""}${matches.length ? " has-ribbon" : ""}`}
+              onClick={() => setActiveId(r.id)}
+            >
+              <PinRibbon matches={matches}/>
+              <span className="row-icon"><Icon.req/></span>
+              <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(r.ts)}</span>
+              <span><span className={`method-tag method-${r.method}`}>{r.method}</span></span>
+              <span className="mono cell-trunc" title={r.url}>{stripOrigin(r.url)}</span>
+              <span className="mono" style={{color:"var(--n4)"}}>{r.ip}</span>
+            </div>
+          );
+        }}
       />
       {activeId && (
         <RequestModal
@@ -608,22 +638,41 @@ function RequestModal({ id, onClose }) {
 // Emails
 // ----------------------------------------------------------------
 
+const STAR_TOKEN = ":star:";
+
 function EmailsTab() {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
-  const { pins, addPin, removePin, clearPins } = usePins("emails");
-  const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
+  const { pins, addPin, removePin, clearPins, colors, pinColor } = usePinnedFilters("emails");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
 
+  // ":star:" is a special pin (and a live preview while typing it) that filters
+  // to starred mail. It's not a recipient search term, so we split it out and
+  // pass starredOnly to the API; text pins still combine with it via OR.
+  const starredPinned = pins.includes(STAR_TOKEN);
+  const textPins = useMemo(() => pins.filter((p) => p !== STAR_TOKEN), [pins]);
+  const liveStar = dq.trim().toLowerCase() === STAR_TOKEN;
+  const effStarredOnly = starredPinned || liveStar;
+  const terms = useMemo(
+    () => effectiveSearch(liveStar ? "" : dq, textPins),
+    [liveStar, dq, textPins]
+  );
+
+  // Map ":star:" (any case) to the canonical token so it renders as the star chip.
+  const addPinNorm = useCallback((v) => {
+    const t = String(v || "").trim().toLowerCase();
+    return addPin(t === STAR_TOKEN ? STAR_TOKEN : v);
+  }, [addPin]);
+
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEmails({ search: terms });
+      const r = await API.listEmails({ search: terms, starred: effStarredOnly });
       setRows(r);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -632,7 +681,7 @@ function EmailsTab() {
     } finally {
       setLoading(false);
     }
-  }, [terms, toast]);
+  }, [terms, effStarredOnly, toast]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
@@ -641,7 +690,7 @@ function EmailsTab() {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].ts;
-      const r = await API.listEmails({ search: terms, cursor });
+      const r = await API.listEmails({ search: terms, starred: effStarredOnly, cursor });
       setRows((xs) => [...xs, ...r]);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -651,13 +700,52 @@ function EmailsTab() {
     }
   };
 
+  // Per-email read/starred state is DB-backed (PATCH /api/emails/<id>). We update
+  // the row optimistically and roll back on failure. Autopilot never writes these.
+  const patchRow = (id, patch) =>
+    setRows((xs) => xs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+
+  const markRead = async (id) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row || row.read) return;
+    patchRow(id, { read: 1 });
+    try { await API.setEmailFlags(id, { read: true }); }
+    catch (e) { patchRow(id, { read: 0 }); toast("Couldn't mark read: " + e.message, "error"); }
+  };
+
+  const toggleRead = async (id) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const next = row.read ? 0 : 1;
+    patchRow(id, { read: next });
+    try { await API.setEmailFlags(id, { read: !!next }); }
+    catch (e) { patchRow(id, { read: row.read }); toast("Couldn't update: " + e.message, "error"); }
+  };
+
+  const toggleStar = async (id) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const next = row.starred ? 0 : 1;
+    patchRow(id, { starred: next });
+    try { await API.setEmailFlags(id, { starred: !!next }); }
+    catch (e) { patchRow(id, { starred: row.starred }); toast("Couldn't update star: " + e.message, "error"); return; }
+    // While the star filter is active, a row that's just been unstarred no
+    // longer belongs in the list — refetch to drop it.
+    if (effStarredOnly && !next) fetchFirst();
+  };
+
+  const open = (id) => { markRead(id); setActiveId(id); };
+
+  const activeRow = rows.find((r) => r.id === activeId);
+
   return (
     <>
       <ListView
         search={search} setSearch={setSearch}
-        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins}
+        pins={pins} onPin={addPinNorm} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
+        specialPins={{ [STAR_TOKEN]: { label: "starred", glyph: <Icon.starOn/>, title: "Showing starred only — click × to remove" } }}
         onRefresh={fetchFirst}
-        pinPlaceholder="Search to addresses…  ↵ to pin"
+        pinPlaceholder="Search recipients…  ↵ to pin  ·  :star: for starred"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="email-grid"
@@ -668,25 +756,26 @@ function EmailsTab() {
           <span>From</span>
           <span>To</span>
           <span>Subject</span>
+          <span></span>
         </>}
-        emptyText={search ? "no emails to that address" : "no emails captured yet"}
+        emptyText={effStarredOnly && !textPins.length ? "no starred emails" : ((search || pins.length) ? "no emails match these filters" : "no emails captured yet")}
         renderRow={(r) => (
-          <div
+          <EmailRow
             key={r.id}
-            className={`row email-grid ${activeId === r.id ? "active" : ""}`}
-            onClick={() => setActiveId(r.id)}
-          >
-            <span className="row-icon"><Icon.mail/></span>
-            <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(r.ts)}</span>
-            <span className="mono cell-trunc" style={{color:"var(--s0)"}} title={decodeMimeWord(r.from_addr)}>{decodeMimeWord(r.from_addr)}</span>
-            <span className="mono cell-trunc" style={{color:"var(--n4)"}} title={decodeMimeWord(r.to_addr)}>{decodeMimeWord(r.to_addr)}</span>
-            <span className="cell-trunc" style={{color:"var(--s1)"}} title={decodeMimeWord(r.subject)}>{decodeMimeWord(r.subject)}</span>
-          </div>
+            row={r}
+            active={activeId === r.id}
+            matches={pinMatches(pins, colors, r.to_addr, !!r.starred)}
+            onOpen={() => open(r.id)}
+            onToggleRead={() => toggleRead(r.id)}
+            onToggleStar={() => toggleStar(r.id)}
+          />
         )}
       />
       {activeId && (
         <EmailModal
           id={activeId}
+          starred={!!(activeRow && activeRow.starred)}
+          onToggleStar={() => toggleStar(activeId)}
           onClose={() => setActiveId(null)}
         />
       )}
@@ -694,7 +783,47 @@ function EmailsTab() {
   );
 }
 
-function EmailModal({ id, onClose }) {
+// Email row. Unread is the bright state (frost left rail, closed envelope, bold
+// subject); read is muted with an open envelope. The leading envelope toggles
+// read ↔ unread without opening; the trailing star toggles starred. When pin
+// ribbons are present they take over the left edge from the unread rail.
+function EmailRow({ row, active, matches, onOpen, onToggleRead, onToggleStar }) {
+  const unread = !row.read;
+  const starred = !!row.starred;
+  return (
+    <div
+      className={`row email-grid ${active ? "active" : ""} ${unread ? "unread" : "read"}${matches.length ? " has-ribbon" : ""}`}
+      onClick={onOpen}
+    >
+      <PinRibbon matches={matches}/>
+      <button
+        type="button"
+        className="row-icon mail-toggle"
+        onClick={(e) => { e.stopPropagation(); onToggleRead(); }}
+        title={unread ? "Mark as read" : "Mark as unread"}
+        aria-label={unread ? "Mark as read" : "Mark as unread"}
+      >
+        {unread ? <Icon.mail/> : <Icon.mailOpen/>}
+      </button>
+      <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(row.ts)}</span>
+      <span className="mono cell-trunc from" title={decodeMimeWord(row.from_addr)}>{decodeMimeWord(row.from_addr)}</span>
+      <span className="mono cell-trunc" style={{color:"var(--n4)"}} title={decodeMimeWord(row.to_addr)}>{decodeMimeWord(row.to_addr)}</span>
+      <span className="cell-trunc subject" title={decodeMimeWord(row.subject)}>{decodeMimeWord(row.subject)}</span>
+      <button
+        type="button"
+        className={`star-toggle${starred ? " on" : ""}`}
+        onClick={(e) => { e.stopPropagation(); onToggleStar(); }}
+        title={starred ? "Unstar" : "Star"}
+        aria-label={starred ? "Unstar email" : "Star email"}
+        aria-pressed={starred}
+      >
+        {starred ? <Icon.starOn/> : <Icon.star/>}
+      </button>
+    </div>
+  );
+}
+
+function EmailModal({ id, starred, onToggleStar, onClose }) {
   const toast = useToast();
   const confirm = useConfirm();
   const bl = useBlacklist();
@@ -775,7 +904,18 @@ function EmailModal({ id, onClose }) {
 
   return (
     <Modal open onClose={onClose} wide>
-      <ModalHead title="EMAIL" id={data ? data.id : null} onClose={onClose}/>
+      <ModalHead title="EMAIL" id={data ? data.id : null} onClose={onClose} right={
+        <button
+          type="button"
+          className={`modal-star${starred ? " on" : ""}`}
+          onClick={onToggleStar}
+          title={starred ? "Unstar" : "Star"}
+          aria-label={starred ? "Unstar email" : "Star email"}
+          aria-pressed={starred}
+        >
+          {starred ? <Icon.starOn/> : <Icon.star/>}
+        </button>
+      }/>
       <div className="modal-body">
         {!data ? (
           <div className="loading"><span className="spinner"/> loading…</div>

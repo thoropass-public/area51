@@ -147,6 +147,7 @@ sender ──► *@<black-hole>
               ├─ R2.put("emails/<id>.eml", buf)          (verbatim raw .eml)
               ├─ INSERT lean row into emails
               │     (id, ts, from, to, subject, text, attachment_count)
+              │     read/starred default to 0; the worker never sets them
               │
               └─ on ANY error (raw read / R2 PUT / D1 INSERT throws):
                     forward(message → FALLBACK_ADDRESS)
@@ -165,7 +166,7 @@ pentester ──► AREA 51 dashboard (Pages)
                             ▼
                        { GET /api/endpoints, POST, GET/[uri], DELETE /[uri],
                          GET /api/requests, GET /[id],
-                         GET /api/emails, GET /[id], GET /[id]/raw,
+                         GET /api/emails, GET /[id], PATCH /[id], GET /[id]/raw,
                          GET/POST/DELETE /api/blacklist/{ips,emails},
                          GET /api/config/domains }
                             │
@@ -221,7 +222,7 @@ pentester ──► AREA 51 dashboard (Pages)
             │   └── [id].js             ← GET (detail; headers parsed back to object)
             ├── emails/
             │   ├── index.js            ← GET (list+search+cursor)
-            │   ├── [id].js             ← GET (lean detail: subject/from/to/text/attachment_count)
+            │   ├── [id].js             ← GET (lean detail: subject/from/to/text/attachment_count/read/starred) + PATCH (read/starred)
             │   └── [id]/raw.js         ← GET — streams the raw .eml from R2 (EML binding)
             └── blacklist/
                 ├── ips/index.js & [ip].js       ← list/add, delete
@@ -344,19 +345,22 @@ File responsibilities:
   - Everything exposed on `window` so the other JSX files can use them as globals (Babel-standalone doesn't do module resolution).
 
 - **`tabs.jsx`** — the three list tabs and their detail modals.
-  - `ListView` — generic search + paginated list wrapper used by all three tabs. The whole search field is a single visual unit: pin chips wrap inline alongside the input via flexbox; the field's border lives on the wrapper, not the input. Keyboard: **Enter** pins the current text, **Backspace** on an empty input pops the last pin, **Escape** clears the input. A `pin-add` icon button (frost color) appears at the right of the field when there's text to pin; a `clear` text-button appears whenever there's anything (search text or pins) to clear and wipes both at once. Adjacent to "X loaded" in the toolbar-meta, a small `meta-filter` badge reads "N pinned · OR" when at least one pin exists.
-  - `usePins(<tab>)` in `tabs.jsx` loads/saves to `localStorage` under `area51:pins:<tab>` and returns `{pins, addPin, removePin, clearPins}`. `addPin` returns `false` if the value is empty or already pinned (case-insensitive dupe check), so the caller can avoid clearing the input on a no-op.
+  - `ListView` — generic search + paginated list wrapper used by all three tabs. The whole search field is a single visual unit: pin chips wrap inline alongside the input via flexbox; the field's border lives on the wrapper, not the input. Keyboard: **Enter** pins the current text, **Backspace** on an empty input pops the last pin, **Escape** clears the input. A `pin-add` icon button (frost color) appears at the right of the field when there's text to pin; a `clear` text-button appears whenever there's anything (search text or pins) to clear and wipes both at once. Adjacent to "X loaded" in the toolbar-meta, a small `meta-filter` badge reads "N pinned · OR" when at least one pin exists. Each pin chip is **tinted with its assigned color** (`pinColorVars` → CSS vars), and the optional `specialPins` map lets a tab render a known token as a glyph chip (Emails uses it for the `:star:` filter).
+  - `usePinnedFilters(<tab>)` in `ui.jsx` loads/saves pins to `localStorage` under `area51:pins:<tab>` and a parallel color map under `area51:pins:<tab>:colors`; it returns `{pins, addPin, removePin, clearPins, colors, pinColor}`. `addPin` returns `false` if the value is empty or already pinned (case-insensitive dupe check), so the caller can avoid clearing the input on a no-op. Each value gets a color the first time it's pinned: drawn at random from a curated, theme-aware palette (`purple, orange, green, red, frost`), **preferring a color not already in use**. Yellow is reserved — the `:star:` pin is always gold.
+  - **Color-coded match ribbons** (`pinMatches` + `PinRibbon`, both in `ui.jsx`): every matching row gets a left-edge color spine, split into one segment per matching pin, so a row caught by two pins shows both colors stacked. Matching is done on the right field per tab — URI (Endpoints), URL (Requests), recipient `to_addr` (Emails), plus `starred` for the Emails `:star:` pin. On Emails the colored spine **takes over the left edge from the unread rail** when present, so the two cues don't collide.
   - The effective list of search terms sent to the API is `[<live-input-text>, ...pins]` (built per-tab via the `effectiveSearch(input, pins)` helper) — all ORed server-side (any term matches → row included).
-  - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens.
+  - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens. **The leading row icon is a copy button** (`EndpointRow`): it copies the full URL — `https://` + the active default host + the URI — to the clipboard, flips to a check-mark for ~1.4s, and fires a toast naming the host (e.g. *Copied 0r0.us/api/v1/callback*). Clicking it does **not** open the edit modal (the click is stopped); clicking anywhere else on the row still does. The active default host comes from `useActiveDomain` (see `Home`); with no host selected the button toasts an error instead of copying.
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
   - `EmailsTab` + `EmailModal` — the modal opens with the **lean** row (from/to/subject/received/plain-text body/attachment count) — no R2 fetch. A **More** button then fetches the raw `.eml` from `/api/emails/<id>/raw`, parses it in the browser with postal-mime (loaded lazily as `window.PostalMime`), and reveals the full headers (collapsible), HTML body (in a strict `sandbox=""` iframe), and a clickable attachment list (each downloads its decoded bytes as a Blob). Once expanded, **More** becomes **Download Raw** (saves the in-memory `.eml`). Every D1 row has a matching R2 object (capture is all-or-nothing), so **More** always resolves.
+  - **Read / unread** (`EmailRow`) — **DB-backed** via the `emails.read` column. Unread is the bright state (frost left rail, closed-envelope icon, bold high-contrast subject); read is muted with an open envelope. Opening an email marks it read; the leading envelope icon toggles read ↔ unread *without* opening. Both write through `PATCH /api/emails/<id>` and update the row optimistically (rolled back on failure). **Autopilot/MCP never touches read state** — the PATCH endpoint is the sole writer.
+  - **Starring + `:star:` filter** — **DB-backed** via the `emails.starred` column. A star toggle at the end of each row (faint on hover, gold when on) is mirrored in the modal header (`modal-star`); both write through the same PATCH. Typing `:star:` + **Enter** converts into a gold star filter chip showing only starred mail; typing it also previews starred live (before committing the pin). Server-side, the `:star:` pin maps to `?starred=1`, which OR-combines with any recipient search terms (`(to_addr LIKE … OR starred = 1)`).
   - HTML body is rendered in a strict-sandbox `<iframe sandbox="" srcDoc={...}>`. Plain-text body in a `<pre>`. Attachments are surfaced as `{filename, mime, size}` rows — content bytes are never stored or exposed.
   - `decodeMimeWord(s)` (in `ui.jsx`) decodes RFC 2047 encoded-words (`=?charset?B?...?=` / `=?charset?Q?...?=`) before display. Applied to `from_addr`, `to_addr`, `subject`, and rendered header values. Worker-side extraction prefers postal-mime's already-decoded `parsed.subject` over the raw header value, so new rows arrive decoded; `decodeMimeWord` is a defense-in-depth pass for any encoded-word that slips through (older rows, display names in envelope fields, header values).
 
 - **`app.jsx`** — the shell.
   - `App` — top-level component. Tab state, keyboard shortcut handler (⌘/Ctrl + 1–4 → endpoints/requests/emails/settings), wraps everything in `ConfirmProvider` + `ToastProvider`.
   - `TopBar` — brand mark + tabs + a refresh button on the far right that's visible only on list tabs (endpoints / requests / emails). The button increments an `App`-level `refreshTick` counter that the active list tab consumes as a `refreshKey` prop in its `fetchFirst` `useEffect` dependency array, causing a re-fetch of the first page. The icon spins briefly (~600ms) on click for visual feedback; the spin isn't synced to the actual loading state since each tab already shows its own spinner over the list rows.
-  - `Home` — the marketing-style landing tab: AREA 51 hero, intro copy, four navigation tiles.
+  - `Home` — the marketing-style landing tab: AREA 51 hero, intro copy, four navigation tiles. The hero's **orbit chips double as a default-host picker**: clicking a chip sets it as the active host for copied endpoint URLs (persisted to `localStorage` under `area51:activeDomain`, with an unmistakable selected state — frost ring + glow, frost dot, bolder address). Only hosts that serve `http` (http-only or http+mail) are selectable; **mail-only hosts are locked out**. The domain list is fetched once into `window.DOMAINS` (shared cache) by `useDomains`/`useActiveDomain` in `ui.jsx`, so the copy button on the Endpoints tab resolves a default even if Home was never opened; `resolveActiveDomain` falls back to the first eligible host when nothing is stored.
   - `Settings` — blacklist management only. Purging data is intentionally not exposed in the UI; see [Operations → Manual purge](#manual-purge).
 
 ### 5.2 HTML iframe sandbox for email bodies
@@ -428,8 +432,12 @@ A **lean index row** per captured email. The full message — all headers, HTML 
 | `subject` | `TEXT` | Extracted from parsed headers / `parsed.subject` |
 | `text` | `TEXT` | Plain-text body from `parsed.text`. May be `NULL` if no text part. Powers the quick preview, search, and Autopilot reads. |
 | `attachment_count` | `INTEGER NOT NULL DEFAULT 0` | `parsed.attachments.length`. Shown as a count in the modal; full attachment details come from the raw `.eml`. |
+| `read` | `INTEGER NOT NULL DEFAULT 0` | Per-email UI state: `0` = unread, `1` = read. Written **only** by the dashboard (`PATCH /api/emails/<id>`) — the worker inserts with the default and Autopilot/MCP is read-only, so neither can change it. Drives the unread/read row styling. |
+| `starred` | `INTEGER NOT NULL DEFAULT 0` | Per-email UI state: `0` = unstarred, `1` = starred. Same dashboard-only write path as `read`. Backs the `:star:` filter (`GET /api/emails?starred=1`). |
 
 Index: `idx_emails_ts ON emails(ts DESC)`.
+
+> **Migration note** — `read` and `starred` were added after initial deploy via `ALTER TABLE emails ADD COLUMN read INTEGER NOT NULL DEFAULT 0;` / `… starred …`. Existing rows default to unread/unstarred. Re-applying `schema.sql` from scratch already includes both columns. The capture worker's `INSERT` lists explicit columns, so it was unaffected by the addition.
 
 Every row has a matching `emails/<id>.eml` object in R2 — capture is all-or-nothing (see [§4.2](#42-email-handler)), so there are no marker or partial rows. A failed capture leaves nothing in D1 and forwards the original to the fallback inbox instead.
 
@@ -494,8 +502,9 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 | `DELETE` | `/api/endpoints/[uri]` | Delete. 404 if nothing deleted (via `meta.changes === 0`). |
 | `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
 | `GET` | `/api/requests/[id]` | Detail. Returns the full row including `headers` (parsed back to an object) and `body`. 404 if missing. |
-| `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, from_addr, to_addr, subject}` per row. Sorted DESC by `ts`. |
-| `GET` | `/api/emails/[id]` | Lean detail. Returns `{id, ts, from_addr, to_addr, subject, text, attachment_count}`. Headers / HTML / attachment bytes are **not** here — they're in the raw `.eml`. 404 if missing. |
+| `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**), `starred` (`1` = starred-only, backs the `:star:` filter). The search terms and the optional `starred=1` form one parenthesized **OR** group (`(to_addr LIKE … OR … OR starred = 1)`), ANDed with the cursor. Returns `{id, ts, from_addr, to_addr, subject, read, starred}` per row. Sorted DESC by `ts`. |
+| `GET` | `/api/emails/[id]` | Lean detail. Returns `{id, ts, from_addr, to_addr, subject, text, attachment_count, read, starred}`. Headers / HTML / attachment bytes are **not** here — they're in the raw `.eml`. 404 if missing. |
+| `PATCH` | `/api/emails/[id]` | Set per-email UI state. Body: `{read?, starred?}` (booleans; only the keys present are updated). Returns the updated `{read, starred}`. 404 if missing, 400 if neither key is given. **Dashboard-only writer** — read/starred have no MCP/Autopilot write path. |
 | `GET` | `/api/emails/[id]/raw` | Streams the verbatim raw `.eml` from R2 (`message/rfc822`). 404 if no object (fallback rows, purged, or never stored). Consumed by the modal's More / Download Raw. |
 | `GET` | `/api/blacklist/ips` | List blacklisted IPs. Returns `[{ip, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/ips` | Body: `{ip, note?}`. IP validated (IPv4 dotted quad, IPv6 with colons, or the literal `unknown`). `INSERT OR IGNORE` semantics — duplicate adds return success without writing. |
@@ -503,7 +512,7 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 | `GET` | `/api/blacklist/emails` | List blacklisted senders. Returns `[{email, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/emails` | Body: `{email, note?}`. Accepts bare `addr@host` or angle-bracketed `Display <addr@host>`; stored lowercase. Validated as `^[^@\s]+@[^@\s]+\.[^@\s]+$`. |
 | `DELETE` | `/api/blacklist/emails/[email]` | Remove. Lowercased + URL-decoded path param. 404 if not present. |
-| `GET` | `/api/config/domains` | Returns `{domains: [{domain, roles}, …]}` read from the D1 `domains` table (`roles` is a subset of `["http", "mail"]`). Rendered by the AREA 51 Home hero as orbit chips around the alien, and read independently by the Autopilot worker. Edit via `wrangler d1 execute` against `domains`; no redeploy needed — next page load picks up the new value. Handler is defensive: returns `{domains: []}` on error or malformed rows. |
+| `GET` | `/api/config/domains` | Returns `{domains: [{domain, roles}, …]}` read from the D1 `domains` table (`roles` is a subset of `["http", "mail"]`). Rendered by the AREA 51 Home hero as orbit chips around the alien (which double as the **default-host picker** — http-serving hosts are selectable, mail-only hosts are locked), and read independently by the Autopilot worker. Edit via `wrangler d1 execute` against `domains`; no redeploy needed — next page load picks up the new value. Handler is defensive: returns `{domains: []}` on error or malformed rows. |
 
 The `headers` round-trip is asymmetric on purpose:
 - **Endpoints (write):** dashboard sends a line-separated string; server parses to JSON object before storing.

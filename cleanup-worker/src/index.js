@@ -14,6 +14,8 @@
 //              deleted first; only the ids whose blob delete succeeded get
 //              their D1 row removed, so a transient R2 error leaves the row in
 //              place to retry next run instead of silently orphaning the blob.
+//              Starred emails (starred = 1) are exempt and kept indefinitely,
+//              no matter how old.
 //
 // Bindings (shared with the Black Holes + Autopilot workers):
 //   DB  — D1 `area51` database
@@ -74,11 +76,15 @@ async function purgeRequests(env, keep) {
 // emails: delete rows older than `maxAgeDays` and their R2 blobs in lockstep.
 // Order is R2-first, then D1, keyed by the SAME id set — never a blind
 // `DELETE ... WHERE ts < cutoff`, which would orphan the .eml objects.
+//
+// Starred emails are EXEMPT: a starred row (and its .eml) is retained
+// indefinitely regardless of age, so the `starred = 0` predicate is applied at
+// selection time — those ids never enter the delete set in the first place.
 async function purgeEmails(env, maxAgeDays) {
   const cutoff = isoCutoff(maxAgeDays);
 
   const sel = await env.DB
-    .prepare('SELECT id FROM emails WHERE ts < ? ORDER BY ts ASC')
+    .prepare('SELECT id FROM emails WHERE ts < ? AND starred = 0 ORDER BY ts ASC')
     .bind(cutoff)
     .all();
   const ids = (sel.results || []).map((r) => r.id);

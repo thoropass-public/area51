@@ -474,14 +474,16 @@ function usePinnedFilters(tab) {
   return { pins, addPin, removePin, clearPins, colors, pinColor };
 }
 
-// Which pins match a row's field, in pin order. ":star:" matches when isStarred.
-function pinMatches(pins, colors, text, isStarred) {
+// Which text pins match a row's field, in pin order. The ":star:" pin is
+// skipped — starred state has its own per-row star button, so it never draws a
+// ribbon segment (its reserved gold color still tints the search-bar chip).
+function pinMatches(pins, colors, text) {
   if (!pins || !pins.length) return [];
   const lc = String(text || "").toLowerCase();
   const out = [];
   for (const p of pins) {
-    const hit = p.toLowerCase() === ":star:" ? !!isStarred : lc.includes(String(p).toLowerCase());
-    if (hit) out.push({ value: p, color: colors ? colors[p] : undefined });
+    if (p.toLowerCase() === ":star:") continue;
+    if (lc.includes(String(p).toLowerCase())) out.push({ value: p, color: colors ? colors[p] : undefined });
   }
   return out;
 }

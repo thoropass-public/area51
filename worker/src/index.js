@@ -13,7 +13,7 @@
 //                     serve).
 //   email(message)  — all-or-nothing capture. On success the verbatim raw
 //                     .eml is in R2 (emails/<id>.eml) AND a lean row is in D1
-//                     (subject, text, attachment count). On ANY error both
+//                     (subject, attachment count — no body). On ANY error both
 //                     are rolled back (no partial record) and the original is
 //                     forwarded to the fallback inbox. Senders on the
 //                     email_blacklist are rejected via message.setReject so
@@ -163,11 +163,11 @@ async function forwardToFallback(message, env, id, reason) {
 
 async function insertEmail(env, row) {
   await env.DB.prepare(
-    `INSERT INTO emails (id, ts, from_addr, to_addr, subject, text, attachment_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO emails (id, ts, from_addr, to_addr, subject, attachment_count)
+     VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(
     row.id, row.ts, row.from_addr, row.to_addr, row.subject,
-    row.text, row.attachment_count,
+    row.attachment_count,
   ).run();
 }
 
@@ -221,15 +221,16 @@ async function handleEmail(message, env, ctx) {
     const subject = (parsed && parsed.subject) ||
                     (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
                     '';
-    const text = (parsed && parsed.text) || null;
     const attachmentCount = parsed && parsed.attachments ? parsed.attachments.length : 0;
 
     // All-or-nothing: both writes must land. Either throwing sends us to the
     // catch, which rolls back any partial write and forwards to fallback.
+    // The body (plain-text + HTML) is NOT stored in D1 — it's read from the
+    // raw .eml in R2 on demand by the dashboard and Autopilot.
     await env.EML.put(key, buf, { httpMetadata: { contentType: 'message/rfc822' } });
     await insertEmail(env, {
       id, ts, from_addr: fromAddr, to_addr: toAddr,
-      subject, text, attachment_count: attachmentCount,
+      subject, attachment_count: attachmentCount,
     });
     log('email_stored', { id, key, attachment_count: attachmentCount });
   } catch (err) {

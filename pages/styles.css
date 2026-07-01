@@ -1222,6 +1222,22 @@ button.row-icon.copy-link.copied { color: var(--green); }
 
 .modal.wide { max-width: 1000px; }
 
+/* Full-screen email view: the modal expands to (nearly) the whole browser
+   canvas so the HTML / plain-text body can be read in a much larger view.
+   Not OS full-screen — just a bigger modal, toggled from the Body section. */
+.modal-backdrop.fullscreen {
+  padding: 16px;
+  align-items: stretch;
+}
+.modal.fullscreen {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+.modal.fullscreen .iframe-wrap iframe { height: calc(100vh - 300px); }
+.modal.fullscreen .code-block { max-height: calc(100vh - 260px); }
+
 .modal-head {
   display: flex;
   align-items: center;
@@ -1655,6 +1671,25 @@ button.row-icon.copy-link.copied { color: var(--green); }
   justify-content: space-between;
   white-space: normal;
 }
+
+/* Body-view controls: HTML/Plain switcher + full-screen toggle, right-aligned. */
+.body-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  color: var(--n4);
+  border: 1px solid var(--n3);
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+.expand-btn:hover { color: var(--s1); background: var(--n2); }
+.expand-btn[aria-pressed="true"] { color: var(--f1); border-color: var(--f1-edge); }
 
 .notice.notice-error {
   margin-top: 18px;

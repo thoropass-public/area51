@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS requests (
 CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts DESC);
 
 -- Emails are stored lean in D1; the full raw .eml lives in R2 at emails/<id>.eml.
--- D1 holds only what the list view, quick preview, search, and Autopilot need.
+-- D1 holds only what the list view, search, and Autopilot need — NOT the body.
+-- Both the dashboard and Autopilot read the body (plain-text OR HTML) from the
+-- raw .eml in R2 on demand; there is no body column here.
 -- Capture is all-or-nothing: a row exists here only when its R2 object also
 -- exists. On any capture error the worker rolls back both and forwards the
 -- original to the fallback inbox, so there are never partial/marker rows.
@@ -29,7 +31,6 @@ CREATE TABLE emails (
   from_addr TEXT NOT NULL,
   to_addr TEXT NOT NULL,
   subject TEXT,
-  text TEXT,                            -- plain-text body: preview + search + Autopilot
   attachment_count INTEGER NOT NULL DEFAULT 0,
   -- Per-email UI state. Both default to 0 (unread / unstarred) and are written
   -- ONLY by the dashboard (PATCH /api/emails/<id>). The capture worker inserts

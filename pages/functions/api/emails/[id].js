@@ -1,10 +1,11 @@
 import { json, errResp, withErrorHandler } from '../_shared.js';
 
-// Lean detail row. Headers, HTML body, and attachment contents live only in
-// the raw .eml in R2 — fetched on demand via /api/emails/<id>/raw.
+// Lean detail row: envelope metadata only. The body (plain-text AND HTML),
+// full headers, and attachment contents live only in the raw .eml in R2 —
+// fetched and parsed on demand via /api/emails/<id>/raw when the modal opens.
 async function getEmail({ params, env }) {
   const row = await env.DB.prepare(
-    'SELECT id, ts, from_addr, to_addr, subject, text, attachment_count, read, starred FROM emails WHERE id = ?'
+    'SELECT id, ts, from_addr, to_addr, subject, attachment_count, read, starred FROM emails WHERE id = ?'
   ).bind(params.id).first();
   if (!row) return errResp('Not found', 404);
   return json(row);

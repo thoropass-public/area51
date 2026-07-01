@@ -105,7 +105,7 @@ The same Cloudflare account hosts three runtime pieces, backed by one D1 databas
 | **Black Holes** (the catch-all domains) | one Worker (service `area51-worker`), bound via Custom Domain to each black hole | Serves arbitrary HTTP responses from D1; captures every request; receives `*@<black-hole>` email, stores the raw `.eml` to R2, writes a lean index row to D1 |
 | **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/-/*` endpoint CRUD for authorized Claude Code / Codex agents |
 | **area51-cleanup** (scheduled retention) | a third Worker (service `area51-cleanup`), **no Custom Domain** — cron-triggered only | Runs daily; trims `requests` to the newest N rows and deletes `emails` older than M days (D1 rows **and** their R2 `.eml` blobs, in lockstep), **except starred emails, which are kept indefinitely**. See [§16](#16-the-area51-cleanup-worker) |
-| **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the modal's "More" / Download Raw and by Autopilot |
+| **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the email modal (fetched on open, for the body/headers/attachments) + Download Raw, and by Autopilot |
 | **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Pages and both workers |
 | **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the Black Holes worker's email handler |
 
@@ -142,11 +142,11 @@ sender ──► *@<black-hole>
               ├─ id = uuid, ts = now
               ├─ blacklist check → setReject + return if sender is listed
               ├─ buf = await message.raw → ArrayBuffer   (read once)
-              ├─ parsed = postal-mime.parse(buf)         (subject, text, attachment count)
+              ├─ parsed = postal-mime.parse(buf)         (subject, attachment count — no body)
               │
               ├─ R2.put("emails/<id>.eml", buf)          (verbatim raw .eml)
               ├─ INSERT lean row into emails
-              │     (id, ts, from, to, subject, text, attachment_count)
+              │     (id, ts, from, to, subject, attachment_count)
               │     read/starred default to 0; the worker never sets them
               │
               └─ on ANY error (raw read / R2 PUT / D1 INSERT throws):
@@ -222,7 +222,7 @@ pentester ──► AREA 51 dashboard (Pages)
             │   └── [id].js             ← GET (detail; headers parsed back to object)
             ├── emails/
             │   ├── index.js            ← GET (list+search+cursor)
-            │   ├── [id].js             ← GET (lean detail: subject/from/to/text/attachment_count/read/starred) + PATCH (read/starred)
+            │   ├── [id].js             ← GET (lean detail: subject/from/to/attachment_count/read/starred — no body) + PATCH (read/starred)
             │   └── [id]/raw.js         ← GET — streams the raw .eml from R2 (EML binding)
             └── blacklist/
                 ├── ips/index.js & [ip].js       ← list/add, delete
@@ -268,12 +268,12 @@ Steps:
 1. `id = uuid`, `ts = now()`, `toAddr = message.to`. Envelope-from (`message.from`) is kept only for diagnostic logging — it never participates in storage, display, or blacklisting.
 2. Buffer the raw EML once → parse with `postal-mime` (step 3 below) → derive `fromAddr = parsed.from.address` (the `From:` header). **Blacklist gate runs on this value, and only this value** — never on the envelope. If parsing failed or the message has no `From:` header, `fromAddr` is empty and the gate simply skips. On a hit: `message.setReject('Address not accepted')` and return — no R2 object, no D1 row (see [§6.4](#64-ip_blacklist-and-email_blacklist)).
 3. Buffer the raw EML **once**: `buf = await new Response(message.raw).arrayBuffer()`. The same buffer feeds both R2 and the parser. The `message.raw` stream can only be read once.
-4. `parsed = await PostalMime.parse(buf)` — used to extract `subject`, `text`, and `attachment_count` (`parsed.attachments.length`). Parse failures are caught and logged; processing continues (the raw `.eml` is still stored, so the rich view works even when the worker's parse fails).
+4. `parsed = await PostalMime.parse(buf)` — used to extract `subject` and `attachment_count` (`parsed.attachments.length`). **No body is extracted or stored** — the plain-text and HTML bodies live only in the raw `.eml` and are parsed in the browser on demand. Parse failures are caught and logged; processing continues (the raw `.eml` is still stored, so the rich view works even when the worker's parse fails).
 5. **`R2.put('emails/<id>.eml', buf)`** with `Content-Type: message/rfc822` — the verbatim raw message. If this throws, control falls to the catch (step 7).
-6. **Lean `INSERT into emails`**: `(id, ts, from_addr, to_addr, subject, text, attachment_count)`. No `headers` / `html` / attachment bytes are stored in D1; those live only in the R2 object. If this throws, control falls to the catch (step 7).
+6. **Lean `INSERT into emails`**: `(id, ts, from_addr, to_addr, subject, attachment_count)`. No body (`text`/`html`), `headers`, or attachment bytes are stored in D1; those live only in the R2 object. If this throws, control falls to the catch (step 7).
 7. **Catch (error path):** anything above throwing (raw read, R2 PUT, **or** the D1 INSERT) → `forward(message, env.FALLBACK_ADDRESS)` so the original isn't lost, then roll back any partial write: `EML.delete('emails/<id>.eml')` and `DELETE FROM emails WHERE id = ?`. Both are best-effort (no shared transaction) and logged on failure. The handler never re-throws.
 
-Capture is **all-or-nothing** — success means both R2 and D1 hold the email; any failure means neither does and the original is in the fallback inbox. There is no size or attachment threshold. The dashboard's email modal shows the lean row by default and fetches the raw `.eml` from R2 (via `/api/emails/<id>/raw`) only when the user clicks **More**.
+Capture is **all-or-nothing** — success means both R2 and D1 hold the email; any failure means neither does and the original is in the fallback inbox. There is no size or attachment threshold. The dashboard's email modal fetches the raw `.eml` from R2 (via `/api/emails/<id>/raw`) **immediately when it opens** and parses it in the browser — the body (plain-text and HTML), full headers, and attachments all come from that single fetch. D1 no longer stores any body text.
 
 ### 4.3 Bindings & env vars
 
@@ -351,7 +351,7 @@ File responsibilities:
   - The effective list of search terms sent to the API is `[<live-input-text>, ...pins]` (built per-tab via the `effectiveSearch(input, pins)` helper) — all ORed server-side (any term matches → row included).
   - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens. **The leading row icon is a copy button** (`EndpointRow`): it copies the full URL — `https://` + the active default host + the URI — to the clipboard, flips to a check-mark for ~1.4s, and fires a toast naming the host (e.g. *Copied oob.example/api/v1/callback*). Clicking it does **not** open the edit modal (the click is stopped); clicking anywhere else on the row still does. The active default host comes from `useActiveDomain` (see `Home`); with no host selected the button toasts an error instead of copying.
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
-  - `EmailsTab` + `EmailModal` — the modal opens with the **lean** row (from/to/subject/received/plain-text body/attachment count) — no R2 fetch. A **More** button then fetches the raw `.eml` from `/api/emails/<id>/raw`, parses it in the browser with postal-mime (loaded lazily as `window.PostalMime`), and reveals the full headers (collapsible), HTML body (in a strict `sandbox=""` iframe), and a clickable attachment list (each downloads its decoded bytes as a Blob). Once expanded, **More** becomes **Download Raw** (saves the in-memory `.eml`). Every D1 row has a matching R2 object (capture is all-or-nothing), so **More** always resolves.
+  - `EmailsTab` + `EmailModal` — opening an email shows the envelope metadata (from/to/subject/received/attachment count) from the lean D1 row **and immediately fetches the raw `.eml`** from `/api/emails/<id>/raw`, parsing it in the browser with postal-mime (loaded lazily as `window.PostalMime`) — there is no "More" step anymore. The body renders in the first view with an **HTML / Plain switcher** (`bodyView`): the HTML part in a strict `sandbox=""` iframe, the plain-text part in a `<pre>`; the switcher only appears when both parts exist (otherwise whichever exists is shown). The full headers (collapsible) and a clickable attachment list (each downloads its decoded bytes as a Blob) are also rendered from that parse. A **full-screen toggle** (the `expand`/`collapse` icon next to the switcher) sets a `fullscreen` flag that grows the modal to (nearly) the whole browser canvas — CSS-only (`.modal.fullscreen`), not OS full-screen — so a large or busy email can be read in a much bigger view; toggling it back restores the normal `wide` modal. **Download Raw** in the footer saves the in-memory `.eml`. While the raw fetch is in flight the body area shows a spinner; every D1 row has a matching R2 object (capture is all-or-nothing), so it normally always resolves.
   - **Read / unread** (`EmailRow`) — **DB-backed** via the `emails.read` column. Unread is the bright state (frost left rail, closed-envelope icon, bold high-contrast subject); read is muted with an open envelope. Opening an email marks it read; the leading envelope icon toggles read ↔ unread *without* opening. Both write through `PATCH /api/emails/<id>` and update the row optimistically (rolled back on failure). **Autopilot/MCP never touches read state** — the PATCH endpoint is the sole writer.
   - **Starring + `:star:` filter** — **DB-backed** via the `emails.starred` column. A star toggle at the end of each row (faint on hover, gold when on) is mirrored in the modal header (`modal-star`); both write through the same PATCH. Typing `:star:` + **Enter** converts into a gold star filter chip showing only starred mail; typing it also previews starred live (before committing the pin). Server-side, the `:star:` pin maps to `?starred=1`, which OR-combines with any recipient search terms (`(to_addr LIKE … OR starred = 1)`).
   - HTML body is rendered in a strict-sandbox `<iframe sandbox="" srcDoc={...}>`. Plain-text body in a `<pre>`. Attachments are surfaced as `{filename, mime, size}` rows — content bytes are never stored or exposed.
@@ -421,7 +421,7 @@ Index: `idx_requests_ts ON requests(ts DESC)` — supports the dashboard's "newe
 
 ### 6.3 `emails`
 
-A **lean index row** per captured email. The full message — all headers, HTML body, attachment bytes — lives only in the raw `.eml` in R2 ([§6.6](#66-r2-raw-eml-storage)); D1 holds just what the list, quick preview, search, and Autopilot need.
+A **lean index row** per captured email. The full message — all headers, both bodies (plain-text and HTML), attachment bytes — lives only in the raw `.eml` in R2 ([§6.6](#66-r2-raw-eml-storage)); D1 holds just the envelope metadata the list, search, and Autopilot need. **There is no body column** — the body is always read from the raw `.eml` on demand.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -430,7 +430,6 @@ A **lean index row** per captured email. The full message — all headers, HTML 
 | `from_addr` | `TEXT NOT NULL` | The `From:` header address (`parsed.from.address`), i.e. what the dashboard shows. Empty (`''`) if parsing failed or the message has no `From:` header — the envelope sender is intentionally not used as a fallback. The full envelope is recoverable from the raw `.eml` in R2 if you ever need it. |
 | `to_addr` | `TEXT NOT NULL` | `message.to` (envelope recipient) |
 | `subject` | `TEXT` | Extracted from parsed headers / `parsed.subject` |
-| `text` | `TEXT` | Plain-text body from `parsed.text`. May be `NULL` if no text part. Powers the quick preview, search, and Autopilot reads. |
 | `attachment_count` | `INTEGER NOT NULL DEFAULT 0` | `parsed.attachments.length`. Shown as a count in the modal; full attachment details come from the raw `.eml`. |
 | `read` | `INTEGER NOT NULL DEFAULT 0` | Per-email UI state: `0` = unread, `1` = read. Written **only** by the dashboard (`PATCH /api/emails/<id>`) — the worker inserts with the default and Autopilot/MCP is read-only, so neither can change it. Drives the unread/read row styling. |
 | `starred` | `INTEGER NOT NULL DEFAULT 0` | Per-email UI state: `0` = unstarred, `1` = starred. Same dashboard-only write path as `read`. Backs the `:star:` filter (`GET /api/emails?starred=1`). |
@@ -438,6 +437,8 @@ A **lean index row** per captured email. The full message — all headers, HTML 
 Index: `idx_emails_ts ON emails(ts DESC)`.
 
 > **Migration note** — `read` and `starred` were added after initial deploy via `ALTER TABLE emails ADD COLUMN read INTEGER NOT NULL DEFAULT 0;` / `… starred …`. Existing rows default to unread/unstarred. Re-applying `schema.sql` from scratch already includes both columns. The capture worker's `INSERT` lists explicit columns, so it was unaffected by the addition.
+>
+> The `text` (plain-text body) column was later **removed** — the dashboard now fetches the full body from the raw `.eml` on open, and Autopilot's `emails_recent_1hr` returns envelope metadata only. Drop it on a live DB with `ALTER TABLE emails DROP COLUMN text;`. Re-applying `schema.sql` from scratch already omits it. The worker `INSERT` and every `SELECT` list explicit columns, so none reference `text` anymore.
 
 Every row has a matching `emails/<id>.eml` object in R2 — capture is all-or-nothing (see [§4.2](#42-email-handler)), so there are no marker or partial rows. A failed capture leaves nothing in D1 and forwards the original to the fallback inbox instead.
 
@@ -503,9 +504,9 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 | `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
 | `GET` | `/api/requests/[id]` | Detail. Returns the full row including `headers` (parsed back to an object) and `body`. 404 if missing. |
 | `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (LIKE on `to_addr` — **may be repeated**), `starred` (`1` = starred-only, backs the `:star:` filter). The search terms and the optional `starred=1` form one parenthesized **OR** group (`(to_addr LIKE … OR … OR starred = 1)`), ANDed with the cursor. Returns `{id, ts, from_addr, to_addr, subject, read, starred}` per row. Sorted DESC by `ts`. |
-| `GET` | `/api/emails/[id]` | Lean detail. Returns `{id, ts, from_addr, to_addr, subject, text, attachment_count, read, starred}`. Headers / HTML / attachment bytes are **not** here — they're in the raw `.eml`. 404 if missing. |
+| `GET` | `/api/emails/[id]` | Lean detail. Returns `{id, ts, from_addr, to_addr, subject, attachment_count, read, starred}`. No body — the plain-text/HTML bodies, headers, and attachment bytes are **not** here; they're in the raw `.eml`, fetched on modal open. 404 if missing. |
 | `PATCH` | `/api/emails/[id]` | Set per-email UI state. Body: `{read?, starred?}` (booleans; only the keys present are updated). Returns the updated `{read, starred}`. 404 if missing, 400 if neither key is given. **Dashboard-only writer** — read/starred have no MCP/Autopilot write path. |
-| `GET` | `/api/emails/[id]/raw` | Streams the verbatim raw `.eml` from R2 (`message/rfc822`). 404 if no object (fallback rows, purged, or never stored). Consumed by the modal's More / Download Raw. |
+| `GET` | `/api/emails/[id]/raw` | Streams the verbatim raw `.eml` from R2 (`message/rfc822`). 404 if no object (fallback rows, purged, or never stored). Consumed by the email modal (fetched on open to render the body/headers/attachments) and Download Raw. |
 | `GET` | `/api/blacklist/ips` | List blacklisted IPs. Returns `[{ip, ts, note}, …]` newest-first. |
 | `POST` | `/api/blacklist/ips` | Body: `{ip, note?}`. IP validated (IPv4 dotted quad, IPv6 with colons, or the literal `unknown`). `INSERT OR IGNORE` semantics — duplicate adds return success without writing. |
 | `DELETE` | `/api/blacklist/ips/[ip]` | Remove. 404 if not present. |
@@ -607,7 +608,7 @@ After this, any email to `*@<that-zone>` invokes the worker's `email` handler.
 The first deploy creates the Pages project. Then in the dashboard:
 
 - **Pages → `area51` → Settings → Functions → D1 database bindings:** add a binding `DB` → `area51` for **both Production and Preview**. ⚠️ Without this, every `/api/*` call returns 500.
-- **Pages → `area51` → Settings → Functions → R2 bucket bindings:** add a binding `EML` → `area51-emails` for **both Production and Preview**. ⚠️ Without this, `/api/emails/<id>/raw` (the modal's More / Download Raw) 500s.
+- **Pages → `area51` → Settings → Functions → R2 bucket bindings:** add a binding `EML` → `area51-emails` for **both Production and Preview**. ⚠️ Without this, `/api/emails/<id>/raw` 500s — and since the email modal fetches it on open, **every email body fails to load**, not just Download Raw.
 - **Pages → `area51` → Custom domains:** add the dashboard domain.
 
 Redeploy once after adding the D1 binding so the new env is picked up: `./scripts/deploy-pages.sh`.
@@ -746,7 +747,7 @@ Run these after any non-trivial deploy.
 2. **HTTP 404 + capture** — `curl https://<black-hole>/test` returns `404! Not Found`. A row appears in `requests`.
 3. **HTTP endpoint serving** — Create an endpoint via AREA 51 for `/health` returning `200 ok`. `curl https://<black-hole>/health` returns it. A request row is logged.
 4. **Email basic** — Send a plain-text email to `anything@<mail-enabled-black-hole>`. A lean row appears in `emails` (`attachment_count=0`) and an object exists at `emails/<id>.eml` in R2 (`wrangler r2 object get area51-emails emails/<id>.eml`). No forward.
-5. **Email with attachment** — Send an email with an attachment. Row shows the right `attachment_count`; in the modal, **More** reveals headers + HTML body + the attachment, and clicking it downloads the file. **Download Raw** saves the `.eml`.
+5. **Email with attachment** — Send an email with an attachment. Row shows the right `attachment_count`; opening it immediately renders the body (HTML/Plain switcher), headers, and the attachment — clicking the attachment downloads the file. The **full-screen toggle** grows the modal to the whole canvas. **Download Raw** saves the `.eml`.
 6. **Email large** — Send a multi-MB email. Same outcome as #4/#5 — no threshold, it's stored in full. (Only a worker error would forward to fallback, leaving no D1 row and no R2 object.)
 7. **AREA 51 CRUD** — Create, edit, delete an endpoint via the modal; live behavior on the worker updates immediately.
 8. **Search** — Filter each tab; results match.
@@ -766,7 +767,7 @@ Run these after any non-trivial deploy.
 | Black hole returns 404 for everything | Custom Domain not bound to Black Holes worker, OR endpoint table empty | Workers → `area51-worker` → Settings → Domains & Routes should show the black hole as a Custom Domain. Confirm `SELECT * FROM endpoints` returns rows. |
 | Endpoint exists but worker returns 404 | URI mismatch (case, trailing slash, query) | `endpoints.uri` matches `url.pathname` **exactly**. Re-check the path stored. |
 | Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → the black hole zone → Email → Email Routing. Catch-all destination must be `area51-worker`. |
-| Email arrives but body is empty / parse fails | postal-mime parse threw on the worker | Check Workers Logs for `email_parse_failed`. The D1 row still gets written, but `headers`, `text`, `html`, `attachments` may be `NULL`. AREA 51 will just show the minimal envelope (from/to/subject/ts). |
+| Email row exists but the modal body won't load | R2 object missing/unreadable, or `/api/emails/<id>/raw` failing (the modal fetches it on open now) | Confirm the `EML` R2 binding on Pages, and that `emails/<id>.eml` exists (`wrangler r2 object get area51-emails emails/<id>.eml`). Worker-side `email_parse_failed` only affects the stored `subject`/`attachment_count`; the body always comes from the browser parse of the raw `.eml`, so it renders regardless as long as R2 has the object. |
 | Request count keeps dropping | Someone ran `scripts/purge.sh` (or a D1-console `DELETE`) | No audit trail. Ask. |
 | Worker logs show `http_log_insert_failed` | D1 transient error or quota | Logs are best-effort by design — but if it's repeated, check D1 health and storage. |
 | AREA 51's Endpoints search misses matches | LIKE search is `uri LIKE '%query%'` — full-table scan, but exact-substring | Try a shorter / different substring. There's no fuzzy search. |
@@ -776,7 +777,7 @@ Run these after any non-trivial deploy.
 
 ## 13. Known constraints & caveats
 
-- **D1 row size limit: 2 MB.** No longer a concern for emails — the lean row only holds metadata + plain text, and the raw `.eml` (which can be large) lives in R2, not D1. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
+- **D1 row size limit: 2 MB.** No longer a concern for emails — the lean row holds only envelope metadata (no body at all), and the raw `.eml` (which can be large) lives in R2, not D1. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
 - **Email memory ceiling.** The worker buffers the whole raw `.eml` in memory to PUT it to R2 and parse it. Workers cap at 128 MB; SMTP messages are typically ≤25–50 MB, so this is comfortable, but a pathologically huge message would error and fall to the fallback path.
 - **D1 storage limit: 500 MB on Free tier.** Purge regularly. No automatic eviction.
 - **Search is full-table scan.** `LIKE '%query%'` doesn't use indexes. Fine at thousands of rows; switch to FTS5 if volume grows.
@@ -803,7 +804,7 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 | Method | Path | Returns |
 |---|---|---|
 | `GET` | `/requests` | `{served_at, window_minutes: 60, rows: [{id, ts, method, url, ip}, …]}` — newest-first, all rows in the last 60 minutes. |
-| `GET` | `/emails` | `{served_at, window_minutes: 60, rows: [{id, ts, from_addr, to_addr, subject, text}, …]}` — newest-first, all rows in the last 60 minutes. |
+| `GET` | `/emails` | `{served_at, window_minutes: 60, rows: [{id, ts, from_addr, to_addr, subject}, …]}` — newest-first, all rows in the last 60 minutes. **Envelope metadata only — no body**; use `/emails/<id>/raw` (the `email_raw` tool) to read an email's contents. |
 | `GET` | `/emails/<id>/raw` | Raw `.eml` (`message/rfc822`) for one email. **Hard 60-minute gate:** serves only if `SELECT id FROM emails WHERE id=? AND ts>=now-60min` matches — otherwise 404. An old or unknown id can't be fetched even if the caller knows it. |
 | `GET` | `/domains` | `{served_at, endpoint_prefix: "/-/", domains: [{domain, roles}, …]}` — the configured black holes (from the same D1 `domains` table the dashboard reads), so an agent can build `https://<domain>/-/<path>`. |
 | `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/-/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. |
@@ -964,8 +965,8 @@ React + Babel-standalone loaded from unpkg, JSX transpiled in the browser. **Pro
 This area went through two designs. The first stored the raw EML in D1 and re-parsed in the browser. The second parsed worker-side into wide D1 columns (`headers`/`html`/`attachments`) and forwarded oversized/attachment mail to a fallback inbox to dodge D1's 2 MB row / 500 MB store limits. **The current design moves the raw `.eml` to R2** and keeps D1 to a lean index row.
 
 - **Why:** D1's 500 MB limit made emails the one table that could realistically fill it, and the forward-on-attachment behavior meant attachments were *lost* to a mailbox rather than retained. R2 (10 GB free, no egress) is the right home for opaque blobs, retains everything, and removes the size/attachment thresholds entirely — one write path instead of two.
-- **D1 holds** only `subject`, `from`, `to`, `ts`, `text`, `attachment_count` — enough for the list, quick preview, search, and Autopilot, with no R2 fetch.
-- **Browser parses on demand again** — this deliberately reverses the "parse once on the worker" decision, but only behind the modal's **More** button (one R2 GET + one postal-mime parse), not on every open. Justified because D1 no longer carries the parsed HTML/headers, and the common glance (lean view) stays cheap.
+- **D1 holds** only `subject`, `from`, `to`, `ts`, `attachment_count` (plus `read`/`starred`) — enough for the list, search, and Autopilot, with no R2 fetch. **No body column at all** (the `text` column was removed — see below).
+- **Browser parses on demand** — this deliberately reverses the "parse once on the worker" decision: the modal fetches the raw `.eml` (one R2 GET) and postal-mime-parses it in the browser to get both bodies, headers, and attachments. Originally this was gated behind a **More** button so the common glance stayed cheap; that was later dropped in favor of fetching **on open** (see [§15.9](#159-eager-r2-fetch-on-email-open-no-text-column)), so the D1 `text` column became dead weight and was removed. Now there is exactly one body source (the raw `.eml`), never two.
 - **Attachments are retained** in the raw `.eml` and downloadable from the parsed bytes — they're no longer metadata-only.
 
 ### 15.6 All-or-nothing email capture (no marker rows)
@@ -995,6 +996,15 @@ If you need patterns, add a separate `endpoint_patterns` table queried only on c
 - **Coupling preserved, made self-healing.** Like `purge.sh`, the worker deletes R2 objects before D1 rows. It goes one step further: it deletes D1 rows only for the ids whose R2 delete succeeded, so a transient R2 error leaves the row to be retried on the next daily run rather than orphaning the blob.
 
 Why **count**-based for requests but **age**-based for emails: requests are high-volume, uniform, and cheap (D1-only) — "keep the last 1000" is a predictable cap regardless of traffic spikes. Emails are lower-volume but each owns an R2 blob and is worth keeping for a fixed investigation window; age is the natural axis there and matches how `purge.sh` already framed it.
+
+### 15.9 Eager R2 fetch on email open; no `text` column
+
+The email modal used to open on the **lean D1 row** (showing the stored plain-text body) and fetch the raw `.eml` from R2 only when the user clicked **More**. That meant D1 carried a `text` column purely to power the pre-**More** glance. We changed the modal to fetch and parse the raw `.eml` **immediately on open** (with an HTML/Plain switcher and a full-screen toggle), which made the `text` column redundant, so we **dropped it entirely**.
+
+- **Why eager:** the two-step (lean → More) split the body across two sources (D1 `text` vs R2 raw) and two render paths. Fetching on open collapses that to one source and one path — the view is always the real message, HTML included, with no "click More to see the rest" cliff. The cost is one R2 GET + one in-browser parse per open (a few hundred ms behind a spinner), which is acceptable for a tool where you open one email at a time.
+- **Why drop `text`:** once the body always comes from R2, the D1 `text` column fed nothing on the dashboard. Keeping it would be a second, divergent copy of the body for no reader. Removing it shrinks each row and deletes a column.
+- **Autopilot impact (intended):** `emails_recent_1hr` no longer returns `text` — it's envelope metadata only (`{id, ts, from_addr, to_addr, subject}`). Agents that need an email's contents call `email_raw` (the 60-min-gated raw `.eml` fetch). The MCP tool descriptions were updated to say so explicitly, so agents know the list carries no body and reach for `email_raw` when they need one. This trades an inline body for one extra call on the emails an agent actually cares about — cheap, and it keeps D1 lean.
+- **Trade-off:** if the R2 object is missing/unreadable, the modal now has *no* body to show (previously the lean `text` was a fallback). Since capture is all-or-nothing, every D1 row has its R2 object, so in practice this only surfaces a genuine R2/binding outage — which the body area reports as an error rather than silently showing a stale copy.
 
 ---
 

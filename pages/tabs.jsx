@@ -827,18 +827,59 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   const toast = useToast();
   const confirm = useConfirm();
   const bl = useBlacklist();
-  const [data, setData] = useState(null);
-  const [expanded, setExpanded] = useState(null);   // { buf: ArrayBuffer, parsed }
-  const [expanding, setExpanding] = useState(false);
-  const [expandError, setExpandError] = useState(null);
+  const [data, setData] = useState(null);            // lean envelope metadata (no body)
+  const [body, setBody] = useState(null);            // { buf: ArrayBuffer, parsed } from the raw .eml
+  const [bodyLoading, setBodyLoading] = useState(true);
+  const [bodyError, setBodyError] = useState(null);
   const [bodyView, setBodyView] = useState("html");
+  const [fullscreen, setFullscreen] = useState(false);
 
+  // Envelope metadata (from/to/subject/ts/read/starred/attachment_count) —
+  // a fast lean D1 read. No body: D1 no longer stores any body text.
   useEffect(() => {
     let live = true;
     API.getEmail(id).then((d) => { if (live) setData(d); })
       .catch((e) => { if (live) toast("Failed to load email: " + e.message, "error"); });
     return () => { live = false; };
   }, [id, toast]);
+
+  // Body: fetch the raw .eml from R2 and parse it in-browser IMMEDIATELY on
+  // open — no "More" step. This single R2 fetch is the sole source of the
+  // plain-text body, the HTML body, the full headers, and attachments (D1
+  // holds none of them). Every D1 row has a matching R2 object (capture is
+  // all-or-nothing), so this normally always resolves.
+  useEffect(() => {
+    let live = true;
+    setBody(null);
+    setBodyLoading(true);
+    setBodyError(null);
+    (async () => {
+      try {
+        const buf = await API.getEmailRaw(id);          // ArrayBuffer
+        if (!window.PostalMime) throw new Error("Email parser still loading — try again in a moment");
+        const p = await window.PostalMime.parse(buf);
+        if (!live) return;
+        const parsed = {
+          headers: Array.isArray(p.headers) ? p.headers : [],
+          html: p.html || "",
+          text: p.text || "",
+          attachments: (p.attachments || []).map((a) => ({
+            filename: a.filename || "",
+            mimeType: a.mimeType || "application/octet-stream",
+            content: a.content,
+            size: a.content ? (a.content.byteLength || a.content.length || 0) : 0,
+          })),
+        };
+        setBody({ buf, parsed });
+        setBodyView(parsed.html ? "html" : "text");
+      } catch (e) {
+        if (live) setBodyError(e.message || String(e));
+      } finally {
+        if (live) setBodyLoading(false);
+      }
+    })();
+    return () => { live = false; };
+  }, [id]);
 
   const blockSender = async () => {
     if (!data) return;
@@ -860,39 +901,10 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     }
   };
 
-  // "More": fetch the raw .eml from R2 and parse it in-browser with postal-mime.
-  const expand = async () => {
-    if (expanding || expanded) return;
-    setExpanding(true);
-    setExpandError(null);
-    try {
-      const buf = await API.getEmailRaw(id);          // ArrayBuffer
-      if (!window.PostalMime) throw new Error("Email parser still loading — try again in a moment");
-      const p = await window.PostalMime.parse(buf);
-      const parsed = {
-        headers: Array.isArray(p.headers) ? p.headers : [],
-        html: p.html || "",
-        text: p.text || "",
-        attachments: (p.attachments || []).map((a) => ({
-          filename: a.filename || "",
-          mimeType: a.mimeType || "application/octet-stream",
-          content: a.content,
-          size: a.content ? (a.content.byteLength || a.content.length || 0) : 0,
-        })),
-      };
-      setExpanded({ buf, parsed });
-      setBodyView(parsed.html ? "html" : "text");
-    } catch (e) {
-      setExpandError(e.message || String(e));
-    } finally {
-      setExpanding(false);
-    }
-  };
-
   const downloadRaw = () => {
-    if (!expanded) return;
+    if (!body) return;
     const name = filenameFor(data);
-    triggerDownload(new Blob([expanded.buf], { type: "message/rfc822" }), name);
+    triggerDownload(new Blob([body.buf], { type: "message/rfc822" }), name);
     toast("Downloaded " + name, "success");
   };
 
@@ -902,8 +914,11 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     toast("Downloaded " + name, "success");
   };
 
+  const hasHtml = !!(body && body.parsed.html);
+  const hasText = !!(body && body.parsed.text);
+
   return (
-    <Modal open onClose={onClose} wide>
+    <Modal open onClose={onClose} wide fullscreen={fullscreen}>
       <ModalHead title="EMAIL" id={data ? data.id : null} onClose={onClose} right={
         <button
           type="button"
@@ -931,21 +946,20 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
                   <dt>Attachments</dt>
                   <dd>
                     <span className="att-count">{data.attachment_count} {data.attachment_count === 1 ? "file" : "files"}</span>
-                    {!expanded && <span className="att-hint"> · expand for details</span>}
                   </dd>
                 </>
               )}
             </dl>
 
-            {expanded && (
+            {body && (
               <div className="section">
                 <details className="headers-collapse">
                   <summary>
                     <span className="caret"><Icon.chevron/></span>
-                    Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {expanded.parsed.headers.length}</span>
+                    Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {body.parsed.headers.length}</span>
                   </summary>
                   <pre className="code-block">
-                    {expanded.parsed.headers.map((h) => `${h.key}: ${decodeMimeWord(h.value)}`).join("\n")}
+                    {body.parsed.headers.map((h) => `${h.key}: ${decodeMimeWord(h.value)}`).join("\n")}
                   </pre>
                 </details>
               </div>
@@ -954,39 +968,53 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
             <div className="section">
               <div className="section-title section-title-toggle">
                 <span>Body</span>
-                {expanded && expanded.parsed.html && expanded.parsed.text && (
-                  <div className="toggle-group">
-                    <button className={bodyView === "html" ? "active" : ""} onClick={() => setBodyView("html")}>HTML</button>
-                    <button className={bodyView === "text" ? "active" : ""} onClick={() => setBodyView("text")}>Plain</button>
+                {body && (hasHtml || hasText) && (
+                  <div className="body-controls">
+                    {hasHtml && hasText && (
+                      <div className="toggle-group">
+                        <button className={bodyView === "html" ? "active" : ""} onClick={() => setBodyView("html")}>HTML</button>
+                        <button className={bodyView === "text" ? "active" : ""} onClick={() => setBodyView("text")}>Plain</button>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="expand-btn"
+                      onClick={() => setFullscreen((f) => !f)}
+                      title={fullscreen ? "Exit full screen" : "Full screen"}
+                      aria-label={fullscreen ? "Exit full screen" : "Full screen"}
+                      aria-pressed={fullscreen}
+                    >
+                      {fullscreen ? <Icon.collapse/> : <Icon.expand/>}
+                    </button>
                   </div>
                 )}
               </div>
-              {expanded && bodyView === "html" && expanded.parsed.html ? (
+              {bodyLoading ? (
+                <div className="loading"><span className="spinner"/> fetching raw email…</div>
+              ) : bodyError ? (
+                <div className="notice notice-error">
+                  <span className="glyph">!</span>
+                  <span>Couldn't load email body: {bodyError}</span>
+                </div>
+              ) : body && bodyView === "html" && hasHtml ? (
                 <div className="iframe-wrap">
-                  <iframe sandbox="" srcDoc={expanded.parsed.html} title="email html"/>
+                  <iframe sandbox="" srcDoc={body.parsed.html} title="email html"/>
                 </div>
               ) : (
                 <pre className="code-block wrap">
-                  {expanded ? (expanded.parsed.text || "(no plain text part)") : (data.text || "(no plain-text body stored — click More for the full email)")}
+                  {body ? (body.parsed.text || "(no plain text part)") : "(no body)"}
                 </pre>
               )}
             </div>
 
-            {expandError && (
-              <div className="notice notice-error">
-                <span className="glyph">!</span>
-                <span>Couldn't load full email: {expandError}</span>
-              </div>
-            )}
-
-            {expanded && expanded.parsed.attachments.length > 0 && (
+            {body && body.parsed.attachments.length > 0 && (
               <div className="section">
                 <div className="section-title">
-                  Attachments <span style={{color:"var(--n4)", fontWeight:400}}>· {expanded.parsed.attachments.length}</span>
+                  Attachments <span style={{color:"var(--n4)", fontWeight:400}}>· {body.parsed.attachments.length}</span>
                   <span className="att-hint" style={{marginLeft:"8px", textTransform:"none", letterSpacing:0}}>click to download</span>
                 </div>
                 <div className="attachment-list">
-                  {expanded.parsed.attachments.map((a, i) => (
+                  {body.parsed.attachments.map((a, i) => (
                     <button
                       key={i}
                       className="attachment attachment-row"
@@ -1011,21 +1039,15 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
         )}
       </div>
       <div className="modal-foot">
-        {data && (
-          expanded ? (
-            <button className="btn" onClick={downloadRaw} title="Download raw .eml">
-              <span className="dl-glyph" aria-hidden="true">
-                <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M7 1.5v8M4 6.5l3 3 3-3M2 12h10"/>
-                </svg>
-              </span>
-              Download Raw
-            </button>
-          ) : (
-            <button className="btn" onClick={expand} disabled={expanding}>
-              {expanding ? <><span className="spinner"/> loading</> : "More"}
-            </button>
-          )
+        {body && (
+          <button className="btn" onClick={downloadRaw} title="Download raw .eml">
+            <span className="dl-glyph" aria-hidden="true">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 1.5v8M4 6.5l3 3 3-3M2 12h10"/>
+              </svg>
+            </span>
+            Download Raw
+          </button>
         )}
         <div className="spacer"/>
         <button className="btn ghost" onClick={onClose}>Close</button>

@@ -108,7 +108,7 @@ async function handleEmails(env) {
   const cutoff = new Date(Date.now() - WINDOW_MS).toISOString();
   const t0 = Date.now();
   const { results } = await env.DB.prepare(
-    'SELECT id, ts, from_addr, to_addr, subject, text FROM emails WHERE ts >= ? ORDER BY ts DESC'
+    'SELECT id, ts, from_addr, to_addr, subject FROM emails WHERE ts >= ? ORDER BY ts DESC'
   ).bind(cutoff).all();
   log('agent_d1_emails', { rows: (results || []).length, duration_ms: Date.now() - t0 });
   return json({
@@ -294,10 +294,12 @@ const MCP_TOOLS = [
       "email-injection or password-reset-redirect payload triggered delivery",
       "to a controlled address. The result is JSON: an object with",
       "`served_at`, `window_minutes` (60), and `rows` (an array of",
-      "{id, ts, from_addr, to_addr, subject, text} objects, newest first).",
-      "Note: emails forwarded to the fallback inbox (size > 1 MB or",
-      "attachments present) are still listed here but the body fields may be",
-      "minimal — check the fallback inbox if a row looks truncated. Data is",
+      "{id, ts, from_addr, to_addr, subject} objects, newest first).",
+      "IMPORTANT: rows carry envelope metadata ONLY — there is NO body,",
+      "headers, or attachment content here. To read an email's body (plain",
+      "text or HTML), full headers, or attachments, call email_raw with the",
+      "row's id (subject-line and recipient are usually enough to spot a",
+      "callback; fetch the raw .eml only when you need the contents). Data is",
       "live (no server-side cache). No parameters.",
     ].join(' '),
     inputSchema: { type: 'object', properties: {}, required: [] },
@@ -305,14 +307,18 @@ const MCP_TOOLS = [
   {
     name: 'email_raw',
     description: [
-      "Fetches the full raw .eml source for one captured email by id. Use this",
-      "ONLY when explicitly asked for the full email — e.g. to read all headers,",
-      "the HTML body, or to inspect/extract attachments. Routine monitoring should",
-      "use emails_recent_1hr; do NOT call this for every email. The id must come",
-      "from emails_recent_1hr and must still be within the 60-minute window — the",
-      "server hard-checks freshness and refuses anything older or unknown.",
-      "Returns the verbatim RFC-822 message (headers +",
-      "bodies + base64-encoded attachment parts); parse it as MIME to extract parts.",
+      "Fetches the full raw .eml source for one captured email by id. This is",
+      "the ONLY way to read an email's body — emails_recent_1hr returns just",
+      "envelope metadata (from/to/subject), never body content. Call this when",
+      "you need the plain-text body, the HTML body, the full headers, or to",
+      "inspect/extract attachments. Still, don't fetch it for every row during",
+      "routine polling — the subject and recipient from emails_recent_1hr are",
+      "usually enough to spot a callback; pull the raw .eml only for the ones",
+      "whose contents you actually need. The id must come from emails_recent_1hr",
+      "and must still be within the 60-minute window — the server hard-checks",
+      "freshness and refuses anything older or unknown. Returns the verbatim",
+      "RFC-822 message (headers + plain-text and/or HTML bodies + base64-encoded",
+      "attachment parts); parse it as MIME to extract parts.",
     ].join(' '),
     inputSchema: {
       type: 'object',

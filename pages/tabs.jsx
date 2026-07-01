@@ -881,6 +881,18 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     return () => { live = false; };
   }, [id]);
 
+  // While the body is full-screened, ESC exits full-screen rather than closing
+  // the whole modal. Capture phase + stopImmediatePropagation so it runs before
+  // (and suppresses) Modal's own bubble-phase ESC-to-close listener on window.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.stopImmediatePropagation(); setFullscreen(false); }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [fullscreen]);
+
   const blockSender = async () => {
     if (!data) return;
     const addr = normalizeEmail(data.from_addr);
@@ -917,8 +929,51 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   const hasHtml = !!(body && body.parsed.html);
   const hasText = !!(body && body.parsed.text);
 
+  // Body-view controls (HTML/Plain switcher + full-screen toggle) and the body
+  // itself are computed once and reused in two places: inline in the modal, and
+  // — when full-screened — inside a portal overlay. The two are mutually
+  // exclusive so the iframe/pre is only ever mounted once.
+  const bodyControls = body && (hasHtml || hasText) ? (
+    <div className="body-controls">
+      {hasHtml && hasText && (
+        <div className="toggle-group">
+          <button className={bodyView === "html" ? "active" : ""} onClick={() => setBodyView("html")}>HTML</button>
+          <button className={bodyView === "text" ? "active" : ""} onClick={() => setBodyView("text")}>Plain</button>
+        </div>
+      )}
+      <button
+        type="button"
+        className="expand-btn"
+        onClick={() => setFullscreen((f) => !f)}
+        title={fullscreen ? "Exit full screen" : "Full screen"}
+        aria-label={fullscreen ? "Exit full screen" : "Full screen"}
+        aria-pressed={fullscreen}
+      >
+        {fullscreen ? <Icon.collapse/> : <Icon.expand/>}
+      </button>
+    </div>
+  ) : null;
+
+  const bodyContent = bodyLoading ? (
+    <div className="loading"><span className="spinner"/> fetching raw email…</div>
+  ) : bodyError ? (
+    <div className="notice notice-error">
+      <span className="glyph">!</span>
+      <span>Couldn't load email body: {bodyError}</span>
+    </div>
+  ) : body && bodyView === "html" && hasHtml ? (
+    <div className="iframe-wrap">
+      <iframe sandbox="" srcDoc={body.parsed.html} title="email html"/>
+    </div>
+  ) : (
+    <pre className="code-block wrap">
+      {body ? (body.parsed.text || "(no plain text part)") : "(no body)"}
+    </pre>
+  );
+
   return (
-    <Modal open onClose={onClose} wide fullscreen={fullscreen}>
+    <>
+    <Modal open onClose={onClose} wide>
       <ModalHead title="EMAIL" id={data ? data.id : null} onClose={onClose} right={
         <button
           type="button"
@@ -968,43 +1023,14 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
             <div className="section">
               <div className="section-title section-title-toggle">
                 <span>Body</span>
-                {body && (hasHtml || hasText) && (
-                  <div className="body-controls">
-                    {hasHtml && hasText && (
-                      <div className="toggle-group">
-                        <button className={bodyView === "html" ? "active" : ""} onClick={() => setBodyView("html")}>HTML</button>
-                        <button className={bodyView === "text" ? "active" : ""} onClick={() => setBodyView("text")}>Plain</button>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="expand-btn"
-                      onClick={() => setFullscreen((f) => !f)}
-                      title={fullscreen ? "Exit full screen" : "Full screen"}
-                      aria-label={fullscreen ? "Exit full screen" : "Full screen"}
-                      aria-pressed={fullscreen}
-                    >
-                      {fullscreen ? <Icon.collapse/> : <Icon.expand/>}
-                    </button>
-                  </div>
-                )}
+                {bodyControls}
               </div>
-              {bodyLoading ? (
-                <div className="loading"><span className="spinner"/> fetching raw email…</div>
-              ) : bodyError ? (
-                <div className="notice notice-error">
-                  <span className="glyph">!</span>
-                  <span>Couldn't load email body: {bodyError}</span>
+              {fullscreen ? (
+                <div className="notice">
+                  <span className="glyph">⛶</span>
+                  <span>Body is shown full screen — press Esc or the collapse button to return.</span>
                 </div>
-              ) : body && bodyView === "html" && hasHtml ? (
-                <div className="iframe-wrap">
-                  <iframe sandbox="" srcDoc={body.parsed.html} title="email html"/>
-                </div>
-              ) : (
-                <pre className="code-block wrap">
-                  {body ? (body.parsed.text || "(no plain text part)") : "(no body)"}
-                </pre>
-              )}
+              ) : bodyContent}
             </div>
 
             {body && body.parsed.attachments.length > 0 && (
@@ -1053,6 +1079,17 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
         <button className="btn ghost" onClick={onClose}>Close</button>
       </div>
     </Modal>
+    {fullscreen && body && ReactDOM.createPortal(
+      <div className="body-fullscreen" role="dialog" aria-label="Email body — full screen">
+        <div className="body-fullscreen-bar">
+          <span className="section-title" style={{ margin: 0 }}>Body</span>
+          {bodyControls}
+        </div>
+        <div className="body-fullscreen-content">{bodyContent}</div>
+      </div>,
+      document.body
+    )}
+    </>
   );
 }
 

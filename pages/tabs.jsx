@@ -947,9 +947,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     </div>
   ) : null;
 
-  const bodyContent = bodyLoading ? (
-    <div className="loading"><span className="spinner"/> fetching raw email…</div>
-  ) : bodyError ? (
+  const bodyContent = bodyError ? (
     <div className="notice notice-error">
       <span className="glyph">!</span>
       <span>Couldn't load email body: {bodyError}</span>
@@ -981,7 +979,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
         </button>
       }/>
       <div className="modal-body">
-        {!data ? (
+        {(!data || bodyLoading) ? (
           <div className="loading"><span className="spinner"/> loading…</div>
         ) : (
           <>

@@ -1599,26 +1599,6 @@ button.row-icon.copy-link.copied { color: var(--green); }
 }
 .notice .glyph { color: var(--yellow); font-family: var(--mono); }
 
-.toggle-group {
-  display: inline-flex;
-  border: 1px solid var(--n3);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-.toggle-group button {
-  font-family: var(--mono);
-  font-size: 12px;
-  padding: 5px 12px;
-  color: var(--n4);
-  background: transparent;
-  border-right: 1px solid var(--n3);
-}
-.toggle-group button:last-child { border-right: none; }
-.toggle-group button.active {
-  background: var(--n2);
-  color: var(--s1);
-}
-
 .iframe-wrap {
   border: 1px solid var(--n2);
   border-radius: var(--radius-sm);

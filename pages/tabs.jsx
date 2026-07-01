@@ -831,7 +831,6 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   const [body, setBody] = useState(null);            // { buf: ArrayBuffer, parsed } from the raw .eml
   const [bodyLoading, setBodyLoading] = useState(true);
   const [bodyError, setBodyError] = useState(null);
-  const [bodyView, setBodyView] = useState("html");
   const [fullscreen, setFullscreen] = useState(false);
 
   // Envelope metadata (from/to/subject/ts/read/starred/attachment_count) —
@@ -871,7 +870,6 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
           })),
         };
         setBody({ buf, parsed });
-        setBodyView(parsed.html ? "html" : "text");
       } catch (e) {
         if (live) setBodyError(e.message || String(e));
       } finally {
@@ -927,20 +925,15 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   };
 
   const hasHtml = !!(body && body.parsed.html);
-  const hasText = !!(body && body.parsed.text);
 
-  // Body-view controls (HTML/Plain switcher + full-screen toggle) and the body
-  // itself are computed once and reused in two places: inline in the modal, and
-  // — when full-screened — inside a portal overlay. The two are mutually
-  // exclusive so the iframe/pre is only ever mounted once.
-  const bodyControls = body && (hasHtml || hasText) ? (
+  // Only the HTML body is rendered — there's no HTML/plain switcher. The
+  // full-screen toggle is the sole body control, and it's shown only when
+  // there's an HTML body to expand. bodyControls + bodyContent are computed
+  // once and reused in two places: inline in the modal and — when
+  // full-screened — inside a portal overlay (mutually exclusive, so the iframe
+  // is only ever mounted once).
+  const bodyControls = hasHtml ? (
     <div className="body-controls">
-      {hasHtml && hasText && (
-        <div className="toggle-group">
-          <button className={bodyView === "html" ? "active" : ""} onClick={() => setBodyView("html")}>HTML</button>
-          <button className={bodyView === "text" ? "active" : ""} onClick={() => setBodyView("text")}>Plain</button>
-        </div>
-      )}
       <button
         type="button"
         className="expand-btn"
@@ -961,14 +954,15 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
       <span className="glyph">!</span>
       <span>Couldn't load email body: {bodyError}</span>
     </div>
-  ) : body && bodyView === "html" && hasHtml ? (
+  ) : hasHtml ? (
     <div className="iframe-wrap">
       <iframe sandbox="" srcDoc={body.parsed.html} title="email html"/>
     </div>
   ) : (
-    <pre className="code-block wrap">
-      {body ? (body.parsed.text || "(no plain text part)") : "(no body)"}
-    </pre>
+    <div className="notice">
+      <span className="glyph">∅</span>
+      <span>This email has no HTML body. Use <b>Download Raw</b> to view the full message.</span>
+    </div>
   );
 
   return (
@@ -1079,7 +1073,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
         <button className="btn ghost" onClick={onClose}>Close</button>
       </div>
     </Modal>
-    {fullscreen && body && ReactDOM.createPortal(
+    {fullscreen && hasHtml && ReactDOM.createPortal(
       <div className="body-fullscreen" role="dialog" aria-label="Email body — full screen">
         <div className="body-fullscreen-bar">
           <span className="section-title" style={{ margin: 0 }}>Body</span>

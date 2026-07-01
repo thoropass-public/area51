@@ -1222,21 +1222,36 @@ button.row-icon.copy-link.copied { color: var(--green); }
 
 .modal.wide { max-width: 1000px; }
 
-/* Full-screen email view: the modal expands to (nearly) the whole browser
-   canvas so the HTML / plain-text body can be read in a much larger view.
-   Not OS full-screen — just a bigger modal, toggled from the Body section. */
-.modal-backdrop.fullscreen {
-  padding: 16px;
-  align-items: stretch;
+/* Full-screen email BODY view (just the body, not the whole modal): the HTML
+   or plain-text body is promoted to a fixed overlay covering the entire
+   browser canvas, rendered via a portal to document.body so the modal
+   backdrop's backdrop-filter can't trap the fixed positioning. Toggled from
+   the Body section; Esc or the collapse button exits. */
+.body-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: var(--n1);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 18px;
 }
-.modal.fullscreen {
-  max-width: none;
-  width: 100%;
-  height: 100%;
-  max-height: none;
+.body-fullscreen-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
-.modal.fullscreen .iframe-wrap iframe { height: calc(100vh - 300px); }
-.modal.fullscreen .code-block { max-height: calc(100vh - 260px); }
+.body-fullscreen-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.body-fullscreen-content > * { flex: 1; min-height: 0; }
+.body-fullscreen-content .iframe-wrap iframe { height: 100%; }
+.body-fullscreen-content .code-block { max-height: none; margin: 0; }
 
 .modal-head {
   display: flex;

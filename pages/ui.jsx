@@ -253,7 +253,7 @@ function ToastProvider({ children }) {
 
 // ---- Modal ----
 
-function Modal({ open, onClose, children, wide, fullscreen }) {
+function Modal({ open, onClose, children, wide }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -262,8 +262,8 @@ function Modal({ open, onClose, children, wide, fullscreen }) {
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className={`modal-backdrop${fullscreen ? " fullscreen" : ""}`} onClick={onClose}>
-      <div className={`modal ${wide ? "wide" : ""}${fullscreen ? " fullscreen" : ""}`} onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className={`modal ${wide ? "wide" : ""}`} onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>

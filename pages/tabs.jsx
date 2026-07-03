@@ -66,7 +66,7 @@ function ListView({
             })}
             <input
               type="text"
-              placeholder={hasPins ? "+ filter" : (pinPlaceholder || "Search…  ↵ to pin")}
+              placeholder={hasPins ? "+ filter" : (pinPlaceholder || "Search…")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={onKeyDown}
@@ -242,7 +242,7 @@ function EndpointsTab() {
         search={search} setSearch={setSearch}
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
-        pinPlaceholder="Search URIs…  ↵ to pin"
+        pinPlaceholder="Search Endpoints…"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="endpoint-grid"
@@ -504,7 +504,7 @@ function RequestsTab() {
         search={search} setSearch={setSearch}
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
-        pinPlaceholder="Search URLs…  ↵ to pin"
+        pinPlaceholder="Search Requests…"
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="request-grid"
@@ -638,8 +638,6 @@ function RequestModal({ id, onClose }) {
 // Emails
 // ----------------------------------------------------------------
 
-const STAR_TOKEN = ":star:";
-
 // Target number of DISPLAYED rows (groups count as 1) the list tries to fill on
 // each fetch, so a burst that collapses to one group row doesn't leave the view
 // nearly empty. No cap — the fill loop pages until this many are shown or the
@@ -720,23 +718,15 @@ function EmailsTab() {
   // Drill-in target: {from_addr, to_addr, subject} of a clicked group, or null.
   const [drill, setDrill] = useState(null);
 
-  // ":star:" is a special pin (and a live preview while typing it) that filters
-  // to starred mail. It's not a text search term, so we split it out and pass
-  // starredOnly to the API; text pins still combine with it via OR.
-  const starredPinned = pins.includes(STAR_TOKEN);
-  const textPins = useMemo(() => pins.filter((p) => p !== STAR_TOKEN), [pins]);
-  const liveStar = dq.trim().toLowerCase() === STAR_TOKEN;
-  const effStarredOnly = starredPinned || liveStar;
-  const terms = useMemo(
-    () => effectiveSearch(liveStar ? "" : dq, textPins),
-    [liveStar, dq, textPins]
-  );
+  // "Starred only" filter — a dedicated toolbar toggle (no longer a search pin).
+  // When on, results are restricted to starred mail AND whatever the search/pins
+  // already match (an AND constraint, not an OR term).
+  const [starOnly, setStarOnly] = useState(false);
+  const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
 
-  // Map ":star:" (any case) to the canonical token so it renders as the star chip.
-  const addPinNorm = useCallback((v) => {
-    const t = String(v || "").trim().toLowerCase();
-    return addPin(t === STAR_TOKEN ? STAR_TOKEN : v);
-  }, [addPin]);
+  // One-time cleanup: ":star:" used to be a pin. Drop any stale one from storage
+  // so it isn't now treated as a literal search term.
+  useEffect(() => { if (pins.includes(":star:")) removePin(":star:"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { markRead, toggleRead, toggleStar } = useEmailFlags(setRows);
 
@@ -757,7 +747,7 @@ function EmailsTab() {
       let cursor;
       let more = true;
       for (;;) {
-        const r = await API.listEmails({ search: terms, starred: effStarredOnly, cursor });
+        const r = await API.listEmails({ search: terms, starred: starOnly, cursor });
         acc = cursor ? acc.concat(r) : r;
         more = r.length === 50;
         cursor = acc.length ? acc[acc.length - 1].ts : undefined;
@@ -771,7 +761,7 @@ function EmailsTab() {
     } finally {
       setLoading(false);
     }
-  }, [terms, effStarredOnly, displayedCount, toast]);
+  }, [terms, starOnly, displayedCount, toast]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
@@ -784,7 +774,7 @@ function EmailsTab() {
       let more = true;
       const target = displayedCount(acc) + DISPLAY_TARGET;
       for (;;) {
-        const r = await API.listEmails({ search: terms, starred: effStarredOnly, cursor });
+        const r = await API.listEmails({ search: terms, starred: starOnly, cursor });
         acc = acc.concat(r);
         more = r.length === 50;
         cursor = acc.length ? acc[acc.length - 1].ts : cursor;
@@ -803,7 +793,7 @@ function EmailsTab() {
   const handleToggleStar = async (row) => {
     const nowStarred = await toggleStar(row);
     // Under an active star filter, an unstarred row no longer belongs — refetch.
-    if (effStarredOnly && !nowStarred) fetchFirst();
+    if (starOnly && !nowStarred) fetchFirst();
   };
 
   const displayed = useMemo(
@@ -822,23 +812,32 @@ function EmailsTab() {
     <>
       <ListView
         search={search} setSearch={setSearch}
-        pins={pins} onPin={addPinNorm} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
-        specialPins={{ [STAR_TOKEN]: { label: "starred", glyph: <Icon.starOn/>, title: "Showing starred only — click × to remove" } }}
+        pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
-        pinPlaceholder="Search from / to / subject…  ↵ to pin  ·  :star: for starred"
+        pinPlaceholder="Search Emails…"
         rows={displayed} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="email-grid"
         total={displayed.length}
         rightToolbar={
-          <button
-            className={`btn group-toggle${grouping ? " active" : ""}`}
-            onClick={() => setGrouping((g) => !g)}
-            title="Group identical emails (same From, To & Subject) into one row"
-            aria-pressed={grouping}
-          >
-            <Icon.stack/> Group
-          </button>
+          <>
+            <button
+              className={`btn star-filter-btn${starOnly ? " active" : ""}`}
+              onClick={() => setStarOnly((s) => !s)}
+              title="Show starred emails only"
+              aria-pressed={starOnly}
+            >
+              {starOnly ? <Icon.starOn/> : <Icon.star/>} Starred
+            </button>
+            <button
+              className={`btn group-toggle${grouping ? " active" : ""}`}
+              onClick={() => setGrouping((g) => !g)}
+              title="Group identical emails (same From, To & Subject) into one row"
+              aria-pressed={grouping}
+            >
+              <Icon.stack/> Group
+            </button>
+          </>
         }
         header={<>
           <span></span>
@@ -848,7 +847,7 @@ function EmailsTab() {
           <span>Subject</span>
           <span></span>
         </>}
-        emptyText={effStarredOnly && !textPins.length ? "no starred emails" : ((search || pins.length) ? "no emails match these filters" : "no emails captured yet")}
+        emptyText={starOnly && !pins.length && !search ? "no starred emails" : ((search || pins.length || starOnly) ? "no emails match these filters" : "no emails captured yet")}
         renderRow={(item) => (
           item.type === "group" ? (
             <EmailGroupRow

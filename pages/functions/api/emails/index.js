@@ -26,9 +26,10 @@ async function listEmails({ request, env }) {
     conditions.push('to_addr = ?'); params.push(toEq);
     conditions.push("COALESCE(subject, '') = ?"); params.push(subjectEq);
   } else {
-    // Fuzzy search: each term ORs across from_addr / to_addr / subject; the
-    // dashboard's ":star:" pin maps to ?starred=1 and OR-combines with the
-    // terms. The whole OR group is ANDed with the cursor.
+    // Fuzzy search: each term ORs across from_addr / to_addr / subject; multiple
+    // terms OR together. The optional `starred=1` filter (dedicated star button)
+    // is a separate AND constraint — starred AND matching the search — not an OR
+    // disjunct, so it narrows results rather than widening them.
     const searchTerms = url.searchParams.getAll('search').filter(Boolean);
     const starredOnly = url.searchParams.get('starred') === '1';
     const orClauses = [];
@@ -36,8 +37,8 @@ async function listEmails({ request, env }) {
       orClauses.push('(from_addr LIKE ? OR to_addr LIKE ? OR subject LIKE ?)');
       params.push(`%${term}%`, `%${term}%`, `%${term}%`);
     }
-    if (starredOnly) orClauses.push('starred = 1');
     if (orClauses.length) conditions.push('(' + orClauses.join(' OR ') + ')');
+    if (starredOnly) conditions.push('starred = 1');
   }
 
   let query = 'SELECT id, ts, from_addr, to_addr, subject, read, starred FROM emails';

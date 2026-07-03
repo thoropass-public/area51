@@ -662,7 +662,10 @@ function groupEmails(rows) {
     if (members.length >= 2) {
       const head = members[0];
       // A group is unread if ANY loaded member is unread (mail-client behavior).
-      return { type: "group", key, from_addr: head.from_addr, subject: head.subject, ts: head.ts, read: members.every((m) => m.read) ? 1 : 0 };
+      // matchText spans from + subject + every loaded member's recipient, so pin
+      // ribbons light for recipient-matching pins too — not just from/subject.
+      const toAll = members.map((m) => m.to_addr || "").join(" ");
+      return { type: "group", key, from_addr: head.from_addr, subject: head.subject, ts: head.ts, read: members.every((m) => m.read) ? 1 : 0, matchText: `${head.from_addr || ""} ${head.subject || ""} ${toAll}` };
     }
     return { type: "single", key: members[0].id, row: members[0] };
   });
@@ -889,7 +892,7 @@ function EmailsTab() {
             <EmailGroupRow
               key={item.key}
               item={item}
-              matches={pinMatches(pins, colors, `${item.from_addr} ${item.subject || ""}`)}
+              matches={pinMatches(pins, colors, item.matchText)}
               onOpen={() => setDrill({ from_addr: item.from_addr, subject: item.subject })}
               onToggleGroupRead={() => toggleGroupRead(item)}
             />

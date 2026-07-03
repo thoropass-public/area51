@@ -1202,14 +1202,15 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   };
 
   const hasHtml = !!(body && body.parsed.html);
+  const hasText = !!(body && body.parsed.text);
 
-  // Only the HTML body is rendered — there's no HTML/plain switcher. The
-  // full-screen toggle is the sole body control, and it's shown only when
-  // there's an HTML body to expand. bodyControls + bodyContent are computed
-  // once and reused in two places: inline in the modal and — when
-  // full-screened — inside a portal overlay (mutually exclusive, so the iframe
-  // is only ever mounted once).
-  const bodyControls = hasHtml ? (
+  // The body renders the HTML part if present, else falls back to the plain-text
+  // part, else a "no body" notice — there's no HTML/plain switcher. The
+  // full-screen toggle is the sole body control, shown whenever there IS a body
+  // (HTML or text) to expand. bodyControls + bodyContent are computed once and
+  // reused in two places: inline in the modal and — when full-screened — inside
+  // a portal overlay (mutually exclusive, so the iframe/pre is only mounted once).
+  const bodyControls = (hasHtml || hasText) ? (
     <div className="body-controls">
       <button
         type="button"
@@ -1233,10 +1234,12 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     <div className="iframe-wrap">
       <iframe sandbox="" srcDoc={body.parsed.html} title="email html"/>
     </div>
+  ) : hasText ? (
+    <pre className="code-block wrap">{body.parsed.text}</pre>
   ) : (
     <div className="notice">
       <span className="glyph">∅</span>
-      <span>This email has no HTML body. Use <b>Download Raw</b> to view the full message.</span>
+      <span>This email has no body.</span>
     </div>
   );
 
@@ -1348,7 +1351,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
         <button className="btn ghost" onClick={onClose}>Close</button>
       </div>
     </Modal>
-    {fullscreen && hasHtml && ReactDOM.createPortal(
+    {fullscreen && (hasHtml || hasText) && ReactDOM.createPortal(
       <div className="body-fullscreen" role="dialog" aria-label="Email body — full screen">
         <div className="body-fullscreen-bar">
           <span className="section-title" style={{ margin: 0 }}>Body</span>

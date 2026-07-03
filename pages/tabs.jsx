@@ -830,11 +830,16 @@ function EmailsTab() {
       <EmailGroupView
         group={drill}
         onBack={(memberRows) => {
-          if (memberRows && memberRows.length) {
-            const readById = new Map(memberRows.map((m) => [m.id, m.read]));
-            setRows((xs) => xs.map((r) => (readById.has(r.id) ? { ...r, read: readById.get(r.id) } : r)));
-          }
           setDrill(null);
+          // Under the Starred filter, star changes inside the drill-in can add or
+          // remove rows from the filtered view — refetch to reconcile fully.
+          if (starOnly) { fetchFirst(); return; }
+          // Otherwise sync BOTH read and starred back onto matching loaded rows
+          // by id (no refetch, scroll preserved) so the group row isn't stale.
+          if (memberRows && memberRows.length) {
+            const byId = new Map(memberRows.map((m) => [m.id, { read: m.read, starred: m.starred }]));
+            setRows((xs) => xs.map((r) => (byId.has(r.id) ? { ...r, ...byId.get(r.id) } : r)));
+          }
         }}
       />
     );

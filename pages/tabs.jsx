@@ -701,6 +701,7 @@ function useEmailFlags(setRows) {
 
 function EmailsTab() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
   const { pins, addPin, removePin, clearPins, colors, pinColor } = usePinnedFilters("emails");
@@ -787,6 +788,26 @@ function EmailsTab() {
     if (starOnly && !nowStarred) fetchFirst();
   };
 
+  // Clicking a group's stack icon: confirm, then mark every DB row sharing that
+  // (from, subject) pair as read (across all recipients, loaded or not).
+  const markGroupRead = async (item) => {
+    const ok = await confirm({
+      title: "Mark group as read",
+      message: `Mark all emails from ${decodeMimeWord(item.from_addr) || "(unknown sender)"} with subject "${decodeMimeWord(item.subject) || "(no subject)"}" as read? This updates every matching record in the database, including any not currently loaded.`,
+      confirmLabel: "Mark read",
+    });
+    if (!ok) return;
+    try {
+      await API.markGroupRead(item.from_addr, item.subject);
+      setRows((xs) => xs.map((r) =>
+        (r.from_addr === item.from_addr && (r.subject || "") === (item.subject || "")) ? { ...r, read: 1 } : r
+      ));
+      toast("Group marked as read", "success");
+    } catch (e) {
+      toast("Couldn't mark group read: " + e.message, "error");
+    }
+  };
+
   const displayed = useMemo(() => groupEmails(rows), [rows]);
 
   const activeRow = rows.find((r) => r.id === activeId);
@@ -833,6 +854,7 @@ function EmailsTab() {
               item={item}
               matches={pinMatches(pins, colors, `${item.from_addr} ${item.subject || ""}`)}
               onOpen={() => setDrill({ from_addr: item.from_addr, subject: item.subject })}
+              onMarkGroupRead={() => markGroupRead(item)}
             />
           ) : (
             <EmailRow
@@ -862,7 +884,7 @@ function EmailsTab() {
 // A grouped row (identical From/To/Subject). Non-interactive except the click,
 // which drills into the group's own view. No star / read-unread here — those
 // live on the individual messages inside.
-function EmailGroupRow({ item, matches, onOpen }) {
+function EmailGroupRow({ item, matches, onOpen, onMarkGroupRead }) {
   return (
     <div
       className={`row email-grid email-group-row ${item.read ? "read" : "unread"}${matches.length ? " has-ribbon" : ""}`}
@@ -873,7 +895,15 @@ function EmailGroupRow({ item, matches, onOpen }) {
       title="Grouped — click to view every message with this From, To & Subject"
     >
       <PinRibbon matches={matches}/>
-      <span className="row-icon group-icon"><Icon.stack/></span>
+      <button
+        type="button"
+        className="row-icon group-icon"
+        onClick={(e) => { e.stopPropagation(); onMarkGroupRead(); }}
+        title="Mark entire group as read"
+        aria-label="Mark entire group as read"
+      >
+        <Icon.stack/>
+      </button>
       <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(item.ts)}</span>
       <span className="mono cell-trunc from" title={decodeMimeWord(item.from_addr)}>{decodeMimeWord(item.from_addr)}</span>
       <span className="cell-trunc" style={{color:"var(--n4)", fontStyle:"italic"}}>(grouped)</span>

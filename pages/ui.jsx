@@ -55,6 +55,17 @@ const API = {
     apiFetch('/api/emails' + qs({ cursor, search, starred: starred ? 1 : undefined })),
   getEmail: (id) =>
     apiFetch(`/api/emails/${encodeURIComponent(id)}`),
+  // Exact-triple drill-in: all emails sharing from+to+subject, paginated by ts.
+  // Built with URLSearchParams directly (not qs()) so an empty subject/'' is
+  // still sent — qs() drops empty-string values, which would break the query.
+  listEmailGroup: ({ fromAddr, toAddr, subject, cursor } = {}) => {
+    const sp = new URLSearchParams();
+    sp.set('from_eq', fromAddr == null ? '' : fromAddr);
+    sp.set('to_eq', toAddr == null ? '' : toAddr);
+    sp.set('subject_eq', subject == null ? '' : subject);
+    if (cursor) sp.set('cursor', cursor);
+    return apiFetch('/api/emails?' + sp.toString());
+  },
   // Set per-email UI state. `patch` carries read and/or starred (booleans).
   // Dashboard-only writer; returns the updated {read, starred}.
   setEmailFlags: (id, patch) =>
@@ -618,6 +629,7 @@ const Icon = {
   refresh: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 6.5A4.5 4.5 0 0 0 3.7 4"/><path d="M2.5 7.5A4.5 4.5 0 0 0 10.3 10"/><path d="M11.5 2.5v4h-4M2.5 11.5v-4h4"/></svg>,
   pin: () => <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 1.5l3 3-2 1-3.5 3.5.5 2.5-4-4-3 1.5 1.5-3-4-4 2.5.5L4 1l1 3z"/></svg>,
   expand: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 1.5H12.5V5.5M12.5 1.5L8 6M5.5 12.5H1.5V8.5M1.5 12.5L6 8"/></svg>,
+  stack: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M7 1.8l5.2 2.5L7 6.8 1.8 4.3 7 1.8zM1.8 7L7 9.5 12.2 7M1.8 9.7L7 12.2l5.2-2.5"/></svg>,
   collapse: () => <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L8.5 5.5M8.5 5.5V2M8.5 5.5H12M2 12L5.5 8.5M5.5 8.5V12M5.5 8.5H2"/></svg>,
   x: () => <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
 };

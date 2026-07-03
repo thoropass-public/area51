@@ -49,6 +49,13 @@
   --modal-backdrop: rgba(16, 19, 24, 0.6);
   --row-active: rgba(94, 129, 172, 0.18);
 
+  /* Email read/unread surfaces — semantic so "prominent" resolves per theme.
+     Dark: unread is a lighter surface (pops), read sits on the dark page. */
+  --email-unread-bg: var(--n1);
+  --email-unread-bg-hover: var(--n2);
+  --email-read-bg: transparent;
+  --email-read-bg-hover: var(--n1);
+
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 
@@ -102,6 +109,13 @@
   --modal-shadow: 0 20px 50px rgba(45, 42, 35, 0.20);
   --modal-backdrop: rgba(45, 42, 35, 0.30);
   --row-active: rgba(62, 128, 149, 0.12);
+
+  /* Light: unread is the bright page (pops), read gets a gray tint (recedes) —
+     the reverse of dark, since you can't go brighter than the white page. */
+  --email-unread-bg: transparent;
+  --email-unread-bg-hover: var(--n1);
+  --email-read-bg: var(--n1);
+  --email-read-bg-hover: var(--n2);
 }
 
 * { box-sizing: border-box; }
@@ -774,20 +788,28 @@ button.row-icon.copy-link.copied { color: var(--green); }
 .row.email-grid .from { color: var(--s0); }
 .row.email-grid .subject { color: var(--s1); }
 
-/* Unread — bright, weighted, with a subtle background tint. The left edge is
-   reserved for pin ribbons, so unread no longer uses an accent rail. */
-.row.email-grid.unread { background: var(--n1); }
-.row.email-grid.unread:hover { background: var(--n2); }
+/* Unread pops, read recedes — backgrounds come from theme-aware tokens so this
+   holds in BOTH themes (light: unread = bright page, read = gray tint; dark:
+   unread = lighter surface, read = dark page). The left edge is reserved for
+   pin ribbons, so unread uses no accent rail. */
+.row.email-grid.unread { background: var(--email-unread-bg); }
+.row.email-grid.unread:hover { background: var(--email-unread-bg-hover); }
 .row.email-grid.unread .from { color: var(--s1); }
 .row.email-grid.unread .subject { color: var(--s2); font-weight: 600; }
 .row.email-grid.unread .mail-toggle,
 .row.email-grid.unread .group-icon { color: var(--f1); }
 
-/* Read — muted but legible, open envelope */
+/* Read — muted text, open envelope, recessed background */
+.row.email-grid.read { background: var(--email-read-bg); }
+.row.email-grid.read:hover { background: var(--email-read-bg-hover); }
 .row.email-grid.read .from { color: var(--n4); }
 .row.email-grid.read .subject { color: var(--n4); }
 .row.email-grid.read .mail-toggle,
 .row.email-grid.read .group-icon { color: var(--n4); }
+
+/* Keep the open-row highlight winning over the read/unread tints. */
+.row.email-grid.unread.active,
+.row.email-grid.read.active { background: var(--row-active); }
 
 .row.email-grid .mail-toggle:hover { color: var(--s2); }
 .row.email-grid .group-icon:hover { color: var(--s2); }

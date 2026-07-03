@@ -618,7 +618,7 @@ select {
   left: 0;
   top: 0;
   bottom: 0;
-  width: 4px;
+  width: 6px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -629,8 +629,6 @@ select {
   display: block;
   min-height: 2px;
 }
-/* On Emails the colored ribbon takes over the left edge from the unread rail */
-.row.email-grid.unread.has-ribbon { box-shadow: none; }
 
 .row:hover {
   background: var(--n1);
@@ -665,10 +663,8 @@ select {
 
 /* ----- Email grouping (identical From/To/Subject) ----- */
 
-/* Grouped row: visually distinct from singletons, click drills in. No star /
-   read-unread controls — those live on the individual messages inside. */
-.row.email-group-row { background: var(--n1); position: relative; }
-.row.email-group-row:hover { background: var(--n2); }
+/* Grouped row: distinguished by the stack icon + faux-stacked edge + chevron —
+   no background tint (that cue is reserved for unread rows). Click drills in. */
 .row.email-group-row .group-icon { color: var(--f2); }
 .row.email-group-row .subject { color: var(--s1); font-weight: 500; }
 .row.email-group-row .group-chevron {
@@ -783,8 +779,10 @@ button.row-icon.copy-link.copied { color: var(--green); }
 .row.email-grid .from { color: var(--s0); }
 .row.email-grid .subject { color: var(--s1); }
 
-/* Unread — bright, weighted, with a frost accent rail */
-.row.email-grid.unread { box-shadow: inset 2px 0 0 var(--f1); }
+/* Unread — bright, weighted, with a subtle background tint. The left edge is
+   reserved for pin ribbons, so unread no longer uses an accent rail. */
+.row.email-grid.unread { background: var(--n1); }
+.row.email-grid.unread:hover { background: var(--n2); }
 .row.email-grid.unread .from { color: var(--s1); }
 .row.email-grid.unread .subject { color: var(--s2); font-weight: 600; }
 .row.email-grid.unread .mail-toggle { color: var(--f1); }

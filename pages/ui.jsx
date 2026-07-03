@@ -55,13 +55,16 @@ const API = {
     apiFetch('/api/emails' + qs({ cursor, search, starred: starred ? 1 : undefined })),
   getEmail: (id) =>
     apiFetch(`/api/emails/${encodeURIComponent(id)}`),
-  // Exact-pair drill-in: all emails sharing from+subject, paginated by ts.
+  // Exact-pair drill-in: emails sharing from+subject, paginated by ts, further
+  // narrowed by the active search terms + starred filter (additive server-side).
   // Built with URLSearchParams directly (not qs()) so an empty subject/'' is
   // still sent — qs() drops empty-string values, which would break the query.
-  listEmailGroup: ({ fromAddr, subject, cursor } = {}) => {
+  listEmailGroup: ({ fromAddr, subject, cursor, search, starred } = {}) => {
     const sp = new URLSearchParams();
     sp.set('from_eq', fromAddr == null ? '' : fromAddr);
     sp.set('subject_eq', subject == null ? '' : subject);
+    if (Array.isArray(search)) for (const t of search) { if (t) sp.append('search', t); }
+    if (starred) sp.set('starred', '1');
     if (cursor) sp.set('cursor', cursor);
     return apiFetch('/api/emails?' + sp.toString());
   },
@@ -73,12 +76,20 @@ const API = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     }),
-  // Bulk-set read state on a whole (from, subject) group — every matching row in D1.
-  setGroupRead: (fromAddr, subject, read) =>
+  // Bulk-set read state on a (from, subject) group. When `filter` carries the
+  // active {search, starred}, the update is scoped to that filter (matching the
+  // filtered drill-in); with no filter it covers the whole group.
+  setGroupRead: (fromAddr, subject, read, filter = {}) =>
     apiFetch('/api/emails', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_addr: fromAddr == null ? '' : fromAddr, subject: subject == null ? '' : subject, read: !!read }),
+      body: JSON.stringify({
+        from_addr: fromAddr == null ? '' : fromAddr,
+        subject: subject == null ? '' : subject,
+        read: !!read,
+        search: Array.isArray(filter.search) ? filter.search.filter(Boolean) : [],
+        starred: !!filter.starred,
+      }),
     }),
   // Raw .eml bytes from R2 (message/rfc822, not JSON) — returns an ArrayBuffer.
   getEmailRaw: async (id) => {

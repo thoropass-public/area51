@@ -794,20 +794,27 @@ function EmailsTab() {
   const toggleGroupRead = async (item) => {
     const makeRead = !item.read;                 // read group → unread; unread → read
     const verb = makeRead ? "read" : "unread";
+    const filtered = terms.length > 0 || starOnly;
     const ok = await confirm({
       title: makeRead ? "Mark group as read" : "Mark group as unread",
       message: (
         <>
           Mark all emails from <span className="confirm-em">{decodeMimeWord(item.from_addr) || "(unknown sender)"}</span>
           {" "}with subject <span className="confirm-subj">{decodeMimeWord(item.subject) || "(no subject)"}</span>
-          {" "}as {verb}? This updates every matching record in the database, including any not currently loaded.
+          {filtered ? " that match the current filter" : ""} as {verb}?
+          {filtered
+            ? " This updates every matching record in the database (only those matching the active search/starred filter)."
+            : " This updates every matching record in the database, including any not currently loaded."}
         </>
       ),
       confirmLabel: makeRead ? "Mark read" : "Mark unread",
     });
     if (!ok) return;
     try {
-      await API.setGroupRead(item.from_addr, item.subject, makeRead);
+      // Scope the DB update to the active filter. Loaded root rows are already
+      // filter-matched (the root list was fetched with the same filter), so the
+      // local patch by from+subject is inherently filter-scoped too.
+      await API.setGroupRead(item.from_addr, item.subject, makeRead, { search: terms, starred: starOnly });
       setRows((xs) => xs.map((r) =>
         (r.from_addr === item.from_addr && (r.subject || "") === (item.subject || "")) ? { ...r, read: makeRead ? 1 : 0 } : r
       ));
@@ -829,6 +836,8 @@ function EmailsTab() {
     return (
       <EmailGroupView
         group={drill}
+        terms={terms}
+        starOnly={starOnly}
         onBack={(memberRows) => {
           setDrill(null);
           // Under the Starred filter, star changes inside the drill-in can add or
@@ -942,9 +951,10 @@ function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
 }
 
 // Drill-in view for one group: a self-contained, server-backed list of every
-// message sharing the exact (from, to, subject) triple, paginated on its own.
-// The already-loaded root rows are irrelevant — this re-fetches authoritatively.
-function EmailGroupView({ group, onBack }) {
+// message sharing the exact (from, subject) pair, paginated on its own — further
+// narrowed by the active search terms + starred filter so it mirrors the root
+// view. The already-loaded root rows are irrelevant — this re-fetches authoritatively.
+function EmailGroupView({ group, terms, starOnly, onBack }) {
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -956,7 +966,7 @@ function EmailGroupView({ group, onBack }) {
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEmailGroup({ fromAddr: group.from_addr, subject: group.subject });
+      const r = await API.listEmailGroup({ fromAddr: group.from_addr, subject: group.subject, search: terms, starred: starOnly });
       setRows(r);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -965,7 +975,7 @@ function EmailGroupView({ group, onBack }) {
     } finally {
       setLoading(false);
     }
-  }, [group, toast]);
+  }, [group, terms, starOnly, toast]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
@@ -974,7 +984,7 @@ function EmailGroupView({ group, onBack }) {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].ts;
-      const r = await API.listEmailGroup({ fromAddr: group.from_addr, subject: group.subject, cursor });
+      const r = await API.listEmailGroup({ fromAddr: group.from_addr, subject: group.subject, search: terms, starred: starOnly, cursor });
       setRows((xs) => xs.concat(r));
       setHasMore(r.length === 50);
     } catch (e) {

@@ -55,13 +55,12 @@ const API = {
     apiFetch('/api/emails' + qs({ cursor, search, starred: starred ? 1 : undefined })),
   getEmail: (id) =>
     apiFetch(`/api/emails/${encodeURIComponent(id)}`),
-  // Exact-triple drill-in: all emails sharing from+to+subject, paginated by ts.
+  // Exact-pair drill-in: all emails sharing from+subject, paginated by ts.
   // Built with URLSearchParams directly (not qs()) so an empty subject/'' is
   // still sent — qs() drops empty-string values, which would break the query.
-  listEmailGroup: ({ fromAddr, toAddr, subject, cursor } = {}) => {
+  listEmailGroup: ({ fromAddr, subject, cursor } = {}) => {
     const sp = new URLSearchParams();
     sp.set('from_eq', fromAddr == null ? '' : fromAddr);
-    sp.set('to_eq', toAddr == null ? '' : toAddr);
     sp.set('subject_eq', subject == null ? '' : subject);
     if (cursor) sp.set('cursor', cursor);
     return apiFetch('/api/emails?' + sp.toString());

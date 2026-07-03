@@ -11,19 +11,17 @@ async function listEmails({ request, env }) {
     params.push(cursor);
   }
 
-  // Drill-in mode: the exact (from, to, subject) triple. Active iff all three
-  // eq params are present (the group drill-in always sends all three; subject
-  // may legitimately be ''). In this mode we return ONLY that exact group,
+  // Drill-in mode: the exact (from, subject) pair. Active iff both eq params are
+  // present (the group drill-in always sends both; subject may legitimately be
+  // ''). In this mode we return ONLY that exact group across all recipients,
   // paginated by ts — search and starred are ignored. COALESCE handles the
   // NULL-vs-'' subject case so blank-subject groups page correctly.
   const fromEq = url.searchParams.get('from_eq');
-  const toEq = url.searchParams.get('to_eq');
   const subjectEq = url.searchParams.get('subject_eq');
-  const exactMode = fromEq !== null && toEq !== null && subjectEq !== null;
+  const exactMode = fromEq !== null && subjectEq !== null;
 
   if (exactMode) {
     conditions.push('from_addr = ?'); params.push(fromEq);
-    conditions.push('to_addr = ?'); params.push(toEq);
     conditions.push("COALESCE(subject, '') = ?"); params.push(subjectEq);
   } else {
     // Fuzzy search: each term ORs across from_addr / to_addr / subject; multiple

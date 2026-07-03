@@ -784,6 +784,7 @@ button.row-icon.copy-link.copied { color: var(--green); }
 .row.email-grid.read .group-icon { color: var(--n4); }
 
 .row.email-grid .mail-toggle:hover { color: var(--s2); }
+.row.email-grid .group-icon:hover { color: var(--s2); }
 
 /* Star toggle — reveals on row hover, gold when on */
 .star-toggle {

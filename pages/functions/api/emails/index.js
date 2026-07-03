@@ -1,4 +1,4 @@
-import { PAGE_SIZE, json, withErrorHandler } from '../_shared.js';
+import { PAGE_SIZE, json, errResp, withErrorHandler } from '../_shared.js';
 
 async function listEmails({ request, env }) {
   const url = new URL(request.url);
@@ -47,4 +47,26 @@ async function listEmails({ request, env }) {
   return json(results || []);
 }
 
+// Bulk mark-as-read for a whole conversation group — every row sharing the
+// exact (from_addr, subject) pair, across ALL recipients and including rows not
+// currently loaded in the dashboard. Powers the group row's "mark group read"
+// action. COALESCE matches NULL and '' subjects alike. Dashboard-only writer,
+// same as the per-email PATCH.
+async function markGroup({ request, env }) {
+  let body;
+  try { body = await request.json(); } catch { return errResp('Invalid JSON', 400); }
+  if (!body || typeof body !== 'object') return errResp('Invalid body', 400);
+  const fromAddr = body.from_addr;
+  const subject = body.subject;
+  if (typeof fromAddr !== 'string' || typeof subject !== 'string') {
+    return errResp('from_addr and subject are required', 400);
+  }
+  const read = body.read ? 1 : 0;
+  const res = await env.DB.prepare(
+    "UPDATE emails SET read = ? WHERE from_addr = ? AND COALESCE(subject, '') = ?"
+  ).bind(read, fromAddr, subject).run();
+  return json({ ok: true, updated: res.meta?.changes ?? 0 });
+}
+
 export const onRequestGet = withErrorHandler(listEmails);
+export const onRequestPatch = withErrorHandler(markGroup);

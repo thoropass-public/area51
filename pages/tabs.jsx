@@ -644,7 +644,7 @@ function RequestModal({ id, onClose }) {
 // data runs out.
 const DISPLAY_TARGET = 50;
 
-// Global grouping: rows sharing the exact (from_addr, to_addr, subject) triple
+// Global grouping: rows sharing the exact (from_addr, subject) pair
 // collapse into one group item positioned at the newest member's ts. Groups of 1
 // stay as singles. Input must be ts-DESC; output preserves first-appearance
 // order, so a group sits where its newest member would.
@@ -652,7 +652,7 @@ function groupEmails(rows) {
   const groups = new Map();
   const order = [];
   for (const r of rows) {
-    const key = (r.from_addr || "") + " " + (r.to_addr || "") + " " + (r.subject || "");
+    const key = JSON.stringify([r.from_addr || "", r.subject || ""]);
     let g = groups.get(key);
     if (!g) { g = []; groups.set(key, g); order.push(key); }
     g.push(r);
@@ -662,7 +662,7 @@ function groupEmails(rows) {
     if (members.length >= 2) {
       const head = members[0];
       // A group is unread if ANY loaded member is unread (mail-client behavior).
-      return { type: "group", key, from_addr: head.from_addr, to_addr: head.to_addr, subject: head.subject, ts: head.ts, read: members.every((m) => m.read) ? 1 : 0 };
+      return { type: "group", key, from_addr: head.from_addr, subject: head.subject, ts: head.ts, read: members.every((m) => m.read) ? 1 : 0 };
     }
     return { type: "single", key: members[0].id, row: members[0] };
   });
@@ -831,8 +831,8 @@ function EmailsTab() {
             <EmailGroupRow
               key={item.key}
               item={item}
-              matches={pinMatches(pins, colors, `${item.from_addr} ${item.to_addr} ${item.subject || ""}`)}
-              onOpen={() => setDrill({ from_addr: item.from_addr, to_addr: item.to_addr, subject: item.subject })}
+              matches={pinMatches(pins, colors, `${item.from_addr} ${item.subject || ""}`)}
+              onOpen={() => setDrill({ from_addr: item.from_addr, subject: item.subject })}
             />
           ) : (
             <EmailRow
@@ -876,7 +876,7 @@ function EmailGroupRow({ item, matches, onOpen }) {
       <span className="row-icon group-icon"><Icon.stack/></span>
       <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(item.ts)}</span>
       <span className="mono cell-trunc from" title={decodeMimeWord(item.from_addr)}>{decodeMimeWord(item.from_addr)}</span>
-      <span className="mono cell-trunc" style={{color:"var(--n4)"}} title={decodeMimeWord(item.to_addr)}>{decodeMimeWord(item.to_addr)}</span>
+      <span className="cell-trunc" style={{color:"var(--n4)", fontStyle:"italic"}}>(grouped)</span>
       <span className="cell-trunc subject" title={decodeMimeWord(item.subject)}>{decodeMimeWord(item.subject)}</span>
       <span className="group-chevron" aria-hidden="true"><Icon.chevron/></span>
     </div>
@@ -898,7 +898,7 @@ function EmailGroupView({ group, onBack }) {
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEmailGroup({ fromAddr: group.from_addr, toAddr: group.to_addr, subject: group.subject });
+      const r = await API.listEmailGroup({ fromAddr: group.from_addr, subject: group.subject });
       setRows(r);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -916,7 +916,7 @@ function EmailGroupView({ group, onBack }) {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].ts;
-      const r = await API.listEmailGroup({ fromAddr: group.from_addr, toAddr: group.to_addr, subject: group.subject, cursor });
+      const r = await API.listEmailGroup({ fromAddr: group.from_addr, subject: group.subject, cursor });
       setRows((xs) => xs.concat(r));
       setHasMore(r.length === 50);
     } catch (e) {
@@ -935,8 +935,6 @@ function EmailGroupView({ group, onBack }) {
         <button className="btn ghost back-btn" onClick={onBack}>← Back</button>
         <div className="group-detail-context">
           <span className="mono cell-trunc" title={decodeMimeWord(group.from_addr)}>{decodeMimeWord(group.from_addr)}</span>
-          <span className="arrow">→</span>
-          <span className="mono cell-trunc" title={decodeMimeWord(group.to_addr)}>{decodeMimeWord(group.to_addr)}</span>
           <span className="sep">·</span>
           <span className="subject cell-trunc" title={decodeMimeWord(group.subject)}>{decodeMimeWord(group.subject) || "(no subject)"}</span>
         </div>

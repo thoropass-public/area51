@@ -1108,6 +1108,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   const [body, setBody] = useState(null);            // { buf: ArrayBuffer, parsed } from the raw .eml
   const [bodyLoading, setBodyLoading] = useState(true);
   const [bodyError, setBodyError] = useState(null);
+  const [bodyView, setBodyView] = useState("html");   // active part when both exist
   const [fullscreen, setFullscreen] = useState(false);
 
   // Envelope metadata (from/to/subject/ts/read/starred/attachment_count) —
@@ -1147,6 +1148,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
           })),
         };
         setBody({ buf, parsed });
+        setBodyView(parsed.html ? "html" : "text");   // default to HTML when present
       } catch (e) {
         if (live) setBodyError(e.message || String(e));
       } finally {
@@ -1204,14 +1206,20 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   const hasHtml = !!(body && body.parsed.html);
   const hasText = !!(body && body.parsed.text);
 
-  // The body renders the HTML part if present, else falls back to the plain-text
-  // part, else a "no body" notice — there's no HTML/plain switcher. The
-  // full-screen toggle is the sole body control, shown whenever there IS a body
-  // (HTML or text) to expand. bodyControls + bodyContent are computed once and
-  // reused in two places: inline in the modal and — when full-screened — inside
-  // a portal overlay (mutually exclusive, so the iframe/pre is only mounted once).
+  const bothBodies = hasHtml && hasText;
+  // Body view: HTML/Plain switcher only when BOTH parts exist; with one part it's
+  // just shown; with neither, a "no body" notice. The full-screen toggle is
+  // shown whenever there's a body (HTML or text). bodyControls + bodyContent are
+  // computed once and reused inline and — when full-screened — in a portal
+  // overlay (mutually exclusive, so the iframe/pre is only mounted once).
   const bodyControls = (hasHtml || hasText) ? (
     <div className="body-controls">
+      {bothBodies && (
+        <div className="toggle-group">
+          <button className={bodyView === "html" ? "active" : ""} onClick={() => setBodyView("html")}>HTML</button>
+          <button className={bodyView === "text" ? "active" : ""} onClick={() => setBodyView("text")}>Plain</button>
+        </div>
+      )}
       <button
         type="button"
         className="expand-btn"
@@ -1230,7 +1238,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
       <span className="glyph">!</span>
       <span>Couldn't load email body: {bodyError}</span>
     </div>
-  ) : hasHtml ? (
+  ) : (hasHtml && (!hasText || bodyView === "html")) ? (
     <div className="iframe-wrap">
       <iframe sandbox="" srcDoc={body.parsed.html} title="email html"/>
     </div>

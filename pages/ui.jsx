@@ -73,12 +73,12 @@ const API = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     }),
-  // Bulk-mark a whole (from, subject) group read — every matching row in D1.
-  markGroupRead: (fromAddr, subject) =>
+  // Bulk-set read state on a whole (from, subject) group — every matching row in D1.
+  setGroupRead: (fromAddr, subject, read) =>
     apiFetch('/api/emails', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_addr: fromAddr == null ? '' : fromAddr, subject: subject == null ? '' : subject, read: true }),
+      body: JSON.stringify({ from_addr: fromAddr == null ? '' : fromAddr, subject: subject == null ? '' : subject, read: !!read }),
     }),
   // Raw .eml bytes from R2 (message/rfc822, not JSON) — returns an ArrayBuffer.
   getEmailRaw: async (id) => {

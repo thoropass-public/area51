@@ -821,9 +821,23 @@ function EmailsTab() {
 
   const activeRow = rows.find((r) => r.id === activeId);
 
-  // Drill-in replaces the whole tab view with the group's own list.
+  // Drill-in replaces the whole tab view with the group's own list. On Back it
+  // hands back its member rows so we can sync any read-state changes into the
+  // loaded root rows by id — otherwise the collapsed group row would stay stale
+  // (the drill-in has its own state). No refetch; scroll/loaded pages are kept.
   if (drill) {
-    return <EmailGroupView group={drill} onBack={() => setDrill(null)} />;
+    return (
+      <EmailGroupView
+        group={drill}
+        onBack={(memberRows) => {
+          if (memberRows && memberRows.length) {
+            const readById = new Map(memberRows.map((m) => [m.id, m.read]));
+            setRows((xs) => xs.map((r) => (readById.has(r.id) ? { ...r, read: readById.get(r.id) } : r)));
+          }
+          setDrill(null);
+        }}
+      />
+    );
   }
 
   return (
@@ -971,7 +985,7 @@ function EmailGroupView({ group, onBack }) {
   return (
     <>
       <div className="toolbar group-detail-toolbar">
-        <button className="btn ghost back-btn" onClick={onBack}>← Back</button>
+        <button className="btn ghost back-btn" onClick={() => onBack(rows)}>← Back</button>
         <div className="group-detail-context">
           <span className="mono cell-trunc" title={decodeMimeWord(group.from_addr)}>{decodeMimeWord(group.from_addr)}</span>
           <span className="sep">·</span>

@@ -530,7 +530,7 @@ function RequestsTab() {
               <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(r.ts)}</span>
               <span><span className={`method-tag method-${r.method}`}>{r.method}</span></span>
               <span className="mono cell-trunc" title={r.url}>{stripOrigin(r.url)}</span>
-              <span className="mono" style={{color:"var(--n4)"}}>{r.ip}</span>
+              <span className="mono cell-trunc" style={{color:"var(--n4)"}} title={r.ip}>{r.ip}</span>
             </div>
           );
         }}
@@ -640,6 +640,66 @@ function RequestModal({ id, onClose }) {
 
 const STAR_TOKEN = ":star:";
 
+// Target number of DISPLAYED rows (groups count as 1) the list tries to fill on
+// each fetch, so a burst that collapses to one group row doesn't leave the view
+// nearly empty. No cap — the fill loop pages until this many are shown or the
+// data runs out.
+const DISPLAY_TARGET = 50;
+
+// Global grouping: rows sharing the exact (from_addr, to_addr, subject) triple
+// collapse into one group item positioned at the newest member's ts. Groups of 1
+// stay as singles. Input must be ts-DESC; output preserves first-appearance
+// order, so a group sits where its newest member would.
+function groupEmails(rows) {
+  const groups = new Map();
+  const order = [];
+  for (const r of rows) {
+    const key = (r.from_addr || "") + " " + (r.to_addr || "") + " " + (r.subject || "");
+    let g = groups.get(key);
+    if (!g) { g = []; groups.set(key, g); order.push(key); }
+    g.push(r);
+  }
+  return order.map((key) => {
+    const members = groups.get(key);
+    if (members.length >= 2) {
+      const head = members[0];
+      return { type: "group", key, from_addr: head.from_addr, to_addr: head.to_addr, subject: head.subject, ts: head.ts };
+    }
+    return { type: "single", key: members[0].id, row: members[0] };
+  });
+}
+
+// Shared per-email read/starred actions (optimistic update + PATCH), used by both
+// the Emails list and the group drill-in. Operates on whatever rows array the
+// given setter manages. toggleStar resolves to the new starred boolean so callers
+// can react (e.g. drop a row from an active star filter).
+function useEmailFlags(setRows) {
+  const toast = useToast();
+  const patchRow = useCallback((id, patch) =>
+    setRows((xs) => xs.map((r) => (r.id === id ? { ...r, ...patch } : r))), [setRows]);
+  const markRead = useCallback(async (row) => {
+    if (!row || row.read) return;
+    patchRow(row.id, { read: 1 });
+    try { await API.setEmailFlags(row.id, { read: true }); }
+    catch (e) { patchRow(row.id, { read: 0 }); toast("Couldn't mark read: " + e.message, "error"); }
+  }, [patchRow, toast]);
+  const toggleRead = useCallback(async (row) => {
+    if (!row) return;
+    const next = row.read ? 0 : 1;
+    patchRow(row.id, { read: next });
+    try { await API.setEmailFlags(row.id, { read: !!next }); }
+    catch (e) { patchRow(row.id, { read: row.read }); toast("Couldn't update: " + e.message, "error"); }
+  }, [patchRow, toast]);
+  const toggleStar = useCallback(async (row) => {
+    if (!row) return false;
+    const next = row.starred ? 0 : 1;
+    patchRow(row.id, { starred: next });
+    try { await API.setEmailFlags(row.id, { starred: !!next }); return !!next; }
+    catch (e) { patchRow(row.id, { starred: row.starred }); toast("Couldn't update star: " + e.message, "error"); return !!row.starred; }
+  }, [patchRow, toast]);
+  return { markRead, toggleRead, toggleStar };
+}
+
 function EmailsTab() {
   const toast = useToast();
   const [search, setSearch] = useState("");
@@ -650,10 +710,18 @@ function EmailsTab() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
+  // Grouping toggle — default on, persisted per-user.
+  const [grouping, setGrouping] = useState(() => {
+    const v = lsGet("area51:emailGrouping", true);
+    return typeof v === "boolean" ? v : true;
+  });
+  useEffect(() => { lsSet("area51:emailGrouping", grouping); }, [grouping]);
+  // Drill-in target: {from_addr, to_addr, subject} of a clicked group, or null.
+  const [drill, setDrill] = useState(null);
 
   // ":star:" is a special pin (and a live preview while typing it) that filters
-  // to starred mail. It's not a recipient search term, so we split it out and
-  // pass starredOnly to the API; text pins still combine with it via OR.
+  // to starred mail. It's not a text search term, so we split it out and pass
+  // starredOnly to the API; text pins still combine with it via OR.
   const starredPinned = pins.includes(STAR_TOKEN);
   const textPins = useMemo(() => pins.filter((p) => p !== STAR_TOKEN), [pins]);
   const liveStar = dq.trim().toLowerCase() === STAR_TOKEN;
@@ -669,19 +737,40 @@ function EmailsTab() {
     return addPin(t === STAR_TOKEN ? STAR_TOKEN : v);
   }, [addPin]);
 
+  const { markRead, toggleRead, toggleStar } = useEmailFlags(setRows);
+
+  // How many rows the current view would DISPLAY for a given raw set (groups
+  // collapse to 1 when grouping is on). Drives the fill loop.
+  const displayedCount = useCallback(
+    (rs) => (grouping ? groupEmails(rs).length : rs.length),
+    [grouping]
+  );
+
+  // Fetch pages (cursor on the underlying row ts) until at least DISPLAY_TARGET
+  // rows are displayed or the data runs out. Grouping is a pure view transform,
+  // so the cursor is always the last raw row's ts.
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEmails({ search: terms, starred: effStarredOnly });
-      setRows(r);
-      setHasMore(r.length === 50);
+      let acc = [];
+      let cursor;
+      let more = true;
+      for (;;) {
+        const r = await API.listEmails({ search: terms, starred: effStarredOnly, cursor });
+        acc = cursor ? acc.concat(r) : r;
+        more = r.length === 50;
+        cursor = acc.length ? acc[acc.length - 1].ts : undefined;
+        if (displayedCount(acc) >= DISPLAY_TARGET || !more) break;
+      }
+      setRows(acc);
+      setHasMore(more);
     } catch (e) {
       toast("Failed to load emails: " + e.message, "error");
       setRows([]); setHasMore(false);
     } finally {
       setLoading(false);
     }
-  }, [terms, effStarredOnly, toast]);
+  }, [terms, effStarredOnly, displayedCount, toast]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
@@ -689,10 +778,19 @@ function EmailsTab() {
     if (rows.length === 0) return;
     setLoadingMore(true);
     try {
-      const cursor = rows[rows.length - 1].ts;
-      const r = await API.listEmails({ search: terms, starred: effStarredOnly, cursor });
-      setRows((xs) => [...xs, ...r]);
-      setHasMore(r.length === 50);
+      let acc = rows;
+      let cursor = rows[rows.length - 1].ts;
+      let more = true;
+      const target = displayedCount(acc) + DISPLAY_TARGET;
+      for (;;) {
+        const r = await API.listEmails({ search: terms, starred: effStarredOnly, cursor });
+        acc = acc.concat(r);
+        more = r.length === 50;
+        cursor = acc.length ? acc[acc.length - 1].ts : cursor;
+        if (displayedCount(acc) >= target || !more) break;
+      }
+      setRows(acc);
+      setHasMore(more);
     } catch (e) {
       toast("Failed to load more: " + e.message, "error");
     } finally {
@@ -700,43 +798,24 @@ function EmailsTab() {
     }
   };
 
-  // Per-email read/starred state is DB-backed (PATCH /api/emails/<id>). We update
-  // the row optimistically and roll back on failure. Autopilot never writes these.
-  const patchRow = (id, patch) =>
-    setRows((xs) => xs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-
-  const markRead = async (id) => {
-    const row = rows.find((r) => r.id === id);
-    if (!row || row.read) return;
-    patchRow(id, { read: 1 });
-    try { await API.setEmailFlags(id, { read: true }); }
-    catch (e) { patchRow(id, { read: 0 }); toast("Couldn't mark read: " + e.message, "error"); }
+  const open = (row) => { markRead(row); setActiveId(row.id); };
+  const handleToggleStar = async (row) => {
+    const nowStarred = await toggleStar(row);
+    // Under an active star filter, an unstarred row no longer belongs — refetch.
+    if (effStarredOnly && !nowStarred) fetchFirst();
   };
 
-  const toggleRead = async (id) => {
-    const row = rows.find((r) => r.id === id);
-    if (!row) return;
-    const next = row.read ? 0 : 1;
-    patchRow(id, { read: next });
-    try { await API.setEmailFlags(id, { read: !!next }); }
-    catch (e) { patchRow(id, { read: row.read }); toast("Couldn't update: " + e.message, "error"); }
-  };
-
-  const toggleStar = async (id) => {
-    const row = rows.find((r) => r.id === id);
-    if (!row) return;
-    const next = row.starred ? 0 : 1;
-    patchRow(id, { starred: next });
-    try { await API.setEmailFlags(id, { starred: !!next }); }
-    catch (e) { patchRow(id, { starred: row.starred }); toast("Couldn't update star: " + e.message, "error"); return; }
-    // While the star filter is active, a row that's just been unstarred no
-    // longer belongs in the list — refetch to drop it.
-    if (effStarredOnly && !next) fetchFirst();
-  };
-
-  const open = (id) => { markRead(id); setActiveId(id); };
+  const displayed = useMemo(
+    () => (grouping ? groupEmails(rows) : rows.map((r) => ({ type: "single", key: r.id, row: r }))),
+    [rows, grouping]
+  );
 
   const activeRow = rows.find((r) => r.id === activeId);
+
+  // Drill-in replaces the whole tab view with the group's own list.
+  if (drill) {
+    return <EmailGroupView group={drill} onBack={() => setDrill(null)} />;
+  }
 
   return (
     <>
@@ -745,11 +824,21 @@ function EmailsTab() {
         pins={pins} onPin={addPinNorm} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         specialPins={{ [STAR_TOKEN]: { label: "starred", glyph: <Icon.starOn/>, title: "Showing starred only — click × to remove" } }}
         onRefresh={fetchFirst}
-        pinPlaceholder="Search recipients…  ↵ to pin  ·  :star: for starred"
-        rows={rows} loading={loading} hasMore={hasMore}
+        pinPlaceholder="Search from / to / subject…  ↵ to pin  ·  :star: for starred"
+        rows={displayed} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="email-grid"
-        total={rows.length}
+        total={displayed.length}
+        rightToolbar={
+          <button
+            className={`btn group-toggle${grouping ? " active" : ""}`}
+            onClick={() => setGrouping((g) => !g)}
+            title="Group identical emails (same From, To & Subject) into one row"
+            aria-pressed={grouping}
+          >
+            <Icon.stack/> Group
+          </button>
+        }
         header={<>
           <span></span>
           <span>Timestamp</span>
@@ -759,23 +848,164 @@ function EmailsTab() {
           <span></span>
         </>}
         emptyText={effStarredOnly && !textPins.length ? "no starred emails" : ((search || pins.length) ? "no emails match these filters" : "no emails captured yet")}
-        renderRow={(r) => (
-          <EmailRow
-            key={r.id}
-            row={r}
-            active={activeId === r.id}
-            matches={pinMatches(pins, colors, r.to_addr)}
-            onOpen={() => open(r.id)}
-            onToggleRead={() => toggleRead(r.id)}
-            onToggleStar={() => toggleStar(r.id)}
-          />
+        renderRow={(item) => (
+          item.type === "group" ? (
+            <EmailGroupRow
+              key={item.key}
+              item={item}
+              matches={pinMatches(pins, colors, `${item.from_addr} ${item.to_addr} ${item.subject || ""}`)}
+              onOpen={() => setDrill({ from_addr: item.from_addr, to_addr: item.to_addr, subject: item.subject })}
+            />
+          ) : (
+            <EmailRow
+              key={item.key}
+              row={item.row}
+              active={activeId === item.row.id}
+              matches={pinMatches(pins, colors, `${item.row.from_addr} ${item.row.to_addr} ${item.row.subject || ""}`)}
+              onOpen={() => open(item.row)}
+              onToggleRead={() => toggleRead(item.row)}
+              onToggleStar={() => handleToggleStar(item.row)}
+            />
+          )
         )}
       />
       {activeId && (
         <EmailModal
           id={activeId}
           starred={!!(activeRow && activeRow.starred)}
-          onToggleStar={() => toggleStar(activeId)}
+          onToggleStar={() => handleToggleStar(activeRow)}
+          onClose={() => setActiveId(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// A grouped row (identical From/To/Subject). Non-interactive except the click,
+// which drills into the group's own view. No star / read-unread here — those
+// live on the individual messages inside.
+function EmailGroupRow({ item, matches, onOpen }) {
+  return (
+    <div
+      className={`row email-grid email-group-row${matches.length ? " has-ribbon" : ""}`}
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
+      title="Grouped — click to view every message with this From, To & Subject"
+    >
+      <PinRibbon matches={matches}/>
+      <span className="row-icon group-icon"><Icon.stack/></span>
+      <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(item.ts)}</span>
+      <span className="mono cell-trunc from" title={decodeMimeWord(item.from_addr)}>{decodeMimeWord(item.from_addr)}</span>
+      <span className="mono cell-trunc" style={{color:"var(--n4)"}} title={decodeMimeWord(item.to_addr)}>{decodeMimeWord(item.to_addr)}</span>
+      <span className="cell-trunc subject" title={decodeMimeWord(item.subject)}>{decodeMimeWord(item.subject)}</span>
+      <span className="group-chevron" aria-hidden="true"><Icon.chevron/></span>
+    </div>
+  );
+}
+
+// Drill-in view for one group: a self-contained, server-backed list of every
+// message sharing the exact (from, to, subject) triple, paginated on its own.
+// The already-loaded root rows are irrelevant — this re-fetches authoritatively.
+function EmailGroupView({ group, onBack }) {
+  const toast = useToast();
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [activeId, setActiveId] = useState(null);
+  const { markRead, toggleRead, toggleStar } = useEmailFlags(setRows);
+
+  const fetchFirst = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await API.listEmailGroup({ fromAddr: group.from_addr, toAddr: group.to_addr, subject: group.subject });
+      setRows(r);
+      setHasMore(r.length === 50);
+    } catch (e) {
+      toast("Failed to load group: " + e.message, "error");
+      setRows([]); setHasMore(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [group, toast]);
+
+  useEffect(() => { fetchFirst(); }, [fetchFirst]);
+
+  const loadMore = async () => {
+    if (rows.length === 0) return;
+    setLoadingMore(true);
+    try {
+      const cursor = rows[rows.length - 1].ts;
+      const r = await API.listEmailGroup({ fromAddr: group.from_addr, toAddr: group.to_addr, subject: group.subject, cursor });
+      setRows((xs) => xs.concat(r));
+      setHasMore(r.length === 50);
+    } catch (e) {
+      toast("Failed to load more: " + e.message, "error");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const open = (row) => { markRead(row); setActiveId(row.id); };
+  const activeRow = rows.find((r) => r.id === activeId);
+
+  return (
+    <>
+      <div className="toolbar group-detail-toolbar">
+        <button className="btn ghost back-btn" onClick={onBack}>← Back</button>
+        <div className="group-detail-context">
+          <span className="mono cell-trunc" title={decodeMimeWord(group.from_addr)}>{decodeMimeWord(group.from_addr)}</span>
+          <span className="arrow">→</span>
+          <span className="mono cell-trunc" title={decodeMimeWord(group.to_addr)}>{decodeMimeWord(group.to_addr)}</span>
+          <span className="sep">·</span>
+          <span className="subject cell-trunc" title={decodeMimeWord(group.subject)}>{decodeMimeWord(group.subject) || "(no subject)"}</span>
+        </div>
+      </div>
+      <div className="content">
+        <div className="table-header email-grid">
+          <span></span>
+          <span>Timestamp</span>
+          <span>From</span>
+          <span>To</span>
+          <span>Subject</span>
+          <span></span>
+        </div>
+        {loading && rows.length === 0 && (
+          <div className="loading"><span className="spinner"/> querying…</div>
+        )}
+        {!loading && rows.length === 0 && (
+          <div className="empty"><div className="glyph">∅</div>no messages in this group</div>
+        )}
+        {rows.map((r) => (
+          <EmailRow
+            key={r.id}
+            row={r}
+            active={activeId === r.id}
+            matches={[]}
+            onOpen={() => open(r)}
+            onToggleRead={() => toggleRead(r)}
+            onToggleStar={() => toggleStar(r)}
+          />
+        ))}
+        {rows.length > 0 && (
+          <div className="loadmore-wrap">
+            {hasMore ? (
+              <button className="btn" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? <><span className="spinner"/> loading</> : "Load more"}
+              </button>
+            ) : (
+              <span className="meta">— end of results —</span>
+            )}
+          </div>
+        )}
+      </div>
+      {activeId && (
+        <EmailModal
+          id={activeId}
+          starred={!!(activeRow && activeRow.starred)}
+          onToggleStar={() => toggleStar(activeRow)}
           onClose={() => setActiveId(null)}
         />
       )}

@@ -788,23 +788,32 @@ function EmailsTab() {
     if (starOnly && !nowStarred) fetchFirst();
   };
 
-  // Clicking a group's stack icon: confirm, then mark every DB row sharing that
-  // (from, subject) pair as read (across all recipients, loaded or not).
-  const markGroupRead = async (item) => {
+  // Clicking a group's stack icon toggles read state for every DB row sharing
+  // that (from, subject) pair (across all recipients, loaded or not) — a read
+  // group becomes unread and vice versa, behind a confirm.
+  const toggleGroupRead = async (item) => {
+    const makeRead = !item.read;                 // read group → unread; unread → read
+    const verb = makeRead ? "read" : "unread";
     const ok = await confirm({
-      title: "Mark group as read",
-      message: `Mark all emails from ${decodeMimeWord(item.from_addr) || "(unknown sender)"} with subject "${decodeMimeWord(item.subject) || "(no subject)"}" as read? This updates every matching record in the database, including any not currently loaded.`,
-      confirmLabel: "Mark read",
+      title: makeRead ? "Mark group as read" : "Mark group as unread",
+      message: (
+        <>
+          Mark all emails from <span className="confirm-em">{decodeMimeWord(item.from_addr) || "(unknown sender)"}</span>
+          {" "}with subject <span className="confirm-subj">{decodeMimeWord(item.subject) || "(no subject)"}</span>
+          {" "}as {verb}? This updates every matching record in the database, including any not currently loaded.
+        </>
+      ),
+      confirmLabel: makeRead ? "Mark read" : "Mark unread",
     });
     if (!ok) return;
     try {
-      await API.markGroupRead(item.from_addr, item.subject);
+      await API.setGroupRead(item.from_addr, item.subject, makeRead);
       setRows((xs) => xs.map((r) =>
-        (r.from_addr === item.from_addr && (r.subject || "") === (item.subject || "")) ? { ...r, read: 1 } : r
+        (r.from_addr === item.from_addr && (r.subject || "") === (item.subject || "")) ? { ...r, read: makeRead ? 1 : 0 } : r
       ));
-      toast("Group marked as read", "success");
+      toast(`Group marked as ${verb}`, "success");
     } catch (e) {
-      toast("Couldn't mark group read: " + e.message, "error");
+      toast(`Couldn't mark group ${verb}: ` + e.message, "error");
     }
   };
 
@@ -854,7 +863,7 @@ function EmailsTab() {
               item={item}
               matches={pinMatches(pins, colors, `${item.from_addr} ${item.subject || ""}`)}
               onOpen={() => setDrill({ from_addr: item.from_addr, subject: item.subject })}
-              onMarkGroupRead={() => markGroupRead(item)}
+              onToggleGroupRead={() => toggleGroupRead(item)}
             />
           ) : (
             <EmailRow
@@ -884,7 +893,7 @@ function EmailsTab() {
 // A grouped row (identical From/To/Subject). Non-interactive except the click,
 // which drills into the group's own view. No star / read-unread here — those
 // live on the individual messages inside.
-function EmailGroupRow({ item, matches, onOpen, onMarkGroupRead }) {
+function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
   return (
     <div
       className={`row email-grid email-group-row ${item.read ? "read" : "unread"}${matches.length ? " has-ribbon" : ""}`}
@@ -898,9 +907,9 @@ function EmailGroupRow({ item, matches, onOpen, onMarkGroupRead }) {
       <button
         type="button"
         className="row-icon group-icon"
-        onClick={(e) => { e.stopPropagation(); onMarkGroupRead(); }}
-        title="Mark entire group as read"
-        aria-label="Mark entire group as read"
+        onClick={(e) => { e.stopPropagation(); onToggleGroupRead(); }}
+        title={item.read ? "Mark entire group as unread" : "Mark entire group as read"}
+        aria-label={item.read ? "Mark entire group as unread" : "Mark entire group as read"}
       >
         <Icon.stack/>
       </button>

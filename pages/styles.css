@@ -694,6 +694,12 @@ select {
 .group-detail-context .sep { flex-shrink: 0; }
 .group-detail-context .subject { color: var(--s1); }
 .group-detail-context .cell-trunc { max-width: 240px; }
+/* Subject takes the remaining width of the bar (from stays capped). */
+.group-detail-context .subject.cell-trunc { flex: 1; min-width: 0; max-width: none; }
+
+/* Confirm dialog: give the email address and the subject distinct formatting. */
+.confirm-em { font-family: var(--mono); color: var(--f1); }
+.confirm-subj { color: var(--s2); font-style: italic; }
 
 .method-tag {
   display: inline-flex;

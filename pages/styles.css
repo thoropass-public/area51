@@ -675,8 +675,7 @@ select {
 }
 .row.email-group-row:hover .group-chevron { color: var(--s1); }
 
-/* Toggle buttons in the Emails toolbar. */
-.group-toggle.active { color: var(--f1); border-color: var(--f1-edge); }
+/* Starred filter toggle in the Emails toolbar. */
 .star-filter-btn.active { color: var(--yellow); border-color: var(--yellow-edge); }
 
 /* Drill-in header bar (replaces the toolbar while viewing one group). */

@@ -709,12 +709,6 @@ function EmailsTab() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
-  // Grouping toggle — default on, persisted per-user.
-  const [grouping, setGrouping] = useState(() => {
-    const v = lsGet("area51:emailGrouping", true);
-    return typeof v === "boolean" ? v : true;
-  });
-  useEffect(() => { lsSet("area51:emailGrouping", grouping); }, [grouping]);
   // Drill-in target: {from_addr, to_addr, subject} of a clicked group, or null.
   const [drill, setDrill] = useState(null);
 
@@ -731,11 +725,8 @@ function EmailsTab() {
   const { markRead, toggleRead, toggleStar } = useEmailFlags(setRows);
 
   // How many rows the current view would DISPLAY for a given raw set (groups
-  // collapse to 1 when grouping is on). Drives the fill loop.
-  const displayedCount = useCallback(
-    (rs) => (grouping ? groupEmails(rs).length : rs.length),
-    [grouping]
-  );
+  // always collapse to 1). Drives the fill loop.
+  const displayedCount = useCallback((rs) => groupEmails(rs).length, []);
 
   // Fetch pages (cursor on the underlying row ts) until at least DISPLAY_TARGET
   // rows are displayed or the data runs out. Grouping is a pure view transform,
@@ -796,10 +787,7 @@ function EmailsTab() {
     if (starOnly && !nowStarred) fetchFirst();
   };
 
-  const displayed = useMemo(
-    () => (grouping ? groupEmails(rows) : rows.map((r) => ({ type: "single", key: r.id, row: r }))),
-    [rows, grouping]
-  );
+  const displayed = useMemo(() => groupEmails(rows), [rows]);
 
   const activeRow = rows.find((r) => r.id === activeId);
 
@@ -820,24 +808,14 @@ function EmailsTab() {
         gridClass="email-grid"
         total={displayed.length}
         rightToolbar={
-          <>
-            <button
-              className={`btn star-filter-btn${starOnly ? " active" : ""}`}
-              onClick={() => setStarOnly((s) => !s)}
-              title="Show starred emails only"
-              aria-pressed={starOnly}
-            >
-              {starOnly ? <Icon.starOn/> : <Icon.star/>} Starred
-            </button>
-            <button
-              className={`btn group-toggle${grouping ? " active" : ""}`}
-              onClick={() => setGrouping((g) => !g)}
-              title="Group identical emails (same From, To & Subject) into one row"
-              aria-pressed={grouping}
-            >
-              <Icon.stack/> Group
-            </button>
-          </>
+          <button
+            className={`btn star-filter-btn${starOnly ? " active" : ""}`}
+            onClick={() => setStarOnly((s) => !s)}
+            title="Show starred emails only"
+            aria-pressed={starOnly}
+          >
+            {starOnly ? <Icon.starOn/> : <Icon.star/>} Starred
+          </button>
         }
         header={<>
           <span></span>

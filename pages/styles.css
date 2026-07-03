@@ -663,10 +663,10 @@ select {
 
 /* ----- Email grouping (identical From/To/Subject) ----- */
 
-/* Grouped row: distinguished by the stack icon + faux-stacked edge + chevron —
-   no background tint (that cue is reserved for unread rows). Click drills in. */
-.row.email-group-row .group-icon { color: var(--f2); }
-.row.email-group-row .subject { color: var(--s1); font-weight: 500; }
+/* Grouped row: read/unread treatment is IDENTICAL to a singleton (see the
+   .email-grid.unread / .read rules — background pop/recede + text weight). The
+   ONLY differences are the leftmost icon (stack vs envelope) and the trailing
+   chevron. Click drills in. */
 .row.email-group-row .group-chevron {
   display: inline-flex;
   align-items: center;
@@ -674,17 +674,6 @@ select {
   color: var(--n4);
 }
 .row.email-group-row:hover .group-chevron { color: var(--s1); }
-/* Faux "stack" sheet peeking under the row to hint it holds multiple messages. */
-.row.email-group-row::after {
-  content: "";
-  position: absolute;
-  left: 12px; right: 12px; bottom: -3px; height: 3px;
-  background: var(--n1);
-  border: 1px solid var(--n2);
-  border-top: none;
-  border-radius: 0 0 3px 3px;
-  pointer-events: none;
-}
 
 /* Toggle button in the Emails toolbar. */
 .group-toggle.active { color: var(--f1); border-color: var(--f1-edge); }
@@ -785,12 +774,14 @@ button.row-icon.copy-link.copied { color: var(--green); }
 .row.email-grid.unread:hover { background: var(--n2); }
 .row.email-grid.unread .from { color: var(--s1); }
 .row.email-grid.unread .subject { color: var(--s2); font-weight: 600; }
-.row.email-grid.unread .mail-toggle { color: var(--f1); }
+.row.email-grid.unread .mail-toggle,
+.row.email-grid.unread .group-icon { color: var(--f1); }
 
 /* Read — muted but legible, open envelope */
 .row.email-grid.read .from { color: var(--n4); }
 .row.email-grid.read .subject { color: var(--n4); }
-.row.email-grid.read .mail-toggle { color: var(--n4); }
+.row.email-grid.read .mail-toggle,
+.row.email-grid.read .group-icon { color: var(--n4); }
 
 .row.email-grid .mail-toggle:hover { color: var(--s2); }
 

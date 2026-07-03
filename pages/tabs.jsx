@@ -663,7 +663,8 @@ function groupEmails(rows) {
     const members = groups.get(key);
     if (members.length >= 2) {
       const head = members[0];
-      return { type: "group", key, from_addr: head.from_addr, to_addr: head.to_addr, subject: head.subject, ts: head.ts };
+      // A group is unread if ANY loaded member is unread (mail-client behavior).
+      return { type: "group", key, from_addr: head.from_addr, to_addr: head.to_addr, subject: head.subject, ts: head.ts, read: members.every((m) => m.read) ? 1 : 0 };
     }
     return { type: "single", key: members[0].id, row: members[0] };
   });
@@ -887,7 +888,7 @@ function EmailsTab() {
 function EmailGroupRow({ item, matches, onOpen }) {
   return (
     <div
-      className={`row email-grid email-group-row${matches.length ? " has-ribbon" : ""}`}
+      className={`row email-grid email-group-row ${item.read ? "read" : "unread"}${matches.length ? " has-ribbon" : ""}`}
       onClick={onOpen}
       role="button"
       tabIndex={0}

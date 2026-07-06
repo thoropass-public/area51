@@ -119,6 +119,9 @@ function ListView({
         {loading && rows.length === 0 && (
           <div className="loading"><span className="spinner"/> querying…</div>
         )}
+        {loading && rows.length > 0 && (
+          <div className="loading refetching"><span className="spinner"/> searching…</div>
+        )}
         {!loading && rows.length === 0 && (
           <div className="empty">
             <div className="glyph">∅</div>

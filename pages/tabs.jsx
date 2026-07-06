@@ -116,29 +116,29 @@ function ListView({
       </div>
       <div className="content">
         <div className={`table-header ${gridClass}`}>{header}</div>
-        {loading && rows.length === 0 && (
+        {loading ? (
+          // Any full reload (initial load, filter/pin change, refresh) shows the
+          // centered loader spanning the list — prior rows are hidden meanwhile.
+          // (Load more uses `loadingMore`, not `loading`, so it keeps rows.)
           <div className="loading"><span className="spinner"/> querying…</div>
-        )}
-        {loading && rows.length > 0 && (
-          <div className="loading refetching"><span className="spinner"/> searching…</div>
-        )}
-        {!loading && rows.length === 0 && (
+        ) : rows.length === 0 ? (
           <div className="empty">
             <div className="glyph">∅</div>
             {emptyText}
           </div>
-        )}
-        {rows.map(renderRow)}
-        {rows.length > 0 && (
-          <div className="loadmore-wrap">
-            {hasMore ? (
-              <button className="btn" onClick={onLoadMore} disabled={loadingMore}>
-                {loadingMore ? <><span className="spinner"/> loading</> : "Load more"}
-              </button>
-            ) : (
-              <span className="meta">— end of results —</span>
-            )}
-          </div>
+        ) : (
+          <>
+            {rows.map(renderRow)}
+            <div className="loadmore-wrap">
+              {hasMore ? (
+                <button className="btn" onClick={onLoadMore} disabled={loadingMore}>
+                  {loadingMore ? <><span className="spinner"/> loading</> : "Load more"}
+                </button>
+              ) : (
+                <span className="meta">— end of results —</span>
+              )}
+            </div>
+          </>
         )}
       </div>
     </>

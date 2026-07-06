@@ -900,18 +900,6 @@ button.row-icon.copy-link.copied { color: var(--green); }
   font-size: 12.5px;
 }
 
-/* Refetch indicator — shown while a search/filter reload is in flight and the
-   prior results are still on screen. Sticks above the header (z-index over its
-   sticky top:0) so it stays visible even when the list is scrolled. */
-.loading.refetching {
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  padding: 10px 22px;
-  background: var(--n0);
-  border-bottom: 1px solid var(--n2);
-}
-
 .spinner {
   width: 13px;
   height: 13px;

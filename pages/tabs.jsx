@@ -728,6 +728,11 @@ function EmailsTab() {
 
   const { markRead, toggleRead, toggleStar } = useEmailFlags(setRows);
 
+  // Monotonic request id — bumped by every fresh fetch so a slower in-flight
+  // fetch (e.g. one started before a filter/pin change) can detect it's been
+  // superseded and discard its result instead of clobbering the current view.
+  const reqSeq = useRef(0);
+
   // How many rows the current view would DISPLAY for a given raw set (groups
   // always collapse to 1). Drives the fill loop.
   const displayedCount = useCallback((rs) => groupEmails(rs).length, []);
@@ -736,6 +741,7 @@ function EmailsTab() {
   // rows are displayed or the data runs out. Grouping is a pure view transform,
   // so the cursor is always the last raw row's ts.
   const fetchFirst = useCallback(async () => {
+    const seq = ++reqSeq.current;
     setLoading(true);
     try {
       let acc = [];
@@ -743,6 +749,7 @@ function EmailsTab() {
       let more = true;
       for (;;) {
         const r = await API.listEmails({ search: terms, starred: starOnly, cursor });
+        if (seq !== reqSeq.current) return;   // superseded by a newer fetch — discard
         acc = cursor ? acc.concat(r) : r;
         more = r.length === 50;
         cursor = acc.length ? acc[acc.length - 1].ts : undefined;
@@ -751,10 +758,11 @@ function EmailsTab() {
       setRows(acc);
       setHasMore(more);
     } catch (e) {
+      if (seq !== reqSeq.current) return;
       toast("Failed to load emails: " + e.message, "error");
       setRows([]); setHasMore(false);
     } finally {
-      setLoading(false);
+      if (seq === reqSeq.current) setLoading(false);   // don't clear a newer fetch's loading
     }
   }, [terms, starOnly, displayedCount, toast]);
 
@@ -762,6 +770,7 @@ function EmailsTab() {
 
   const loadMore = async () => {
     if (rows.length === 0) return;
+    const seq = reqSeq.current;   // capture; a fresh fetchFirst bumps this and supersedes us
     setLoadingMore(true);
     try {
       let acc = rows;
@@ -770,6 +779,7 @@ function EmailsTab() {
       const target = displayedCount(acc) + DISPLAY_TARGET;
       for (;;) {
         const r = await API.listEmails({ search: terms, starred: starOnly, cursor });
+        if (seq !== reqSeq.current) return;   // superseded by a filter change — discard
         acc = acc.concat(r);
         more = r.length === 50;
         cursor = acc.length ? acc[acc.length - 1].ts : cursor;

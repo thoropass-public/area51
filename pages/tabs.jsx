@@ -977,6 +977,7 @@ function EmailGroupView({ group, terms, starOnly, onBack }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
   const { markRead, toggleRead, toggleStar } = useEmailFlags(setRows);
 
   const fetchFirst = useCallback(async () => {
@@ -1013,6 +1014,13 @@ function EmailGroupView({ group, terms, starOnly, onBack }) {
   const open = (row) => { markRead(row); setActiveId(row.id); };
   const activeRow = rows.find((r) => r.id === activeId);
 
+  // Same refresh affordance as ListView: spin briefly, re-fetch this group.
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await fetchFirst(); } finally { setTimeout(() => setRefreshing(false), 250); }
+  };
+
   return (
     <>
       <div className="toolbar group-detail-toolbar">
@@ -1021,6 +1029,18 @@ function EmailGroupView({ group, terms, starOnly, onBack }) {
           <span className="mono cell-trunc" title={decodeMimeWord(group.from_addr)}>{decodeMimeWord(group.from_addr)}</span>
           <span className="sep">·</span>
           <span className="subject cell-trunc" title={decodeMimeWord(group.subject)}>{decodeMimeWord(group.subject) || "(no subject)"}</span>
+        </div>
+        <div className="toolbar-meta">
+          <span>{rows.length} loaded</span>
+          <button
+            className={`refresh-btn ${refreshing ? "spinning" : ""}`}
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            <Icon.refresh/>
+          </button>
         </div>
       </div>
       <div className="content">

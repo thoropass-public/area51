@@ -466,7 +466,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
             ) : (
               <>
                 <div className="field-row">
-                  <div className="field" style={{marginBottom:0}}>
+                  <div className="field">
                     <label>Headers</label>
                     <textarea
                       value={form.headers}
@@ -476,7 +476,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
                     />
                     <div className="helper">One header per line, <span style={{fontFamily:"var(--mono)"}}>Key: Value</span></div>
                   </div>
-                  <div className="field" style={{marginBottom:0}}>
+                  <div className="field">
                     <label>Status</label>
                     <input
                       type="number"
@@ -536,25 +536,28 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
 function FileDropZone({ onPick, onBrowse }) {
   const [over, setOver] = useState(false);
   return (
-    <div
-      className={`file-drop${over ? " over" : ""}`}
-      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setOver(false);
-        onPick(e.dataTransfer.files && e.dataTransfer.files[0]);
-      }}
-      onClick={onBrowse}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse(); } }}
-    >
-      <span className="ico"><Icon.paper/></span>
-      <span className="file-drop-text">
-        <b>Serve a file instead</b>
-        <span className="helper">Drop a file here or click to browse. Status, headers and body are then set by the server.</span>
-      </span>
+    <div className="field">
+      <label>File</label>
+      <div
+        className={`file-drop${over ? " over" : ""}`}
+        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          onPick(e.dataTransfer.files && e.dataTransfer.files[0]);
+        }}
+        onClick={onBrowse}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse(); } }}
+      >
+        <span className="ico"><Icon.paper/></span>
+        <span className="file-drop-text">
+          <b>Serve a file</b>
+          <span className="helper">Drop a file here or click to browse.</span>
+        </span>
+      </div>
     </div>
   );
 }
@@ -589,10 +592,6 @@ function FileEndpointField({ file, savedFile, onClear, onReplace }) {
           <button className="btn ghost" onClick={onReplace}>Replace</button>
           <button className="btn ghost" onClick={onClear} title="Serve a text response instead">Remove</button>
         </span>
-      </div>
-      <div className="helper">
-        Served as <span style={{fontFamily:"var(--mono)"}}>200</span> with this content type, inline — no status, headers or body to set.
-        {!pending && !missing && " Removing the file and saving converts this back to a text endpoint and deletes the upload."}
       </div>
     </div>
   );

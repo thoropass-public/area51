@@ -8,9 +8,12 @@
 //
 // Two handlers, one D1 binding, one optional fallback inbox:
 //   fetch(request)  — serve an arbitrary response from `endpoints`; log the
-//                     request to `requests`. IPs on the ip_blacklist get a
-//                     403 immediately (no body read, no D1 write, no endpoint
-//                     serve).
+//                     request to `requests`. A row with an r2_key is
+//                     file-backed: the uploaded object is streamed from the
+//                     area51-files bucket (FILES binding) with its stored
+//                     Content-Type, instead of the `body` column. IPs on the
+//                     ip_blacklist get a 403 immediately (no body read, no D1
+//                     write, no endpoint serve).
 //   email(message)  — all-or-nothing capture. On success the verbatim raw
 //                     .eml is in R2 (emails/<id>.eml) AND a lean row is in D1
 //                     (subject, attachment count — no body). On ANY error both
@@ -130,7 +133,7 @@ async function handleHttp(request, env, ctx) {
   let endpoint = null;
   try {
     endpoint = await env.DB.prepare(
-      'SELECT status, headers, body FROM endpoints WHERE uri = ?'
+      'SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ?'
     ).bind(route).first();
   } catch (err) {
     logErr('http_endpoint_lookup_failed', { id, route, error: String(err && err.message || err) });
@@ -142,6 +145,37 @@ async function handleHttp(request, env, ctx) {
   }
 
   log('http_endpoint_matched', { id, route, status: endpoint.status });
+
+  // File-backed endpoint: stream the uploaded object straight from R2 instead of
+  // serving the `body` column. Content-Type comes from the object's own stored
+  // metadata, so D1 never has to be the authority on it. Served inline (no
+  // Content-Disposition) — a hosted payload has to execute, not download.
+  // R2 hands back a stream, so object size never touches worker memory.
+  if (endpoint.r2_key) {
+    if (!env.FILES) {
+      logErr('http_file_binding_missing', { id, route });
+      return new Response('404! Not Found', { status: 404 });
+    }
+    let obj = null;
+    try {
+      obj = await env.FILES.get(endpoint.r2_key);
+    } catch (err) {
+      logErr('http_file_lookup_failed', { id, route, error: String(err && err.message || err) });
+    }
+    if (!obj) {
+      // Row survived but its object didn't — the D1/R2 pair broke somewhere.
+      // Surface it loudly rather than serving an empty 200.
+      logErr('http_file_missing', { id, route, key: endpoint.r2_key });
+      return new Response('404! Not Found', { status: 404 });
+    }
+    log('http_file_served', { id, route, key: endpoint.r2_key, size: obj.size });
+    return new Response(obj.body, {
+      status: 200,
+      headers: {
+        'Content-Type': (obj.httpMetadata && obj.httpMetadata.contentType) || 'application/octet-stream',
+      },
+    });
+  }
 
   let headers = {};
   try { headers = JSON.parse(endpoint.headers || '{}'); } catch { headers = {}; }

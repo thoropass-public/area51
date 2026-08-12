@@ -4,7 +4,8 @@
 # No arguments. Reads CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID + the D1
 # / R2 names from the repo-root .env. Offers three options:
 #
-#   1) Autopilot Endpoints — wipes every /-/* row in `endpoints`.
+#   1) Autopilot Endpoints — wipes every /-/* row in `endpoints`, plus the
+#                            uploaded file of any file-backed row among them.
 #   2) Requests            — deletes `requests` rows older than N days.
 #   3) Emails              — deletes `emails` rows older than N days AND
 #                            their matching emails/<id>.eml objects from R2.
@@ -33,6 +34,7 @@ set -a; . "$env_file"; set +a
 : "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID missing in .env}"
 D1_DATABASE_NAME="${D1_DATABASE_NAME:-area51}"
 : "${R2_BUCKET_NAME:?R2_BUCKET_NAME missing in .env}"
+R2_FILES_BUCKET_NAME="${R2_FILES_BUCKET_NAME:-area51-files}"
 
 command -v python3 >/dev/null || { echo "error: python3 required" >&2; exit 1; }
 command -v curl    >/dev/null || { echo "error: curl required"    >&2; exit 1; }
@@ -59,13 +61,19 @@ print(t.strftime('%Y-%m-%dT%H:%M:%S.000Z'))"
 }
 
 # Delete one R2 object by key via the Cloudflare REST API.
-r2_delete() {  # key (e.g., emails/abc.eml)
-  local key="$1" enc
+r2_delete() {  # bucket key (e.g., area51-emails emails/abc.eml)
+  local bucket="$1" key="$2" enc
   enc="${key//\//%2F}"
   curl -sf -X DELETE \
     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$R2_BUCKET_NAME/objects/$enc" \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$bucket/objects/$enc" \
     >/dev/null
+}
+
+# Run a D1 SELECT returning a single named column; print one value per line.
+d1_column() {  # SQL column
+  wrangler_d1 --command "$1" --json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); rows=d[0].get('results') or []; [print(r['$2']) for r in rows if r.get('$2')]"
 }
 
 read_days() {  # prompts until a non-negative integer is entered; echoes it
@@ -89,10 +97,38 @@ confirm() {  # message → 0 if user typed y/Y, 1 otherwise
 # ----- options -----
 
 purge_autopilot() {
+  local keys count ok=0 fail=0
   echo
   echo "This will DELETE every endpoint under /-/* in the 'endpoints' table."
   echo "Manually-defined endpoints (anything not starting with /-/) are NOT touched."
+
+  # File-backed rows own an object in the uploads bucket. Deleting the rows
+  # without deleting those objects leaves orphans nothing can reach — the same
+  # invisible leak the emails branch exists to prevent.
+  keys=$(d1_column "SELECT r2_key FROM endpoints WHERE uri LIKE '/-/%' AND r2_key IS NOT NULL" r2_key) || keys=""
+  if [ -n "$keys" ]; then
+    count=$(printf '%s\n' "$keys" | grep -c .)
+    echo "$count of them serve an uploaded file; those objects will also be deleted"
+    echo "from R2 (bucket $R2_FILES_BUCKET_NAME)."
+  fi
+
   confirm "Proceed?" || { echo "Cancelled."; return; }
+
+  if [ -n "$keys" ]; then
+    echo
+    echo "Deleting uploaded files from R2..."
+    while IFS= read -r key; do
+      [ -z "$key" ] && continue
+      if r2_delete "$R2_FILES_BUCKET_NAME" "$key"; then
+        ok=$((ok + 1))
+      else
+        fail=$((fail + 1))
+        printf "  ✗ %s (delete failed)\n" "$key" >&2
+      fi
+    done <<< "$keys"
+    echo "R2: $ok deleted, $fail failed."
+  fi
+
   wrangler_d1 --command "DELETE FROM endpoints WHERE uri LIKE '/-/%'"
 }
 
@@ -129,7 +165,7 @@ purge_emails() {
   echo "Deleting R2 objects..."
   while IFS= read -r id; do
     [ -z "$id" ] && continue
-    if r2_delete "emails/$id.eml"; then
+    if r2_delete "$R2_BUCKET_NAME" "emails/$id.eml"; then
       ok=$((ok + 1))
     else
       fail=$((fail + 1))

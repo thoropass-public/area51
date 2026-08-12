@@ -827,6 +827,91 @@ button.row-icon.copy-link { color: var(--n4); }
 button.row-icon.copy-link:hover { color: var(--f1); }
 button.row-icon.copy-link.copied { color: var(--green); }
 
+/* ===== Endpoints: file-backed rows + upload UI ===== */
+
+/* List marker. Sits inline after the URI so a file endpoint is identifiable
+   without opening it; the filename truncates before the URI does. */
+.row .uri-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--n3);
+  border-radius: 99px;
+  background: var(--n1);
+  color: var(--n4);
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+.file-tag svg { flex: none; }
+
+/* Drop target, text mode only. */
+.file-drop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-top: 4px;
+  border: 1px dashed var(--n3);
+  border-radius: var(--radius);
+  color: var(--n4);
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
+}
+.file-drop:hover,
+.file-drop.over {
+  border-color: var(--f2);
+  background: var(--f1-soft);
+  color: var(--s0);
+}
+.file-drop .ico { display: inline-flex; flex: none; }
+.file-drop-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.file-drop-text b { color: var(--s1); font-weight: 600; font-size: 13px; }
+.file-drop-text .helper { margin: 0; }
+
+/* File mode: what this endpoint serves, plus its two escapes. */
+.file-chip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--n3);
+  border-radius: var(--radius);
+  background: var(--n1);
+}
+.file-chip.missing { border-color: var(--red-edge); background: var(--red-soft); }
+.file-chip > .ico { display: inline-flex; flex: none; color: var(--f1); }
+.file-chip .file-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.file-chip .name {
+  color: var(--s1);
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-chip .sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--n4);
+  font-size: 12px;
+  min-width: 0;
+}
+.file-chip .sub .mono { font-family: var(--mono); }
+.file-chip .sub .sep { color: var(--n3); }
+.file-chip .sub .pending { color: var(--yellow); }
+.file-chip.missing .sub .pending { color: var(--red); }
+.file-chip .file-actions { display: flex; gap: 6px; flex: none; }
+
 /* ===== Emails: read / unread / star ===== */
 
 /* Default-state column colors (overridden by .unread / .read below) */

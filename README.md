@@ -106,6 +106,7 @@ The same Cloudflare account hosts three runtime pieces, backed by one D1 databas
 | **Autopilot** (the agent interface) | a second Worker (service `agent-a51-worker`), bound to its own Custom Domain | Bearer-auth REST + MCP server; recent requests / emails reads, on-demand raw `.eml` download (60-min gated), and `/-/*` endpoint CRUD for authorized Claude Code / Codex agents |
 | **area51-cleanup** (scheduled retention) | a third Worker (service `area51-cleanup`), **no Custom Domain** — cron-triggered only | Runs daily; trims `requests` to the newest N rows and deletes `emails` older than M days (D1 rows **and** their R2 `.eml` blobs, in lockstep), **except starred emails, which are kept indefinitely**. See [§16](#16-the-area51-cleanup-worker) |
 | **R2** (`area51-emails`) | bucket binding `EML` on worker, agent worker, Pages | Verbatim raw `.eml` per email at `emails/<id>.eml`; read on demand by the email modal (fetched on open, for the body/headers/attachments) + Download Raw, and by Autopilot |
+| **R2** (`area51-files`) | bucket binding `FILES` on worker + Pages | One object per **file-backed endpoint** (see [§6.1](#61-endpoints)), keyed by a random UUID. Written and deleted by the dashboard's Pages Functions, streamed back by the Black Holes worker. Autopilot deliberately does **not** bind it |
 | **D1 database** | binding `DB`, name `area51` | Single SQLite-style DB shared by Pages and both workers |
 | **Email Routing** | on each mail-enabled black hole zone | Catch-all delivers incoming mail to the Black Holes worker's email handler |
 
@@ -215,8 +216,9 @@ pentester ──► AREA 51 dashboard (Pages)
             ├── _shared.js              ← json/errResp helpers, withErrorHandler, parseHeaderLines
             ├── config/domains.js       ← GET — reads D1 `domains` table, returns {domains:[…]}
             ├── endpoints/
-            │   ├── index.js            ← GET (list+search+cursor), POST (upsert)
-            │   └── [uri].js            ← GET (detail), DELETE
+            │   ├── index.js            ← GET (list+search+cursor), POST (text upsert)
+            │   ├── upload.js           ← POST — raw-body file upload → R2 (file-backed endpoint)
+            │   └── [uri].js            ← GET (detail incl. `file`), DELETE (R2 object first)
             ├── requests/
             │   ├── index.js            ← GET (list+search+cursor)
             │   └── [id].js             ← GET (detail; headers parsed back to object)
@@ -254,10 +256,11 @@ export default {
 2. Build the log row: `{ id, ts, method, url (full), ip, ua, headers (JSON-stringified entries), body (text or "") }`. Body read errors are swallowed and replaced with empty string.
 3. `ctx.waitUntil(insertRequestLog(env, row))` — fire and forget. If D1 INSERT fails, it's logged via `console.error` and dropped.
 4. `SELECT status, headers, body FROM endpoints WHERE uri = ?` against `env.DB`. Lookup errors don't fail the response — they're logged and treated as "not found."
-5. If found: respond with `new Response(row.body || "", { status: row.status || 200, headers: JSON.parse(row.headers || "{}") })`.
-6. If not found: respond `new Response("404! Not Found", { status: 404 })`.
+5. If the row has an `r2_key` it is **file-backed**: `env.FILES.get(key)` and stream the object back with `200` and the object's own stored `Content-Type` (falling back to `application/octet-stream`), served inline. R2 returns a stream, so object size never touches worker memory. A missing binding logs `http_file_binding_missing`; a row whose object is gone logs `http_file_missing` — both answer 404 rather than serving an empty 200.
+6. Otherwise: respond with `new Response(row.body || "", { status: row.status || 200, headers: JSON.parse(row.headers || "{}") })`.
+7. If not found: respond `new Response("404! Not Found", { status: 404 })`.
 
-Note that step 5's `JSON.parse` is wrapped in try/catch and falls back to `{}` so a corrupt headers field doesn't break serving.
+Note that step 6's `JSON.parse` is wrapped in try/catch and falls back to `{}` so a corrupt headers field doesn't break serving.
 
 ### 4.2 Email handler
 
@@ -283,6 +286,7 @@ In `worker/wrangler.toml` (rendered by `scripts/render-wrangler.sh` from `worker
 |---|---|
 | `DB` (D1) | Cloudflare D1 binding to the `area51` database |
 | `EML` (R2) | R2 bucket `area51-emails`; the worker PUTs every email's raw `.eml` to `emails/<id>.eml`. Bucket name from `R2_BUCKET_NAME` in `.env`. |
+| `FILES` (R2) | R2 bucket `area51-files`; **read-only** from this worker — streams the object named by an endpoint row's `r2_key`. Bucket name from `R2_FILES_BUCKET_NAME` in `.env`. Uploads and deletes happen only through the dashboard. |
 | `FALLBACK_ADDRESS` (var) | Last-resort email forward target — used only on the error path (R2 PUT / handler throws). Value set in `.env` and substituted into `worker/wrangler.toml` at render time. |
 | `workers_dev = false` | Disables the auto-generated `*.workers.dev` URL — the worker is reachable only via the Custom Domains bound to it in the dashboard |
 | `preview_urls = false` | Disables Cloudflare's per-version preview URLs — same lockdown rationale |
@@ -309,6 +313,9 @@ Event names emitted:
 | `http_endpoint_matched` | endpoint row found, about to respond |
 | `http_endpoint_not_found` | no endpoint row for path |
 | `http_endpoint_lookup_failed` | D1 lookup threw (rare) |
+| `http_file_served` | file-backed endpoint matched; object streamed from R2 |
+| `http_file_missing` | row has an `r2_key` but the object isn't in the bucket — 404 served |
+| `http_file_lookup_failed` / `http_file_binding_missing` | R2 GET threw, or the `FILES` binding isn't on the worker |
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the `ctx.waitUntil` request log |
 | `email_received` | top of email handler |
 | `email_rejected_blacklist` | sender on the email_blacklist; `setReject` invoked, no R2 object, no D1 write |
@@ -351,6 +358,7 @@ File responsibilities:
   - **Color-coded match ribbons** (`pinMatches` + `PinRibbon`, both in `ui.jsx`): every row matched by a **text** pin gets a left-edge color spine, split into one segment per matching pin, so a row caught by two pins shows both colors stacked. Matching is done on the right field per tab — URI (Endpoints), URL (Requests), and for Emails the combined `from_addr + to_addr + subject` string (matching the broadened server-side search). **Group rows** match on their `from + subject + every loaded member's recipient` (`item.matchText` from `groupEmails`), so a pinned *recipient* lights a group's ribbon too — not just from/subject pins. The left edge belongs **exclusively to ribbons** — unread state is shown with a background tint (not a rail), so the two cues never collide. Ribbons are a 6px spine.
   - The effective list of search terms sent to the API is `[<live-input-text>, ...pins]` (built per-tab via the `effectiveSearch(input, pins)` helper) — all ORed server-side (any term matches → row included).
   - `EndpointsTab` + `EndpointModal` — list shows URI + color-coded HTTP status (uses the same `status-2xx/3xx/4xx/5xx` tag styling as the Requests tab). Click a row to open the modal with all fields editable; the URI is read-only on edit. Delete button on the modal asks for confirmation. The list endpoint returns just `{uri, status}` per row; full `headers` and `body` are fetched only when the modal opens. **The leading row icon is a copy button** (`EndpointRow`): it copies the full URL — `https://` + the active default host + the URI — to the clipboard, flips to a check-mark for ~1.4s, and fires a toast naming the host (e.g. *Copied oob.example/api/v1/callback*). Clicking it does **not** open the edit modal (the click is stopped); clicking anywhere else on the row still does. The active default host comes from `useActiveDomain` (see `Home`); with no host selected the button toasts an error instead of copying.
+  - **File-backed endpoints** (`FileDropZone`, `FileEndpointField`) — the endpoint modal is in exactly one of two states. In **text mode** it shows the Headers / Status / Body editors plus a drop target below them. Attaching a file (drop or browse) switches to **file mode**: those three editors are **unmounted**, not disabled — a greyed-out field still invites a click — and are replaced by a chip showing filename, content type and size, with *Replace* and *Remove*. Saving in file mode `POST`s the raw `File` as the request body to `/api/endpoints/upload` (no multipart, so it streams); saving after *Remove* writes a text response and the server deletes the object. Oversize files (>25 MB) are rejected client-side before a byte leaves the browser. Opening an existing file endpoint loads its `file` descriptor and never shows a response editor, since the server owns the response; saving without touching anything is a no-op rather than a silent conversion to text. The Endpoints list marks these rows with a `.file-tag` pill carrying the filename.
   - `RequestsTab` + `RequestModal` — read-only. The modal pretty-prints the body as JSON if it parses, otherwise shows it raw.
   - `EmailsTab` + `EmailModal` — opening an email shows the envelope metadata (from/to/subject/received/attachment count) from the lean D1 row **and immediately fetches the raw `.eml`** from `/api/emails/<id>/raw`, parsing it in the browser with postal-mime (loaded lazily as `window.PostalMime`) — there is no "More" step anymore. The body renders the **HTML part** (in a strict `sandbox=""` iframe) if present, else **falls back to the plain-text part** (in a `<pre>`), else a **"This email has no body."** notice. When an email has **both** parts, an **HTML / Plain switcher** (`.toggle-group`, `bodyView`) appears in the body controls (default HTML); with only one part it's shown without a switcher. The full headers (collapsible) and a clickable attachment list (each downloads its decoded bytes as a Blob) are also rendered from that parse. A **full-screen toggle** (the `expand`/`collapse` icon, the only body control, shown whenever there's a body — HTML *or* text) promotes **just the body** (the HTML iframe or the text `<pre>`) — not the whole modal — to a fixed overlay covering the entire browser canvas. It's rendered via `ReactDOM.createPortal` to `document.body` (the modal backdrop's `backdrop-filter` establishes a containing block that would otherwise trap a `position: fixed` child), styled by `.body-fullscreen`. Not OS full-screen — a CSS overlay. Pressing **Esc** or the collapse button exits back to the modal (a capture-phase key handler intercepts Esc so it exits full-screen instead of closing the whole modal); the toggle rides along in the overlay's top bar. **Download Raw** in the footer saves the in-memory `.eml`. Until **both** the metadata and the parsed raw body have loaded, the whole modal body shows a single centered loader (same pattern as `RequestModal`) — nothing partial renders — then the full view appears at once. Every D1 row has a matching R2 object (capture is all-or-nothing), so it normally always resolves.
   - **Read / unread** (`EmailRow`) — **DB-backed** via the `emails.read` column. Unread pops and read recedes via **theme-aware** background tokens (`--email-unread-bg` / `--email-read-bg`): in **light** mode unread is the bright page and read is a gray tint; in **dark** mode unread is a lighter surface and read is the dark page (the direction of "prominent" flips per theme, so a single raw color would invert in one of them — hence the tokens). Plus bold high-contrast subject + frost icon on unread, muted text + open envelope on read. The **exact same treatment applies to group rows** — a group is unread if *any* loaded member is unread — so read/unread reads identically whether a row is a singleton or a group; the *only* group/singleton differentiators are the leftmost icon (stack vs envelope) and the trailing chevron on groups. Opening an email marks it read; the leading envelope icon toggles read ↔ unread *without* opening. Both write through `PATCH /api/emails/<id>` and update the row optimistically (rolled back on failure). **Autopilot/MCP never touches read state** — the PATCH endpoint is the sole writer.
@@ -395,16 +403,20 @@ wrangler d1 execute area51 --file=schema.sql --remote
 
 ### 6.1 `endpoints`
 
-The map of `URI path → response` that the worker serves.
+The map of `URI path → response` that the worker serves. A row is either **text-backed** (status/headers/body authored in the dashboard) or **file-backed** (an upload living in the `area51-files` R2 bucket); `r2_key IS NULL` is the discriminator.
 
 | Column | Type | Notes |
 |---|---|---|
 | `uri` | `TEXT PRIMARY KEY` | Exact pathname match. `/api/foo` only matches `/api/foo`. No globs, no params. |
-| `status` | `INTEGER NOT NULL DEFAULT 200` | HTTP status to serve |
-| `headers` | `TEXT` | JSON-stringified `{key: value}` object. Stored as JSON so D1 can hold arbitrary header sets without a side table. |
-| `body` | `TEXT` | Raw response body (text or encoded binary). Capped at D1's 2 MB row limit. |
+| `status` | `INTEGER NOT NULL DEFAULT 200` | HTTP status to serve. Forced to `200` on file-backed rows. |
+| `headers` | `TEXT` | JSON-stringified `{key: value}` object. Stored as JSON so D1 can hold arbitrary header sets without a side table. On a file-backed row this is exactly `{"Content-Type": "<detected>"}`, written by the server. |
+| `body` | `TEXT` | Raw response body (text or encoded binary). Capped at D1's 2 MB row limit. Always `''` on a file-backed row — the bytes are in R2. |
+| `r2_key` | `TEXT` | Object key (a random UUID) in the `area51-files` bucket. `NULL` = text endpoint. Internal: never returned by the API. |
+| `filename` | `TEXT` | Original upload filename. **Display only** — never used to build a response header. |
 
-No `ts` / `created_at` — the worker doesn't need it, and nothing surfaces it. (This is why the Autopilot Endpoints purge in `scripts/purge.sh` wipes the whole `/-/*` namespace rather than purging by age — there's no timestamp to age against.)
+File-backed rows exist so a pentester can host a real artefact (a DTD, a compiled payload, an image, a `.well-known` document) instead of pasting text into a body field. The response is entirely server-owned: `200`, the detected `Content-Type`, served **inline** — no `Content-Disposition: attachment`, because a hosted payload has to execute rather than download. That's the trade: a file endpoint cannot carry a custom status or extra headers, so a test that needs a `302` or an `Access-Control-Allow-Origin` has to use a text endpoint. See [§15.12](#1512-file-backed-endpoints-server-owned-response-separate-bucket).
+
+No `ts` / `created_at` — the worker doesn't need it, and nothing surfaces it. (This is why the Autopilot Endpoints purge in `scripts/purge.sh` wipes the whole `/-/*` namespace rather than purging by age — there's no timestamp to age against. It's also why uploaded files have no automatic retention: there is nothing to age them against, so they live until their endpoint is deleted.)
 
 ### 6.2 `requests`
 
@@ -477,6 +489,16 @@ The cache miss path returns an empty set on D1 error so a transient D1 outage ne
 
 Bucket `area51-emails`, bound as `EML` on the worker, agent worker, and Pages. One object per email at key `emails/<id>.eml` — the verbatim raw RFC-822 message (`Content-Type: message/rfc822`). Written by the worker on capture; read on demand by the dashboard (`/api/emails/<id>/raw`) and Autopilot (`/emails/<id>/raw`). To delete emails, use `scripts/purge.sh` — it drops the D1 row **and** the R2 object together. A raw D1 `DELETE FROM emails` leaves orphaned `.eml` blobs (invisible storage leak), so prefer the script. R2's free tier (10 GB storage, no egress fees) is the reason emails no longer threaten the 500 MB D1 limit — D1 now carries only the lean rows.
 
+### 6.6b R2 endpoint-file storage
+
+Bucket `area51-files`, bound as `FILES` on the Black Holes worker (read) and on Pages (write + delete). One object per file-backed endpoint, keyed by a **random UUID** — not derived from the URI, so replacing a file is a write to a fresh key plus a delete of the old one, with no read-your-write window and no percent-encoding inside object keys. The object's own `httpMetadata.contentType` is the authority on what gets served; D1 stores no duplicate.
+
+Separate from `area51-emails` on purpose: uploads can then be wiped, audited, or given their own lifecycle rules without touching captured mail, and the emails bucket keeps a name that means what it says. The cost is one more manual Pages binding ([§8](#8-deployment-from-a-clean-slate) Step 7).
+
+**Autopilot has no `FILES` binding.** It can see that an endpoint is file-backed (the `file` descriptor in its responses) but cannot read, replace, or delete the object — and its `upsert`/`delete` tools refuse file-backed URIs outright, since a human staged that payload through the dashboard and an agent deleting the row would orphan the blob.
+
+Nothing purges these automatically: the cleanup worker only touches `requests` and `emails`. `scripts/purge.sh`'s Autopilot-Endpoints branch deletes the objects belonging to the `/-/*` rows it wipes; everything else goes when its endpoint is deleted from the dashboard.
+
 ### 6.7 `domains`
 
 The configured black holes — the single source of truth (replaces the old `DOMAINS_CONFIG` Pages env var).
@@ -501,10 +523,11 @@ Base path: `https://<dashboard-domain>/api/`. Same-origin only — this API is c
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/endpoints` | List endpoints. Params: `cursor` (last `uri`), `search` (LIKE `%search%` on `uri` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns array of `{uri, status}`. Sorted ASC by `uri`. |
-| `POST` | `/api/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `headers` is a line-separated string (`Key: Value\n…`) — server parses to a JSON object before storing. Validates `uri` starts with `/`, `status` is integer 100–599. |
-| `GET` | `/api/endpoints/[uri]` | Detail. `uri` is URL-encoded in the path. 404 if missing. |
-| `DELETE` | `/api/endpoints/[uri]` | Delete. 404 if nothing deleted (via `meta.changes === 0`). |
+| `GET` | `/api/endpoints` | List endpoints. Params: `cursor` (last `uri`), `search` (LIKE `%search%` on `uri` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns array of `{uri, status, filename}`, where a non-null `filename` means the row is **file-backed** (`r2_key` itself never leaves the server). Sorted ASC by `uri`. |
+| `POST` | `/api/endpoints` | Upsert a **text** endpoint. Body: `{uri, status, headers, body}`. `headers` is a line-separated string (`Key: Value\n…`) — server parses to a JSON object before storing. Validates `uri` starts with `/`, `status` is integer 100–599. If the URI is currently file-backed this **converts it back to text**: `r2_key`/`filename` are cleared and the uploaded object is deleted (response carries `replaced_file: true`). |
+| `POST` | `/api/endpoints/upload?uri=<uri>` | Upsert a **file-backed** endpoint. The request **body is the raw file** (not multipart), `Content-Type` is the file's type, `X-Filename` is the URI-encoded display name. Takes no status/headers/body — the server owns all three for file endpoints. Streams into R2 under a fresh UUID key, then writes the row; a failed row write deletes the object again, and any object the URI previously pointed at is deleted only after the row is repointed. 400 on a bad URI, 411 without `Content-Length`, 413 over 25 MB, 500 if the `FILES` binding is missing. Static route — Pages matches it before `[uri]`, and real URIs are percent-encoded, so they can't collide. |
+| `GET` | `/api/endpoints/[uri]` | Detail. `uri` is URL-encoded in the path. 404 if missing. Carries `file`: `null` for a text endpoint, otherwise `{filename, content_type, size, missing}` — `content_type`/`size` come from an R2 `head()` (the object's own metadata is the source of truth, not a duplicated column), and `missing: true` means the row outlived its object. |
+| `DELETE` | `/api/endpoints/[uri]` | Delete. 404 if nothing deleted (via `meta.changes === 0`). For a file-backed row the R2 object is deleted **first**, then the row — a failed object delete leaves the row visible to retry rather than orphaning the blob. |
 | `GET` | `/api/requests` | List. Params: `cursor` (last `ts`), `search` (LIKE on `url` — **may be repeated**; multiple values are ORed (parenthesized OR group ANDed with the cursor)). Returns `{id, ts, method, url, ip}` (no headers/body in the list — saves payload). Sorted DESC by `ts`. |
 | `GET` | `/api/requests/[id]` | Detail. Returns the full row including `headers` (parsed back to an object) and `body`. 404 if missing. |
 | `GET` | `/api/emails` | List. Params: `cursor` (last `ts`), `search` (**may be repeated**; each term ORs across `from_addr`/`to_addr`/`subject` via LIKE), `starred` (`1` = starred-only, from the toolbar Starred toggle). The per-term OR groups form one parenthesized **OR** group; `starred=1` is a **separate `AND starred = 1`** constraint (starred *and* matching the search, not OR); both are ANDed with the cursor. Returns `{id, ts, from_addr, to_addr, subject, read, starred}` per row. Sorted DESC by `ts`. **Drill-in mode:** if `from_eq` **and** `subject_eq` are both present, the exact-pair predicate `from_addr = ? AND COALESCE(subject,'') = ?` is added **additively** on top of the normal `search`/`starred` filter (so a filtered drill-in returns only the group members that also match the filter). Used by the conversation drill-in. |
@@ -557,9 +580,10 @@ Enable R2 on the account (Dashboard → R2; the free tier may still ask for a ca
 
 ```sh
 npx wrangler r2 bucket create area51-emails
+npx wrangler r2 bucket create area51-files
 ```
 
-The bucket name must match `R2_BUCKET_NAME` in `.env`. The worker and agent worker bind it as `EML` via their templates automatically; the Pages binding is added by hand in Step 7.
+The names must match `R2_BUCKET_NAME` and `R2_FILES_BUCKET_NAME` in `.env`. The worker and agent worker bind the email bucket as `EML` via their templates automatically, and the worker binds the uploads bucket as `FILES`; both Pages bindings are added by hand in Step 7.
 
 ### Step 3 — Apply the schema
 
@@ -614,6 +638,7 @@ The first deploy creates the Pages project. Then in the dashboard:
 
 - **Pages → `area51` → Settings → Functions → D1 database bindings:** add a binding `DB` → `area51` for **both Production and Preview**. ⚠️ Without this, every `/api/*` call returns 500.
 - **Pages → `area51` → Settings → Functions → R2 bucket bindings:** add a binding `EML` → `area51-emails` for **both Production and Preview**. ⚠️ Without this, `/api/emails/<id>/raw` 500s — and since the email modal fetches it on open, **every email body fails to load**, not just Download Raw.
+- **Pages → `area51` → Settings → Functions → R2 bucket bindings:** also add `FILES` → `area51-files` for **both Production and Preview**. ⚠️ Without this, uploading a file to an endpoint returns 500 (`File storage is not configured on this deployment`) and deleting a file-backed endpoint refuses rather than orphaning its object.
 - **Pages → `area51` → Custom domains:** add the dashboard domain.
 
 Redeploy once after adding the D1 binding so the new env is picked up: `./scripts/deploy-pages.sh`.
@@ -722,7 +747,7 @@ Purging is intentionally **not** in the dashboard — there's no UI and no API e
 ./scripts/purge.sh
 ```
 
-Menu offers: 1) Autopilot Endpoints (wipes every `/-/*` row), 2) Requests (older than N days), 3) Emails (older than N days). The emails branch is the reason this script exists — it deletes the D1 rows **and** the matching `emails/<id>.eml` objects in R2 so they stay in lockstep.
+Menu offers: 1) Autopilot Endpoints (wipes every `/-/*` row **and** the `area51-files` objects belonging to any file-backed row among them), 2) Requests (older than N days), 3) Emails (older than N days). The R2 coupling is the reason this script exists — it deletes the D1 rows **and** the matching objects so the two stay in lockstep.
 
 **Option 2 — D1 console (Cloudflare web app).** For requests and autopilot endpoints, raw SQL is fine:
 
@@ -755,6 +780,7 @@ Run these after any non-trivial deploy.
 5. **Email with attachment** — Send an email with an attachment. Row shows the right `attachment_count`; opening it immediately renders the HTML body, headers, and the attachment — clicking the attachment downloads the file. The **full-screen toggle** promotes just the body to a full-canvas overlay (Esc or collapse to exit). **Download Raw** saves the `.eml`. (A plain-text-only email shows a "no HTML body" notice — use Download Raw for its contents.)
 6. **Email large** — Send a multi-MB email. Same outcome as #4/#5 — no threshold, it's stored in full. (Only a worker error would forward to fallback, leaving no D1 row and no R2 object.)
 7. **AREA 51 CRUD** — Create, edit, delete an endpoint via the modal; live behavior on the worker updates immediately.
+7b. **File endpoint** — Create an endpoint, attach a file (the Headers/Status/Body editors should disappear), save. `curl -i https://<black-hole>/<uri>` returns `200` with the file's bytes and its `Content-Type`, no `Content-Disposition`. The list row shows a filename pill; `wrangler tail area51-worker` shows `http_file_served`. Re-open, *Replace* with a different file, confirm the new bytes serve and the old object is gone (`wrangler r2 object get area51-files <old-key>` → not found). Delete the endpoint and confirm both the row and the object are gone.
 8. **Search** — Filter each tab; results match.
 9. **Pagination** — "Load more" appends without duplicates; eventually shows "— end of results —".
 10. **Purge** — Run `./scripts/purge.sh`; pick a target, confirm. For emails, verify a doomed `emails/<id>.eml` is gone from R2 too (not just D1).
@@ -771,6 +797,9 @@ Run these after any non-trivial deploy.
 | `/api/*` returns HTML instead of JSON | D1 binding missing | Cloudflare → Pages → area51 → Settings → Functions → D1 bindings. Add `DB` → `area51` for both Production and Preview. Redeploy. |
 | Black hole returns 404 for everything | Custom Domain not bound to Black Holes worker, OR endpoint table empty | Workers → `area51-worker` → Settings → Domains & Routes should show the black hole as a Custom Domain. Confirm `SELECT * FROM endpoints` returns rows. |
 | Endpoint exists but worker returns 404 | URI mismatch (case, trailing slash, query) | `endpoints.uri` matches `url.pathname` **exactly**. Re-check the path stored. |
+| Uploading a file to an endpoint returns 500 | `FILES` binding missing on Pages | Pages → area51 → Settings → Functions → R2 bindings: add `FILES` → `area51-files` for Production **and** Preview, then redeploy. |
+| File endpoint returns 404, `http_file_missing` in the tail | The row outlived its R2 object (someone deleted from the bucket directly) | Re-upload the file from the endpoint modal, or delete the endpoint. The modal also flags this as `object missing from storage`. |
+| File endpoint returns 404, `http_file_binding_missing` in the tail | `FILES` binding missing on the **worker** | `./scripts/deploy-worker.sh` after confirming `R2_FILES_BUCKET_NAME` is set in `.env`. |
 | Email isn't arriving in `emails` table | Email Routing not enabled or not pointed at worker | Cloudflare → the black hole zone → Email → Email Routing. Catch-all destination must be `area51-worker`. |
 | Email row exists but the modal body won't load | R2 object missing/unreadable, or `/api/emails/<id>/raw` failing (the modal fetches it on open now) | Confirm the `EML` R2 binding on Pages, and that `emails/<id>.eml` exists (`wrangler r2 object get area51-emails emails/<id>.eml`). Worker-side `email_parse_failed` only affects the stored `subject`/`attachment_count`; the body always comes from the browser parse of the raw `.eml`, so it renders regardless as long as R2 has the object. |
 | Request count keeps dropping | Someone ran `scripts/purge.sh` (or a D1-console `DELETE`) | No audit trail. Ask. |
@@ -784,6 +813,7 @@ Run these after any non-trivial deploy.
 
 ## 13. Known constraints & caveats
 
+- **Uploaded endpoint files are capped at 25 MB** and have no automatic retention — `endpoints` has no timestamp to age against, so an upload lives until its endpoint is deleted (or `scripts/purge.sh` wipes its `/-/*` row). A bucket lifecycle rule on `area51-files` is the lever if that ever becomes a problem.
 - **D1 row size limit: 2 MB.** No longer a concern for emails — the lean row holds only envelope metadata (no body at all), and the raw `.eml` (which can be large) lives in R2, not D1. Endpoint bodies aren't validated client-side — if someone tries to save a >2 MB endpoint body, the INSERT will fail and the dashboard will surface "Save failed".
 - **Email memory ceiling.** The worker buffers the whole raw `.eml` in memory to PUT it to R2 and parse it. Workers cap at 128 MB; SMTP messages are typically ≤25–50 MB, so this is comfortable, but a pathologically huge message would error and fall to the fallback path.
 - **D1 storage limit: 500 MB on Free tier.** Purge regularly. No automatic eviction.
@@ -814,10 +844,10 @@ All endpoints behind the same bearer-style header `X-A51-Secret: <secret>`:
 | `GET` | `/emails` | `{served_at, window_minutes: 60, rows: [{id, ts, from_addr, to_addr, subject}, …]}` — newest-first, all rows in the last 60 minutes. **Envelope metadata only — no body**; use `/emails/<id>/raw` (the `email_raw` tool) to read an email's contents. |
 | `GET` | `/emails/<id>/raw` | Raw `.eml` (`message/rfc822`) for one email. **Hard 60-minute gate:** serves only if `SELECT id FROM emails WHERE id=? AND ts>=now-60min` matches — otherwise 404. An old or unknown id can't be fetched even if the caller knows it. |
 | `GET` | `/domains` | `{served_at, endpoint_prefix: "/-/", domains: [{domain, roles}, …]}` — the configured black holes (from the same D1 `domains` table the dashboard reads), so an agent can build `https://<domain>/-/<path>`. |
-| `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/-/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. |
-| `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/-/` — server returns 400 otherwise. |
+| `GET` | `/autopilot/endpoints` | List endpoints whose URI starts with `/-/`. Returns `{rows: [{uri, status, headers, body}, …]}` — sorted ASC by uri. A **file-backed** row also carries `file: {filename, content_type}` and an empty `body`, so an agent can't mistake it for an endpoint that returns nothing. |
+| `POST` | `/autopilot/endpoints` | Upsert. Body: `{uri, status, headers, body}`. `uri` MUST start with `/-/` — server returns 400 otherwise. **400 as well if the URI is file-backed** — Autopilot has no `FILES` binding, so replacing it would strand the object and destroy a payload a human staged. |
 | `GET` | `/autopilot/endpoints/<uri>` | Read one. URI is URL-encoded in the path. Same `/-/` prefix rule. |
-| `DELETE` | `/autopilot/endpoints/<uri>` | Delete one. Same prefix rule. |
+| `DELETE` | `/autopilot/endpoints/<uri>` | Delete one. Same prefix rule, and the same 400 on file-backed URIs (deleting the row would orphan the R2 object). |
 | `POST` | `/mcp` | MCP JSON-RPC 2.0 server. Eight tools (see §14.4). |
 
 **No parameters on the read endpoints.** Window (60 min) and result schema are hardcoded server-side. Agents cannot widen the window, change the polling cadence, or get more rows. The CRUD endpoints under `/-/*` have no time restriction — the only guardrail there is the URI prefix.
@@ -1038,6 +1068,19 @@ We fixed this in the API client rather than at the edge:
 - **Cooldown, not a retry loop.** `area51:sessionReloadAt` in sessionStorage caps auto-reloads at one per 15 s, so a reloaded page that still can't reach the API shows its error instead of thrashing.
 
 Known trade-off: the reload discards unsaved modal state. If a session expires while an endpoint body is half-typed, that text is lost. Accepted for now — the alternative (stashing form drafts to localStorage before reloading) is more machinery than a rare, internal-tool edge case warrants. Raising the Access app session duration is the cheaper mitigation.
+
+### 15.12 File-backed endpoints: server-owned response, separate bucket
+
+Endpoints can serve an uploaded file instead of a typed body ([§6.1](#61-endpoints)). Four choices are worth recording.
+
+- **The server owns status, headers, and body for a file endpoint.** A file plus a hand-written body plus a 404 plus a JSON `Content-Type` has no coherent meaning — something has to lose. So an upload forces `200`, the detected `Content-Type`, and an empty body, and the dashboard *unmounts* those editors rather than disabling them: an endpoint is text-backed or file-backed, and the modal never shows controls that won't be used. The trade is real and worth knowing at creation time: a test needing a `302 Location` or an `Access-Control-Allow-Origin` must use a text endpoint. A merge model (user headers underneath, server's `Content-Type` on top) would fit the schema if that becomes a common need — it just isn't built.
+- **Served inline, never as an attachment.** `Content-Disposition: attachment` would break the actual use cases — a DTD, a `.js`, an HTML PoC all have to be *fetched and executed* by the target, not downloaded.
+- **A separate bucket, not a prefix in `area51-emails`.** The prefix would have cost nothing (every runtime already binds `EML`, including the manual Pages binding). We took the dedicated `area51-files` bucket anyway: it keeps uploads independently wipeable, leaves room for a bucket-level lifecycle rule — the only retention lever available, since `endpoints` has no `ts` to age against — and stops a bucket named `-emails` from quietly holding non-email blobs. The price is one more manual Pages binding, which is exactly the step most likely to be forgotten; hence its own row in [§12](#12-debugging-common-issues).
+- **Raw request body, not multipart.** `request.formData()` buffers the whole upload in a Function; sending the `File` as the body means `FILES.put(key, request.body)` streams it. That requires a known `Content-Length` (411 without one), which browsers always send for a `File`, so chunked uploads simply aren't supported.
+
+Orphan discipline mirrors the email pipeline ([§15.6](#156-all-or-nothing-email-capture-no-marker-rows)): object written **before** the row, with a compensating delete if the row write fails; the previous object deleted only **after** the row is repointed; and on endpoint delete, R2 first and D1 second, so a failure leaves a visible broken row rather than an invisible orphaned blob. Keys are random UUIDs so a replace never reuses a key mid-flight.
+
+---
 
 ---
 

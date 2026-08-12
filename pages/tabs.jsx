@@ -321,17 +321,38 @@ function EndpointRow({ row, active, matches, onOpen }) {
       >
         {copied ? <Icon.check/> : <Icon.link/>}
       </button>
-      <span className="mono cell-trunc" title={row.uri}>{row.uri}</span>
+      <span className="mono cell-trunc uri-cell" title={row.uri}>
+        {row.uri}
+        {row.filename != null && (
+          <span className="file-tag" title={`Serves an uploaded file: ${row.filename || "(unnamed)"}`}>
+            <Icon.paper/>
+            <span className="cell-trunc">{row.filename || "file"}</span>
+          </span>
+        )}
+      </span>
       <span><span className={`status-tag ${statusClass(row.status)}`}>{row.status}</span></span>
     </div>
   );
 }
+
+// Product cap on uploads, checked here so an oversize file never leaves the
+// browser. The Pages Function re-checks it against Content-Length.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   const toast = useToast();
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ uri: "", status: 200, headers: "Content-Type: text/plain", body: "" });
+  // An endpoint is EITHER text-backed or file-backed, never both — a hosted file
+  // can't be mixed with a hand-written body or a chosen status. `file` is a
+  // picked-but-not-yet-uploaded File; `savedFile` is what the row already serves
+  // ({filename, content_type, size, missing}). Either one puts the modal in file
+  // mode, where the status/headers/body editors are unmounted rather than
+  // disabled — a greyed-out field still invites a click.
+  const [file, setFile] = useState(null);
+  const [savedFile, setSavedFile] = useState(null);
+  const fileInput = useRef(null);
 
   useEffect(() => {
     if (mode !== "edit") return;
@@ -346,6 +367,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
         headers: headersObjToLines(parsedHeaders),
         body: d.body || "",
       });
+      setSavedFile(d.file || null);
       setLoading(false);
     }).catch((e) => {
       if (live) toast("Failed to load endpoint: " + e.message, "error");
@@ -355,17 +377,49 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  const fileMode = !!(file || savedFile);
+
+  const pickFile = (f) => {
+    if (!f) return;
+    if (f.size > MAX_UPLOAD_BYTES) {
+      toast(`File is too large — max ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB`, "error");
+      return;
+    }
+    if (f.size === 0) { toast("File is empty", "error"); return; }
+    setFile(f);
+  };
+
+  // Dropping the pending file returns the modal to the text editors. If the row
+  // already serves a file, this stages the conversion: saving then writes a text
+  // response and the server deletes the object.
+  const clearFile = () => {
+    setFile(null);
+    setSavedFile(null);
+    if (fileInput.current) fileInput.current.value = "";
+  };
+
   const save = async () => {
-    if (mode === "new" && !form.uri.trim()) { toast("URI is required", "error"); return; }
-    if (mode === "new" && !form.uri.startsWith("/")) { toast("URI must start with /", "error"); return; }
+    const targetUri = form.uri.trim();
+    if (mode === "new" && !targetUri) { toast("URI is required", "error"); return; }
+    if (mode === "new" && !targetUri.startsWith("/")) { toast("URI must start with /", "error"); return; }
     setSaving(true);
     try {
-      await API.saveEndpoint({
-        uri: form.uri.trim(),
-        status: Number(form.status) || 200,
-        headers: form.headers,
-        body: form.body,
-      });
+      if (file) {
+        // Upload replaces whatever the URI served before — text or an older file.
+        await API.uploadEndpointFile(targetUri, file);
+      } else if (savedFile) {
+        // Untouched file endpoint: nothing to write. Saving text here would
+        // silently delete the file the row is serving.
+        onClose();
+        return;
+      } else {
+        await API.saveEndpoint({
+          uri: targetUri,
+          status: Number(form.status) || 200,
+          headers: form.headers,
+          body: form.body,
+        });
+      }
       onSaved();
     } catch (e) {
       toast("Save failed: " + e.message, "error");
@@ -402,39 +456,59 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
               <div className="helper">Path the black hole will serve. Must start with /</div>
             </div>
 
-            <div className="field-row">
-              <div className="field" style={{marginBottom:0}}>
-                <label>Headers</label>
-                <textarea
-                  value={form.headers}
-                  onChange={(e) => update("headers", e.target.value)}
-                  spellCheck={false}
-                  placeholder="Content-Type: application/json"
-                />
-                <div className="helper">One header per line, <span style={{fontFamily:"var(--mono)"}}>Key: Value</span></div>
-              </div>
-              <div className="field" style={{marginBottom:0}}>
-                <label>Status</label>
-                <input
-                  type="number"
-                  value={form.status}
-                  onChange={(e) => update("status", e.target.value)}
-                  min="100" max="599"
-                />
-                <div className="helper">HTTP status, default 200</div>
-              </div>
-            </div>
-
-            <div className="field">
-              <label>Body</label>
-              <textarea
-                className="body"
-                value={form.body}
-                onChange={(e) => update("body", e.target.value)}
-                spellCheck={false}
-                placeholder="Response body (any text or encoded binary)"
+            {fileMode ? (
+              <FileEndpointField
+                file={file}
+                savedFile={savedFile}
+                onClear={clearFile}
+                onReplace={() => fileInput.current && fileInput.current.click()}
               />
-            </div>
+            ) : (
+              <>
+                <div className="field-row">
+                  <div className="field" style={{marginBottom:0}}>
+                    <label>Headers</label>
+                    <textarea
+                      value={form.headers}
+                      onChange={(e) => update("headers", e.target.value)}
+                      spellCheck={false}
+                      placeholder="Content-Type: application/json"
+                    />
+                    <div className="helper">One header per line, <span style={{fontFamily:"var(--mono)"}}>Key: Value</span></div>
+                  </div>
+                  <div className="field" style={{marginBottom:0}}>
+                    <label>Status</label>
+                    <input
+                      type="number"
+                      value={form.status}
+                      onChange={(e) => update("status", e.target.value)}
+                      min="100" max="599"
+                    />
+                    <div className="helper">HTTP status, default 200</div>
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Body</label>
+                  <textarea
+                    className="body"
+                    value={form.body}
+                    onChange={(e) => update("body", e.target.value)}
+                    spellCheck={false}
+                    placeholder="Response body (any text or encoded binary)"
+                  />
+                </div>
+
+                <FileDropZone onPick={pickFile} onBrowse={() => fileInput.current && fileInput.current.click()}/>
+              </>
+            )}
+
+            <input
+              ref={fileInput}
+              type="file"
+              style={{display:"none"}}
+              onChange={(e) => { pickFile(e.target.files && e.target.files[0]); }}
+            />
           </>
         )}
       </div>
@@ -447,10 +521,80 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
         <div className="spacer"/>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
         <button className="btn primary" onClick={save} disabled={saving || loading}>
-          {saving ? <><span className="spinner"/> saving</> : (mode === "new" ? "Create" : "Save changes")}
+          {saving
+            ? <><span className="spinner"/> {file ? "uploading" : "saving"}</>
+            : (mode === "new" ? "Create" : "Save changes")}
         </button>
       </div>
     </Modal>
+  );
+}
+
+// Drop target shown only in TEXT mode — attaching a file switches the modal to
+// file mode, where the status/headers/body editors are gone. Kept below the body
+// so the common case (typing a response) is unchanged.
+function FileDropZone({ onPick, onBrowse }) {
+  const [over, setOver] = useState(false);
+  return (
+    <div
+      className={`file-drop${over ? " over" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setOver(false);
+        onPick(e.dataTransfer.files && e.dataTransfer.files[0]);
+      }}
+      onClick={onBrowse}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse(); } }}
+    >
+      <span className="ico"><Icon.paper/></span>
+      <span className="file-drop-text">
+        <b>Serve a file instead</b>
+        <span className="helper">Drop a file here or click to browse. Status, headers and body are then set by the server.</span>
+      </span>
+    </div>
+  );
+}
+
+// File mode. Shows what the endpoint serves (pending upload or the stored
+// object) and the two escapes: replace the file, or drop back to a text
+// response. No status/headers/body — the server owns all three for file
+// endpoints, so there is nothing here to edit.
+function FileEndpointField({ file, savedFile, onClear, onReplace }) {
+  const pending = !!file;
+  const name = pending ? file.name : (savedFile.filename || "(unnamed)");
+  const type = pending ? (file.type || "application/octet-stream") : (savedFile.content_type || "unknown");
+  const size = pending ? file.size : savedFile.size;
+  const missing = !pending && savedFile.missing;
+
+  return (
+    <div className="field">
+      <label>File</label>
+      <div className={`file-chip${missing ? " missing" : ""}`}>
+        <span className="ico"><Icon.paper/></span>
+        <span className="file-meta">
+          <span className="name" title={name}>{name}</span>
+          <span className="sub">
+            <span className="mono">{type}</span>
+            <span className="sep">·</span>
+            <span className="mono">{fmtBytes(size)}</span>
+            {pending && <><span className="sep">·</span><span className="pending">not uploaded yet</span></>}
+            {missing && <><span className="sep">·</span><span className="pending">object missing from storage</span></>}
+          </span>
+        </span>
+        <span className="file-actions">
+          <button className="btn ghost" onClick={onReplace}>Replace</button>
+          <button className="btn ghost" onClick={onClear} title="Serve a text response instead">Remove</button>
+        </span>
+      </div>
+      <div className="helper">
+        Served as <span style={{fontFamily:"var(--mono)"}}>200</span> with this content type, inline — no status, headers or body to set.
+        {!pending && !missing && " Removing the file and saving converts this back to a text endpoint and deletes the upload."}
+      </div>
+    </div>
   );
 }
 

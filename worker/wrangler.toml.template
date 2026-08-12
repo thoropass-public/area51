@@ -36,5 +36,12 @@ database_id = "${D1_DATABASE_ID}"
 binding = "EML"
 bucket_name = "${R2_BUCKET_NAME}"
 
+# Endpoint file uploads. Read-only from this worker: when an endpoints row has a
+# r2_key, the fetch handler streams that object back instead of the `body`
+# column. Writes happen only through the dashboard's Pages Function.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "${R2_FILES_BUCKET_NAME}"
+
 [vars]
 FALLBACK_ADDRESS = "${FALLBACK_ADDRESS}"

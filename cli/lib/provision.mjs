@@ -1,0 +1,439 @@
+// The provisioning primitives, shared by `setup`, `deploy`, `domains` and
+// `access`. Every function here is idempotent: it inspects the current state
+// first and reports `created: false` when there is nothing to do, so running
+// setup twice is boring rather than destructive.
+//
+// Functions take an explicit `followUps` array. When a step fails in a way a
+// human can finish in the Cloudflare dashboard, it pushes an entry there and
+// returns instead of throwing — the run continues, and setup prints the list
+// of manual follow-ups at the end (and exits non-zero).
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { repoRoot } from './env.mjs';
+import { ok, skip, warn, info, color } from './log.mjs';
+import { isAlreadyExists, isAuthError } from './cloudflare.mjs';
+import { splitSqlStatements, describeStatement } from './sql.mjs';
+import { degraded, zoneForHostname } from './context.mjs';
+
+/** Pages Functions run on this compatibility date. Bumping it is a deploy-time change. */
+export const PAGES_COMPATIBILITY_DATE = '2024-10-11';
+
+export const SCHEMA_PATH = join(repoRoot, 'db', 'schema.sql');
+
+// ─── storage ────────────────────────────────────────────────────────────────
+
+/** Create the D1 database if absent. Returns { id, created }. */
+export async function ensureDatabase(cf, accountId, name, knownId) {
+  if (knownId) {
+    try {
+      const db = await cf.get(`/accounts/${accountId}/d1/database/${knownId}`);
+      skip(`D1 database ${color.bold(db.name)} already exists (${knownId})`);
+      return { id: knownId, created: false, name: db.name };
+    } catch {
+      warn(`D1_DATABASE_ID in .env (${knownId}) no longer resolves — looking the database up by name`);
+    }
+  }
+  const { created, database } = await cf.ensureD1Database(accountId, name);
+  if (created) ok(`created D1 database ${color.bold(name)} (${database.uuid || database.id})`);
+  else skip(`D1 database ${color.bold(name)} already exists`);
+  return { id: database.uuid || database.id, created, name };
+}
+
+/**
+ * Apply db/schema.sql statement by statement over the D1 HTTP API. The schema
+ * is written with `CREATE TABLE IF NOT EXISTS`, so this is safe to re-run and
+ * never drops data.
+ */
+export async function applySchema(cf, accountId, databaseId) {
+  const statements = splitSqlStatements(readFileSync(SCHEMA_PATH, 'utf8'));
+  let applied = 0;
+  for (const statement of statements) {
+    try {
+      await cf.d1Query(accountId, databaseId, statement);
+      applied += 1;
+    } catch (err) {
+      throw new Error(`failed applying schema statement "${describeStatement(statement)}": ${err.message}`);
+    }
+  }
+  ok(`applied ${applied} schema statement${applied === 1 ? '' : 's'} from db/schema.sql`);
+  const tables = await cf.d1Rows(
+    accountId,
+    databaseId,
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_cf%' ESCAPE '\\' ORDER BY name",
+  );
+  info(color.dim(`tables: ${tables.map((t) => t.name).join(', ')}`));
+  return tables.map((t) => t.name);
+}
+
+/** Create both R2 buckets if absent. */
+export async function ensureBuckets(cf, accountId, { emails, files }, followUps) {
+  for (const name of [emails, files]) {
+    try {
+      const { created } = await cf.ensureR2Bucket(accountId, name);
+      if (created) ok(`created R2 bucket ${color.bold(name)}`);
+      else skip(`R2 bucket ${color.bold(name)} already exists`);
+    } catch (err) {
+      degraded(
+        followUps,
+        `could not create R2 bucket ${name}: ${err.message}`,
+        isAuthError(err)
+          ? 'The token needs Account · Workers R2 Storage:Edit. R2 must also be enabled on the account\n(dashboard → R2 → Get started) before any bucket can be created.'
+          : `Create it by hand: dashboard → R2 → Create bucket → name it "${name}".`,
+      );
+    }
+  }
+}
+
+// ─── black holes ────────────────────────────────────────────────────────────
+
+/**
+ * Make `hostname` a working black hole: bound to the Black Holes worker for
+ * HTTP, catch-all Email Routing for mail, and a row in the `domains` table so
+ * the dashboard and Autopilot both know about it.
+ */
+export async function ensureBlackHole(cf, accountId, opts) {
+  const { hostname, roles, workerName, databaseId, followUps } = opts;
+
+  const zone = await zoneForHostname(cf, accountId, hostname);
+  if (!zone) {
+    degraded(
+      followUps,
+      `no Cloudflare zone found for ${hostname}`,
+      'Add the domain to this Cloudflare account first (dashboard → Add a site), then re-run.\nIf the zone exists, the API token is missing Zone:Read for it.',
+    );
+    return false;
+  }
+
+  if (roles.includes('http')) {
+    try {
+      await cf.attachWorkerDomain(accountId, { hostname, service: workerName, zoneId: zone.id });
+      ok(`${color.bold(hostname)} → Custom Domain on ${workerName}`);
+    } catch (err) {
+      degraded(
+        followUps,
+        `could not bind ${hostname} to ${workerName}: ${err.message}`,
+        `Bind it by hand: dashboard → Workers & Pages → ${workerName} → Settings → Domains & Routes\n→ Add → Custom Domain → ${hostname}.\nThe token needs Zone · Workers Routes:Edit on ${zone.name}.`,
+      );
+    }
+  }
+
+  if (roles.includes('mail')) {
+    await ensureEmailRouting(cf, zone, workerName, followUps);
+  }
+
+  if (databaseId) {
+    await upsertDomainRow(cf, accountId, databaseId, hostname, roles, followUps);
+  }
+  return true;
+}
+
+/** Enable Email Routing on the zone and point its catch-all at the worker. */
+export async function ensureEmailRouting(cf, zone, workerName, followUps) {
+  let enabled = false;
+  try {
+    const settings = await cf.getEmailRouting(zone.id);
+    enabled = Boolean(settings && settings.enabled);
+  } catch {
+    // A zone that has never used Email Routing can 404 here — treat as disabled.
+  }
+
+  if (!enabled) {
+    try {
+      await cf.enableEmailRouting(zone.id);
+      ok(`enabled Email Routing on ${color.bold(zone.name)} (MX + SPF records added)`);
+    } catch (err) {
+      if (isAlreadyExists(err)) {
+        skip(`Email Routing already enabled on ${zone.name}`);
+      } else {
+        degraded(
+          followUps,
+          `could not enable Email Routing on ${zone.name}: ${err.message}`,
+          `Enable it by hand: dashboard → ${zone.name} → Email → Email Routing → Get started.\nThe token needs Zone · Email Routing Rules:Edit on ${zone.name}.`,
+        );
+        return;
+      }
+    }
+  } else {
+    skip(`Email Routing already enabled on ${zone.name}`);
+  }
+
+  try {
+    await cf.setCatchAllToWorker(zone.id, workerName);
+    ok(`catch-all for *@${color.bold(zone.name)} → ${workerName}`);
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not point the ${zone.name} catch-all at ${workerName}: ${err.message}`,
+      `Set it by hand: dashboard → ${zone.name} → Email → Email Routing → Routing rules\n→ Catch-all address → Edit → Action "Send to a Worker" → ${workerName} → Save.`,
+    );
+  }
+}
+
+/** Register the fallback inbox as an Email Routing destination address. */
+export async function ensureDestinationAddress(cf, accountId, address, followUps) {
+  if (!address) {
+    warn('FALLBACK_ADDRESS is empty — a failed email capture will have nowhere to forward to');
+    return;
+  }
+  try {
+    const list = (await cf.listDestinationAddresses(accountId)) || [];
+    const existing = list.find((d) => (d.email || '').toLowerCase() === address.toLowerCase());
+    if (existing && existing.verified) {
+      skip(`fallback inbox ${color.bold(address)} is already a verified destination`);
+      return;
+    }
+    if (existing) {
+      warn(`fallback inbox ${color.bold(address)} is registered but NOT verified — click the link Cloudflare emailed you`);
+      return;
+    }
+    await cf.createDestinationAddress(accountId, address);
+    warn(`registered ${color.bold(address)} as a destination — check that inbox and click Cloudflare's verification link`);
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not register the fallback inbox ${address}: ${err.message}`,
+      'Add it by hand: dashboard → Email → Email Routing → Destination addresses → Add.\nUntil it is verified, forwarding on a failed capture will silently fail.',
+    );
+  }
+}
+
+/** Insert or update one row in the `domains` table. */
+export async function upsertDomainRow(cf, accountId, databaseId, hostname, roles, followUps = []) {
+  try {
+    await cf.d1Query(
+      accountId,
+      databaseId,
+      'INSERT INTO domains (domain, roles) VALUES (?, ?) ON CONFLICT(domain) DO UPDATE SET roles = excluded.roles',
+      [hostname, JSON.stringify(roles)],
+    );
+    ok(`domains table: ${color.bold(hostname)} = ${JSON.stringify(roles)}`);
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not write ${hostname} to the domains table: ${err.message}`,
+      `Run it by hand:\n  ./a51 domains add ${hostname} ${roles.join(',')}`,
+    );
+  }
+}
+
+// ─── Pages (the dashboard) ──────────────────────────────────────────────────
+
+/** The binding set the dashboard's Pages Functions need. */
+export function pagesBindings(env) {
+  return {
+    compatibility_date: PAGES_COMPATIBILITY_DATE,
+    d1_databases: { DB: { id: env.D1_DATABASE_ID } },
+    r2_buckets: {
+      EML: { name: env.R2_BUCKET_NAME },
+      FILES: { name: env.R2_FILES_BUCKET_NAME },
+    },
+  };
+}
+
+/**
+ * Create the Pages project with its D1 + R2 bindings already in place, or patch
+ * the bindings of an existing project. Doing this before the first upload is
+ * what removes the classic "every /api/* call 500s until you add the binding in
+ * the dashboard and redeploy" step.
+ */
+export async function ensurePagesProject(cf, accountId, env, followUps) {
+  const name = env.PAGES_PROJECT_NAME;
+  const bindings = pagesBindings(env);
+  const existing = await cf.getPagesProject(accountId, name);
+
+  if (!existing) {
+    try {
+      const project = await cf.createPagesProject(accountId, {
+        name,
+        production_branch: 'main',
+        deployment_configs: { production: bindings, preview: bindings },
+      });
+      ok(`created Pages project ${color.bold(name)} with DB / EML / FILES bindings`);
+      return project;
+    } catch (err) {
+      degraded(
+        followUps,
+        `could not create the Pages project ${name}: ${err.message}`,
+        'Create it by hand (dashboard → Workers & Pages → Create → Pages → Direct upload),\nthen add the D1 binding DB and the R2 bindings EML + FILES for Production AND Preview.',
+      );
+      return null;
+    }
+  }
+
+  try {
+    await cf.patchPagesProject(accountId, name, {
+      deployment_configs: { production: bindings, preview: bindings },
+    });
+    ok(`Pages project ${color.bold(name)}: bindings confirmed (DB, EML, FILES)`);
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not update bindings on the Pages project ${name}: ${err.message}`,
+      `Set them by hand: dashboard → Pages → ${name} → Settings → Bindings.\nD1: DB → ${env.D1_DATABASE_NAME}. R2: EML → ${env.R2_BUCKET_NAME}, FILES → ${env.R2_FILES_BUCKET_NAME}.\nAdd them to BOTH Production and Preview, then redeploy.`,
+    );
+  }
+  return existing;
+}
+
+/** Attach the dashboard hostname to the Pages project, DNS record included. */
+export async function ensurePagesDomain(cf, accountId, env, hostname, project, followUps) {
+  const name = env.PAGES_PROJECT_NAME;
+  const target = (project && project.subdomain) || `${name}.pages.dev`;
+
+  const zone = await zoneForHostname(cf, accountId, hostname);
+  if (!zone) {
+    degraded(followUps, `no Cloudflare zone found for the dashboard host ${hostname}`, 'Add the domain to this account, then re-run `./a51 setup`.');
+    return;
+  }
+
+  try {
+    const domains = (await cf.listPagesDomains(accountId, name)) || [];
+    if (domains.some((d) => d.name === hostname)) {
+      skip(`${color.bold(hostname)} is already a custom domain on ${name}`);
+    } else {
+      await cf.addPagesDomain(accountId, name, hostname);
+      ok(`${color.bold(hostname)} → Pages project ${name}`);
+    }
+  } catch (err) {
+    if (isAlreadyExists(err)) skip(`${hostname} is already a custom domain on ${name}`);
+    else {
+      degraded(
+        followUps,
+        `could not attach ${hostname} to the Pages project: ${err.message}`,
+        `Attach it by hand: dashboard → Pages → ${name} → Custom domains → Set up a custom domain.`,
+      );
+    }
+  }
+
+  // Pages custom domains resolve through a proxied CNAME to <project>.pages.dev.
+  try {
+    const record = await cf.findDnsRecord(zone.id, hostname);
+    if (!record) {
+      await cf.createDnsRecord(zone.id, {
+        type: 'CNAME',
+        name: hostname,
+        content: target,
+        proxied: true,
+        comment: 'AREA 51 dashboard (Cloudflare Pages)',
+      });
+      ok(`DNS: ${color.bold(hostname)} CNAME → ${target} (proxied)`);
+    } else if (record.type === 'CNAME' && record.content === target) {
+      skip(`DNS record for ${hostname} already points at ${target}`);
+    } else {
+      warn(`DNS record for ${hostname} is a ${record.type} → ${record.content}; leaving it alone. Point it at ${target} if the dashboard doesn't resolve.`);
+    }
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not create the DNS record for ${hostname}: ${err.message}`,
+      `Create it by hand: dashboard → ${zone.name} → DNS → Add record →\nCNAME  ${hostname}  →  ${target}  (Proxied).`,
+    );
+  }
+}
+
+// ─── Cloudflare Access ──────────────────────────────────────────────────────
+
+/** Turn an allow-list entry into an Access include rule. */
+function accessRule(entry) {
+  return entry.includes('@')
+    ? { email: { email: entry.toLowerCase() } }
+    : { email_domain: { domain: entry.toLowerCase().replace(/^@/, '') } };
+}
+
+/**
+ * Put an Access application in front of the dashboard hostname, allowing only
+ * the given identities, authenticating with One-time PIN (an emailed code — no
+ * identity provider to configure).
+ */
+export async function ensureAccess(cf, accountId, opts) {
+  const { hostname, allowed, sessionDuration, teamName, followUps } = opts;
+
+  if (!allowed.length) {
+    warn('ALLOWED_EMAILS is empty — skipping Cloudflare Access. The dashboard will be readable by anyone who finds it.');
+    return;
+  }
+
+  // 1. Zero Trust organization. One per account; it owns the login subdomain.
+  let org = null;
+  try {
+    org = await cf.getAccessOrganization(accountId);
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not read the Zero Trust organization: ${err.message}`,
+      'The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit.',
+    );
+    return;
+  }
+
+  if (!org) {
+    const authDomain = `${teamName}.cloudflareaccess.com`;
+    try {
+      org = await cf.createAccessOrganization(accountId, { name: teamName, authDomain });
+      ok(`created Zero Trust organization ${color.bold(authDomain)}`);
+    } catch (err) {
+      degraded(
+        followUps,
+        `could not create a Zero Trust organization (${authDomain}): ${err.message}`,
+        'Team names are globally unique — set ACCESS_TEAM_NAME in .env to something else and re-run\n`./a51 access`, or create the team by hand at dashboard → Zero Trust.',
+      );
+      return;
+    }
+  } else {
+    skip(`Zero Trust organization ${color.bold(org.auth_domain)} already exists`);
+  }
+
+  // 2. One-time PIN login method.
+  let otpId = null;
+  try {
+    const idps = (await cf.listAccessIdentityProviders(accountId)) || [];
+    const otp = idps.find((i) => i.type === 'onetimepin');
+    if (otp) {
+      otpId = otp.id;
+      skip('One-time PIN login is already enabled');
+    } else {
+      const created = await cf.createOneTimePinProvider(accountId);
+      otpId = created && created.id;
+      ok('enabled One-time PIN login (Access emails a code — no IdP to configure)');
+    }
+  } catch (err) {
+    warn(`could not confirm the One-time PIN login method: ${err.message}`);
+  }
+
+  // 3. The application itself, with its allow policy attached inline.
+  const body = {
+    name: 'AREA 51 dashboard',
+    type: 'self_hosted',
+    domain: hostname,
+    session_duration: sessionDuration,
+    app_launcher_visible: false,
+    ...(otpId ? { allowed_idps: [otpId], auto_redirect_to_identity: true } : {}),
+    policies: [
+      {
+        name: 'AREA 51 operators',
+        decision: 'allow',
+        include: allowed.map(accessRule),
+      },
+    ],
+  };
+
+  try {
+    const apps = (await cf.listAccessApps(accountId)) || [];
+    const existing = apps.find((a) => (a.domain || '').replace(/\/$/, '') === hostname);
+    if (existing) {
+      await cf.updateAccessApp(accountId, existing.id, body);
+      ok(`updated the Access application on ${color.bold(hostname)} (${allowed.length} identity rule${allowed.length === 1 ? '' : 's'})`);
+    } else {
+      await cf.createAccessApp(accountId, body);
+      ok(`Access application protects ${color.bold(hostname)} (${allowed.length} identity rule${allowed.length === 1 ? '' : 's'})`);
+    }
+    info(color.dim(`allowed: ${allowed.join(', ')}`));
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not configure Cloudflare Access on ${hostname}: ${err.message}`,
+      `Configure it by hand: dashboard → Zero Trust → Access → Applications → Add an application\n→ Self-hosted → domain ${hostname} → policy Allow / Emails: ${allowed.join(', ')}.\nThe token needs Account · Access: Apps and Policies:Edit.`,
+    );
+  }
+}

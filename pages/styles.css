@@ -854,13 +854,13 @@ button.row-icon.copy-link.copied { color: var(--green); }
 }
 .file-tag svg { flex: none; }
 
-/* Drop target, text mode only. */
+/* Drop target, text mode only. Sits inside a .field under a FILE label, so it
+   takes no margin of its own — the label's 7px is the gap. */
 .file-drop {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  margin-top: 4px;
   border: 1px dashed var(--n3);
   border-radius: var(--radius);
   color: var(--n4);
@@ -1505,7 +1505,7 @@ button.row-icon.copy-link.copied { color: var(--green); }
 .modal-foot .spacer { flex: 1; }
 
 .field {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 .field:last-child { margin-bottom: 0; }
 
@@ -1545,17 +1545,25 @@ button.row-icon.copy-link.copied { color: var(--green); }
   word-break: break-all;
 }
 
+/* A row of side-by-side fields is itself a field as far as vertical rhythm is
+   concerned: it carries the same bottom margin, and its children drop theirs so
+   the two columns stay aligned. Without the margin here, a helper line under one
+   of the columns ran straight into the next field's label. */
 .field-row {
   display: grid;
   grid-template-columns: 1fr 140px;
   gap: 14px;
+  margin-bottom: 22px;
 }
+.field-row:last-child { margin-bottom: 0; }
+.field-row > .field { margin-bottom: 0; }
 
 .helper {
   font-family: var(--mono);
   font-size: 11.5px;
+  line-height: 1.5;
   color: var(--n4);
-  margin-top: 6px;
+  margin-top: 7px;
 }
 
 /* Detail panels in read-only modals */

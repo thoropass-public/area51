@@ -887,7 +887,11 @@ The Model Context Protocol is Anthropic's spec for letting LLMs talk to external
 | `autopilot_endpoints_upsert` | `POST /autopilot/endpoints` | `{uri, status, headers?, body?}` |
 | `autopilot_endpoints_delete` | `DELETE /autopilot/endpoints/<uri>` | `{uri}` |
 
-Each tool has an agent-friendly description in the tool schema explaining *when* to use it. The `initialize` response also returns an `instructions` field giving the agent a brief preamble: what the Black Holes are, what the tools do, and the `/-/` prefix rule.
+Each tool has an agent-friendly description in the tool schema explaining *when* to use it. The `initialize` response also returns an `instructions` field giving the agent a brief preamble: what the Black Holes are, what the tools do, the `/-/` prefix rule, and how **file-backed endpoints** behave.
+
+That last part is worth stating explicitly, because the failure mode is silent. A file-backed row returns an **empty `body` plus a `file` descriptor**, and an agent that only knows the text shape would read that as "this endpoint returns nothing" and go build a replacement — clobbering a payload a human uploaded. So the preamble and the four `autopilot_endpoints_*` descriptions all say the same three things: an empty `body` next to a `file` object means the bytes are in object storage; the URL still works normally (`https://<domain>/-/<path>` → 200 with the file's own `Content-Type`, inline), so it can be handed to a target like any other stub; and creating, replacing, or deleting one is refused, because uploads happen in the dashboard and Autopilot has no `FILES` binding to clean up after itself. An agent that needs a file hosted is told to ask the operator for a path — and reminded that anything expressible as text (HTML, JSON, XML, JS, a DTD) doesn't need an upload at all, just `autopilot_endpoints_upsert` with the right `Content-Type`.
+
+`serverInfo.version` is bumped to `1.3.0` for this change. MCP clients read `instructions` and tool descriptions at connect time, so a pentester whose Claude Code session was already open needs to reconnect the server (or restart the session) to see the new guidance.
 
 To register Autopilot in Claude Code on a pentester's machine:
 

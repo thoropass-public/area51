@@ -668,7 +668,12 @@ function groupEmails(rows) {
       // matchText spans from + subject + every loaded member's recipient, so pin
       // ribbons light for recipient-matching pins too — not just from/subject.
       const toAll = members.map((m) => m.to_addr || "").join(" ");
-      return { type: "group", key, from_addr: head.from_addr, subject: head.subject, ts: head.ts, read: members.every((m) => m.read) ? 1 : 0, matchText: `${head.from_addr || ""} ${head.subject || ""} ${toAll}` };
+      // The To cell shows the LATEST member's recipient (head is newest — input
+      // is ts-DESC) with an "| and more" suffix, rather than a count: a group is
+      // always ≥2 messages, so the suffix is true by construction and claims
+      // nothing about rows that aren't loaded (an exact total would need a
+      // per-group COUNT(*) — see README §15.1).
+      return { type: "group", key, from_addr: head.from_addr, subject: head.subject, ts: head.ts, to_addr: head.to_addr, read: members.every((m) => m.read) ? 1 : 0, matchText: `${head.from_addr || ""} ${head.subject || ""} ${toAll}` };
     }
     return { type: "single", key: members[0].id, row: members[0] };
   });
@@ -934,10 +939,15 @@ function EmailsTab() {
   );
 }
 
-// A grouped row (identical From/To/Subject). Non-interactive except the click,
+// A grouped row (identical From/Subject). Non-interactive except the click,
 // which drills into the group's own view. No star / read-unread here — those
 // live on the individual messages inside.
+//
+// Two cues separate it from a singleton: the leftmost stack icon (vs the
+// envelope) and a To cell reading "<latest recipient> | and more" instead of a
+// single address.
 function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
+  const latestTo = decodeMimeWord(item.to_addr) || "(no recipient)";
   return (
     <div
       className={`row email-grid email-group-row ${item.read ? "read" : "unread"}${matches.length ? " has-ribbon" : ""}`}
@@ -945,7 +955,7 @@ function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
-      title="Grouped — click to view every message with this From, To & Subject"
+      title="Grouped — click to view every message with this From & Subject"
     >
       <PinRibbon matches={matches}/>
       <button
@@ -959,9 +969,12 @@ function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
       </button>
       <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(item.ts)}</span>
       <span className="mono cell-trunc from" title={decodeMimeWord(item.from_addr)}>{decodeMimeWord(item.from_addr)}</span>
-      <span className="cell-trunc" style={{color:"var(--n4)", fontStyle:"italic"}}>(grouped)</span>
+      <span className="group-to" title={`${latestTo} — and more in this group`}>
+        <span className="mono group-to-addr">{latestTo}</span>
+        <span className="group-to-more">| and more</span>
+      </span>
       <span className="cell-trunc subject" title={decodeMimeWord(item.subject)}>{decodeMimeWord(item.subject)}</span>
-      <span className="group-chevron" aria-hidden="true"><Icon.chevron/></span>
+      <span aria-hidden="true"/>
     </div>
   );
 }

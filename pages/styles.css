@@ -50,10 +50,13 @@
   --row-active: rgba(94, 129, 172, 0.18);
 
   /* Email read/unread surfaces — semantic so "prominent" resolves per theme.
-     Dark: unread is a lighter surface (pops), read sits on the dark page. */
+     Dark: unread is a lighter surface (pops), read sits on the dark page.
+     The "page" state is spelled var(--n0) rather than `transparent` — identical
+     pixels, but every row surface stays opaque, so anything layered inside a row
+     can paint against a known colour. */
   --email-unread-bg: var(--n1);
   --email-unread-bg-hover: var(--n2);
-  --email-read-bg: transparent;
+  --email-read-bg: var(--n0);
   --email-read-bg-hover: var(--n1);
 
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -111,8 +114,9 @@
   --row-active: rgba(62, 128, 149, 0.12);
 
   /* Light: unread is the bright page (pops), read gets a gray tint (recedes) —
-     the reverse of dark, since you can't go brighter than the white page. */
-  --email-unread-bg: transparent;
+     the reverse of dark, since you can't go brighter than the cream page.
+     var(--n0) rather than `transparent` for the same reason as the dark block. */
+  --email-unread-bg: var(--n0);
   --email-unread-bg-hover: var(--n1);
   --email-read-bg: var(--n1);
   --email-read-bg-hover: var(--n2);
@@ -678,16 +682,30 @@ select {
 /* ----- Email grouping (identical From/To/Subject) ----- */
 
 /* Grouped row: read/unread treatment is IDENTICAL to a singleton (see the
-   .email-grid.unread / .read rules — background pop/recede + text weight). The
-   ONLY differences are the leftmost icon (stack vs envelope) and the trailing
-   chevron. Click drills in. */
-.row.email-group-row .group-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+   .email-grid.unread / .read rules — background pop/recede + text weight). It's
+   marked by its leftmost stack icon (vs the envelope) and by the To cell below.
+   Click drills in. */
+
+/* Group To cell: the latest member's recipient + a fixed "| and more" suffix.
+   Flex (not .cell-trunc) so the address absorbs the truncation and the suffix
+   never gets ellipsed away — the suffix is the part that carries the meaning. */
+.group-to {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   color: var(--n4);
 }
-.row.email-group-row:hover .group-chevron { color: var(--s1); }
+.group-to-addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-to-more {
+  flex: none;
+  white-space: nowrap;
+}
 
 /* Starred filter toggle in the Emails toolbar. */
 .star-filter-btn.active { color: var(--yellow); border-color: var(--yellow-edge); }

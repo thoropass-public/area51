@@ -1,8 +1,15 @@
+-- Endpoints are either TEXT-backed (status/headers/body authored in the
+-- dashboard) or FILE-backed (an upload streamed to the area51-files R2 bucket).
+-- `r2_key IS NULL` is the discriminator. For a file-backed row the response is
+-- owned by the server: status is 200, headers hold the detected Content-Type,
+-- body is '' — a file can't be mixed with a hand-written body or status.
 CREATE TABLE IF NOT EXISTS endpoints (
   uri TEXT PRIMARY KEY,
   status INTEGER NOT NULL DEFAULT 200,
   headers TEXT,
-  body TEXT
+  body TEXT,
+  r2_key TEXT,             -- R2 object key (random UUID) in area51-files; NULL = text endpoint
+  filename TEXT            -- original upload filename, display only
 );
 
 CREATE TABLE IF NOT EXISTS requests (

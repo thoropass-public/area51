@@ -1,11 +1,13 @@
-import { PAGE_SIZE, json, errResp, withErrorHandler, parseHeaderLines } from '../_shared.js';
+import { PAGE_SIZE, json, errResp, withErrorHandler, parseHeaderLines, deleteEndpointFile } from '../_shared.js';
 
 async function listEndpoints({ request, env }) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get('cursor');
   const searchTerms = url.searchParams.getAll('search').filter(Boolean);
 
-  let query = 'SELECT uri, status FROM endpoints';
+  // filename rides along so the list can mark file-backed rows without a second
+  // query — same row read, two more columns.
+  let query = 'SELECT uri, status, r2_key, filename FROM endpoints';
   const conditions = [];
   const params = [];
 
@@ -22,9 +24,21 @@ async function listEndpoints({ request, env }) {
   query += ` ORDER BY uri ASC LIMIT ${PAGE_SIZE}`;
 
   const { results } = await env.DB.prepare(query).bind(...params).all();
-  return json(results || []);
+  // A non-null `filename` in the response means "file-backed"; r2_key itself is
+  // an internal handle and never leaves the server.
+  const rows = (results || []).map((r) => ({
+    uri: r.uri,
+    status: r.status,
+    filename: r.r2_key ? (r.filename || '') : null,
+  }));
+  return json(rows);
 }
 
+// Text upsert. If the URI is currently file-backed, saving a text response
+// CONVERTS it back: r2_key/filename are cleared and the uploaded object is
+// deleted. Silent rather than a 400 — the dashboard only reaches this path from
+// an explicit "remove file" / text edit, so refusing would just mean a delete
+// followed by a re-create.
 async function upsertEndpoint({ request, env }) {
   let payload;
   try { payload = await request.json(); } catch { return errResp('Invalid JSON', 400); }
@@ -41,16 +55,26 @@ async function upsertEndpoint({ request, env }) {
   const headersJson = JSON.stringify(headersObj);
   const bodyText = typeof body === 'string' ? body : '';
 
+  const existing = await env.DB.prepare('SELECT r2_key FROM endpoints WHERE uri = ?').bind(uri).first();
+  const previousKey = existing && existing.r2_key;
+
   await env.DB.prepare(
-    `INSERT INTO endpoints (uri, status, headers, body)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO endpoints (uri, status, headers, body, r2_key, filename)
+     VALUES (?, ?, ?, ?, NULL, NULL)
      ON CONFLICT(uri) DO UPDATE SET
        status = excluded.status,
        headers = excluded.headers,
-       body = excluded.body`
+       body = excluded.body,
+       r2_key = NULL,
+       filename = NULL`
   ).bind(uri, status, headersJson, bodyText).run();
 
-  return json({ ok: true });
+  // Row no longer references the object, so drop it. Order matters: the D1 write
+  // lands first, so a failed delete leaves a logged orphan rather than an
+  // endpoint pointing at a key that's already gone.
+  if (previousKey) await deleteEndpointFile(env, previousKey);
+
+  return json({ ok: true, replaced_file: !!previousKey });
 }
 
 export const onRequestGet = withErrorHandler(listEndpoints);

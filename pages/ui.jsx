@@ -102,6 +102,19 @@ const API = {
     }),
   deleteEndpoint: (uri) =>
     apiFetch(`/api/endpoints/${encodeURIComponent(uri)}`, { method: 'DELETE' }),
+  // File-backed endpoint: the raw File is the request body (not multipart), so
+  // the bytes stream into R2 without being buffered. Status/headers/body are
+  // owned by the server for these, which is why none are sent. The filename is
+  // URI-encoded because header values must stay ASCII.
+  uploadEndpointFile: (uri, file) =>
+    apiFetch(`/api/endpoints/upload?uri=${encodeURIComponent(uri)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-Filename': encodeURIComponent(file.name || 'upload.bin'),
+      },
+      body: file,
+    }),
 
   listRequests: ({ cursor, search } = {}) =>
     apiFetch('/api/requests' + qs({ cursor, search })),

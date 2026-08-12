@@ -191,30 +191,56 @@ function parseHeaderLines(raw) {
   return out;
 }
 
+// Shape one endpoints row for an agent. A file-backed row (r2_key set) serves an
+// uploaded object rather than the `body` column, so it reports a `file`
+// descriptor — otherwise an agent would read the empty body as "this endpoint
+// returns nothing" and be wrong. Autopilot has no FILES binding: it can see that
+// a file is being served and its type, but never reads, replaces, or deletes it.
+function shapeEndpointRow(r) {
+  let headers = {};
+  try { headers = r.headers ? JSON.parse(r.headers) : {}; } catch { headers = {}; }
+  const out = { uri: r.uri, status: r.status, headers, body: r.body || '' };
+  if (r.r2_key) {
+    out.file = {
+      filename: r.filename || '',
+      content_type: headers['Content-Type'] || headers['content-type'] || '',
+    };
+  }
+  return out;
+}
+
 async function autopilotList(env) {
   // LIKE '/-/%' uses the endpoints PK (uri) index for range matching.
   const { results } = await env.DB.prepare(
-    "SELECT uri, status, headers, body FROM endpoints WHERE uri LIKE '/-/%' ORDER BY uri ASC"
+    "SELECT uri, status, headers, body, r2_key, filename FROM endpoints WHERE uri LIKE '/-/%' ORDER BY uri ASC"
   ).all();
   // Parse headers JSON back into objects on the way out so agents don't have
   // to do it themselves.
-  const rows = (results || []).map((r) => {
-    let headers = {};
-    try { headers = r.headers ? JSON.parse(r.headers) : {}; } catch { headers = {}; }
-    return { uri: r.uri, status: r.status, headers, body: r.body || '' };
-  });
-  return json({ rows });
+  return json({ rows: (results || []).map(shapeEndpointRow) });
 }
 
 async function autopilotGet(env, uri) {
   if (!isAutopilotUri(uri)) return errResp('uri must start with /-/', 400);
   const row = await env.DB.prepare(
-    'SELECT uri, status, headers, body FROM endpoints WHERE uri = ?'
+    'SELECT uri, status, headers, body, r2_key, filename FROM endpoints WHERE uri = ?'
   ).bind(uri).first();
   if (!row) return errResp('Not found', 404);
-  let headers = {};
-  try { headers = row.headers ? JSON.parse(row.headers) : {}; } catch { headers = {}; }
-  return json({ uri: row.uri, status: row.status, headers, body: row.body || '' });
+  return json(shapeEndpointRow(row));
+}
+
+// A file-backed endpoint was staged by a human through the dashboard, and
+// Autopilot can neither upload a replacement nor delete the R2 object it would
+// orphan. Both write paths therefore refuse rather than destroy that work.
+async function guardFileBacked(env, uri, verb) {
+  const row = await env.DB.prepare('SELECT r2_key FROM endpoints WHERE uri = ?').bind(uri).first();
+  if (row && row.r2_key) {
+    log('autopilot_file_backed_refused', { uri, verb });
+    return errResp(
+      `${uri} serves an uploaded file and can only be ${verb} from the AREA 51 dashboard`,
+      400
+    );
+  }
+  return null;
 }
 
 async function autopilotUpsert(env, payload) {
@@ -243,6 +269,9 @@ async function autopilotUpsert(env, payload) {
   const headersJson = JSON.stringify(headersObj);
   const bodyText = typeof body === 'string' ? body : '';
 
+  const blocked = await guardFileBacked(env, uri, 'replaced');
+  if (blocked) return blocked;
+
   await env.DB.prepare(
     `INSERT INTO endpoints (uri, status, headers, body)
      VALUES (?, ?, ?, ?)
@@ -258,6 +287,8 @@ async function autopilotUpsert(env, payload) {
 
 async function autopilotDelete(env, uri) {
   if (!isAutopilotUri(uri)) return errResp('uri must start with /-/', 400);
+  const blocked = await guardFileBacked(env, uri, 'deleted');
+  if (blocked) return blocked;
   const result = await env.DB.prepare('DELETE FROM endpoints WHERE uri = ?').bind(uri).run();
   if (!result.meta || result.meta.changes === 0) return errResp('Not found', 404);
   log('autopilot_delete', { uri });
@@ -346,6 +377,9 @@ const MCP_TOOLS = [
       "Lists all configured endpoints under /-/*. Use this to see",
       "what response stubs the Black Holes are currently serving for",
       "autopilot paths. Returns JSON: {rows: [{uri, status, headers, body}, ...]}.",
+      "A row that also carries a `file` object ({filename, content_type}) serves",
+      "an uploaded file rather than its `body` — the body is empty for those, and",
+      "they can only be changed from the AREA 51 dashboard.",
       "Only endpoints with URIs starting with /-/ are returned;",
       "manually-defined endpoints outside that prefix are not visible. No",
       "parameters.",
@@ -386,6 +420,10 @@ const MCP_TOOLS = [
       "error. `status` is an integer 100–599. `headers` is an object",
       "(key→value strings). `body` is a string (any text or base64-encoded",
       "binary; the worker serves it verbatim).",
+      "",
+      "If the URI currently serves an uploaded file (its row carries a `file`",
+      "object), this call is refused — a human staged that file through the",
+      "dashboard and only the dashboard can replace or remove it.",
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -406,7 +444,8 @@ const MCP_TOOLS = [
       "The `uri`",
       "must start with /-/ — otherwise the call returns an error.",
       "Returns success on delete; 404-equivalent error if the URI was not",
-      "configured.",
+      "configured. Endpoints that serve an uploaded file are refused — delete",
+      "those from the AREA 51 dashboard so the stored object goes with them.",
     ].join(' '),
     inputSchema: {
       type: 'object',

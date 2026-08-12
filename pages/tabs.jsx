@@ -669,7 +669,7 @@ function groupEmails(rows) {
       // ribbons light for recipient-matching pins too — not just from/subject.
       const toAll = members.map((m) => m.to_addr || "").join(" ");
       // The To cell shows the LATEST member's recipient (head is newest — input
-      // is ts-DESC) with an "| and more" suffix, rather than a count: a group is
+      // is ts-DESC) with an ", and more" suffix, rather than a count: a group is
       // always ≥2 messages, so the suffix is true by construction and claims
       // nothing about rows that aren't loaded (an exact total would need a
       // per-group COUNT(*) — see README §15.1).
@@ -943,9 +943,10 @@ function EmailsTab() {
 // which drills into the group's own view. No star / read-unread here — those
 // live on the individual messages inside.
 //
-// Two cues separate it from a singleton: the leftmost stack icon (vs the
-// envelope) and a To cell reading "<latest recipient> | and more" instead of a
-// single address.
+// Three cues separate it from a singleton, none of which touches the left edge
+// (pin ribbons) or the background (read/unread): the leftmost stack icon (vs the
+// envelope), a To cell reading "<latest recipient>, and more" instead of a
+// single address, and the fanned `group-stack` bars on the right edge.
 function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
   const latestTo = decodeMimeWord(item.to_addr) || "(no recipient)";
   return (
@@ -971,10 +972,11 @@ function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
       <span className="mono cell-trunc from" title={decodeMimeWord(item.from_addr)}>{decodeMimeWord(item.from_addr)}</span>
       <span className="group-to" title={`${latestTo} — and more in this group`}>
         <span className="mono group-to-addr">{latestTo}</span>
-        <span className="group-to-more">| and more</span>
+        <span className="group-to-more">, and more</span>
       </span>
       <span className="cell-trunc subject" title={decodeMimeWord(item.subject)}>{decodeMimeWord(item.subject)}</span>
       <span aria-hidden="true"/>
+      <span className="group-stack" aria-hidden="true"><i/><i/><i/></span>
     </div>
   );
 }

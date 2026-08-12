@@ -1,11 +1,68 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+// ---- Edge session guard ----
+//
+// The dashboard has no auth of its own — access is enforced at the network edge
+// (Cloudflare Access), whose session cookie expires on its own schedule (24h by
+// default). When it does, an already-open tab keeps rendering fine but every
+// /api/* call is answered by the edge with a 302 to the Access login host
+// instead of our JSON. Under fetch's default redirect mode the browser follows
+// that cross-origin hop, gets no CORS headers back, and the call rejects as a
+// bare "Failed to fetch" — which surfaced as a mystery error toast that only a
+// manual page reload cleared.
+//
+// So every API call goes out with redirect:"manual" (a same-origin /api/* call
+// never legitimately redirects), and a response that looks like the edge auth
+// layer answering instead of our API triggers a page reload. A reload is a
+// navigation, not a fetch: it follows the Access hop properly and either
+// silently re-mints the cookie through the IdP or lands on the login screen.
+
+const SESSION_RELOAD_KEY = 'area51:sessionReloadAt';
+// Don't auto-reload more than once per window. If a freshly reloaded page still
+// can't reach the API, the reload isn't the fix — surface the error instead of
+// looping.
+const SESSION_RELOAD_COOLDOWN_MS = 15000;
+// Delay so the error toast paints before the navigation tears the page down.
+const SESSION_RELOAD_DELAY_MS = 900;
+const SESSION_EXPIRED_MESSAGE = 'session expired — reloading…';
+
+let _reloadingForSession = false;
+
+function reloadForExpiredSession() {
+  if (_reloadingForSession) return;
+  let last = 0;
+  try { last = Number(window.sessionStorage.getItem(SESSION_RELOAD_KEY)) || 0; } catch { /* private mode */ }
+  if (Date.now() - last < SESSION_RELOAD_COOLDOWN_MS) return;
+  _reloadingForSession = true;
+  try { window.sessionStorage.setItem(SESSION_RELOAD_KEY, String(Date.now())); } catch { /* private mode */ }
+  setTimeout(() => window.location.reload(), SESSION_RELOAD_DELAY_MS);
+}
+
+// True when a response came from the edge auth layer rather than our API:
+//   - an opaque redirect (what redirect:"manual" turns the Access 302 into),
+//   - an explicit 401/403 (our API never issues either — it has no auth), or
+//   - a "successful" response whose body isn't what the caller expects (some
+//     Access configurations serve the login page with a 200).
+// `bodyLooksRight` is the caller's content-type check, since /api/* returns
+// JSON everywhere except the raw .eml endpoint.
+function isEdgeAuthResponse(resp, bodyLooksRight) {
+  if (!resp) return false;
+  if (resp.type === 'opaqueredirect' || resp.status === 0 || resp.redirected) return true;
+  if (resp.status === 401 || resp.status === 403) return true;
+  if (resp.ok && !bodyLooksRight) return true;
+  return false;
+}
+
 // ---- API client ----
 
 async function apiFetch(path, init) {
-  const resp = await fetch(path, init);
+  const resp = await fetch(path, { redirect: 'manual', ...init });
   const ct = resp.headers.get('content-type') || '';
   const isJson = ct.includes('application/json');
+  if (isEdgeAuthResponse(resp, isJson)) {
+    reloadForExpiredSession();
+    throw new Error(SESSION_EXPIRED_MESSAGE);
+  }
   const body = isJson ? await resp.json().catch(() => null) : null;
   if (!resp.ok) {
     const msg = (body && body.error) || `HTTP ${resp.status}`;
@@ -92,8 +149,15 @@ const API = {
       }),
     }),
   // Raw .eml bytes from R2 (message/rfc822, not JSON) — returns an ArrayBuffer.
+  // Bypasses apiFetch (non-JSON body), so it repeats the edge-session guard:
+  // an HTML body here means the Access login page, not an email.
   getEmailRaw: async (id) => {
-    const resp = await fetch(`/api/emails/${encodeURIComponent(id)}/raw`);
+    const resp = await fetch(`/api/emails/${encodeURIComponent(id)}/raw`, { redirect: 'manual' });
+    const ct = resp.headers.get('content-type') || '';
+    if (isEdgeAuthResponse(resp, !ct.includes('text/html'))) {
+      reloadForExpiredSession();
+      throw new Error(SESSION_EXPIRED_MESSAGE);
+    }
     if (!resp.ok) {
       let msg = `HTTP ${resp.status}`;
       try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch { /* not json */ }

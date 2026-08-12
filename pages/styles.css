@@ -682,17 +682,22 @@ select {
 /* ----- Email grouping (identical From/To/Subject) ----- */
 
 /* Grouped row: read/unread treatment is IDENTICAL to a singleton (see the
-   .email-grid.unread / .read rules — background pop/recede + text weight). It's
-   marked by its leftmost stack icon (vs the envelope) and by the To cell below.
-   Click drills in. */
+   .email-grid.unread / .read rules — background pop/recede + text weight), so
+   grouping is marked structurally instead:
+     - the leftmost icon (stack vs envelope),
+     - the To cell (below),
+     - and .group-stack — fanned "page edge" bars on the RIGHT edge.
+   The right edge is used because the left 6px belongs to pin ribbons and the
+   background belongs to read/unread. The bars are absolutely positioned inside
+   the row, so they never bleed into the rows above or below. Click drills in. */
 
-/* Group To cell: the latest member's recipient + a fixed "| and more" suffix.
+/* Group To cell: the latest member's recipient + a fixed ", and more" suffix.
    Flex (not .cell-trunc) so the address absorbs the truncation and the suffix
-   never gets ellipsed away — the suffix is the part that carries the meaning. */
+   never gets ellipsed away — the suffix is the part that carries the meaning.
+   No gap: the comma has to hug the address. */
 .group-to {
   display: flex;
   align-items: baseline;
-  gap: 6px;
   min-width: 0;
   color: var(--n4);
 }
@@ -706,6 +711,27 @@ select {
   flex: none;
   white-space: nowrap;
 }
+
+.group-stack {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  pointer-events: none;
+}
+.group-stack > i {
+  position: absolute;
+  display: block;
+  background: var(--n3);
+  border-radius: 1px;
+  transition: background 0.06s ease;
+}
+/* Decreasing height + rightward offset reads as stacked sheets seen edge-on. */
+.group-stack > i:nth-child(1) { right: 0;   top: 4px;  bottom: 4px;  width: 3px; }
+.group-stack > i:nth-child(2) { right: 5px; top: 8px;  bottom: 8px;  width: 2px; }
+.group-stack > i:nth-child(3) { right: 9px; top: 12px; bottom: 12px; width: 2px; }
+.row.email-group-row:hover .group-stack > i { background: var(--n4); }
 
 /* Starred filter toggle in the Emails toolbar. */
 .star-filter-btn.active { color: var(--yellow); border-color: var(--yellow-edge); }

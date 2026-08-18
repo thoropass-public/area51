@@ -19,6 +19,10 @@ it.
 | `CLOUDFLARE_API_TOKEN is not set in .env` | No `.env`, or the token line is empty | `cp .env.example .env`, paste a token, re-run |
 | `the API token was rejected by Cloudflare` | Token deleted, expired, or mistyped (a trailing space counts) | Create a new token; permissions in [setup.md#api-token](setup.md#api-token) |
 | `Cloudflare API error … [9109]` or a 403 on one step | The token is missing exactly one permission | Add it and re-run `./a51 setup` — completed steps are skipped |
+| `could not enable Email Routing … [10000] Authentication error` | The token has *Email Routing Rules* but not **Zone · Zone Settings:Edit** — the enable endpoint is a Zone Settings write | Add **Zone · Zone Settings:Edit**, re-run. See [setup.md#api-token](setup.md#api-token) |
+| An auth error on a step whose permission you *know* you granted | Either the token's **Zone Resources** don't include this zone, or a freshly-edited token hasn't propagated | Set *Zone Resources → Include → your zone*; wait ~a minute and re-run (setup also retries automatically) |
+| The Access step fails on the first run but `doctor --fix` fixes it later | A just-created Zero Trust org wasn't live yet | Fixed: setup now polls the org until it's ready. If it still fails, confirm Zero Trust is activated on the account |
+| `could not create a Zero Trust organization` / Access denied with correct perms | Zero Trust was never activated on the account | dashboard → *Zero Trust* → pick a team name → Free plan, then `./a51 access` |
 | `the API token cannot list accounts` | Missing *Account Settings:Read* | Add it, or set `CLOUDFLARE_ACCOUNT_ID` in `.env` by hand |
 | `this account has no active zones` | The domain is not on this Cloudflare account yet | Add the site in Cloudflare and wait for it to go active |
 | `no Cloudflare zone found for <host>` | Hostname is on a zone the token cannot see | Add *Zone:Read* for it, or fix the hostname |
@@ -57,10 +61,14 @@ it.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| Setup: `could not create the Pages project … [8000000] An unknown error occurred` | Creating a Pages project *with* bindings in one API call is rejected on some accounts | Fixed — setup now creates the project bare, then attaches bindings by PATCH. Re-run `./a51 setup` |
+| Dashboard serves nothing / 404 after setup, even though it deployed | Wrangler created the project as a fallback with the wrong production branch, so the deploy landed as a *preview* | Re-run `./a51 setup` — it pins `production_branch = main`, attaches bindings and redeploys to production |
+| Dashboard host won't resolve; DNS points at `<name>.pages.dev` but the project is `<name>-xxxx.pages.dev` | The `*.pages.dev` name collided globally and Cloudflare suffixed it | Re-run `./a51 setup` — it reads the project's real subdomain and repoints the CNAME automatically |
 | `/api/*` returns 500, or HTML instead of JSON | The D1 binding is missing on the Pages project | `./a51 doctor --fix` then `./a51 deploy dashboard` |
 | Uploading a file to an endpoint returns 500 | The `FILES` binding is missing on Pages | Same fix. Bindings must exist on **Production and Preview** |
 | `/api/emails/<id>/raw` returns 500 | The `EML` binding is missing on Pages | Same fix — and note this breaks *every* email body, not just Download Raw |
 | Opening the dashboard shows no Access challenge | No Access application, or it targets a different hostname | `./a51 access` |
+| The dashboard opens with **no login** at its `*.pages.dev` URL (but the custom domain asks for one) | The Access app guards only the custom domain, leaving the pages.dev URL an unauthenticated bypass | `./a51 doctor --fix` (or `./a51 access`) — adds `*.<project>.pages.dev` to the app's destinations |
 | A long-idle tab errors once, then works after a manual reload | The Access session expired | Expected — the app auto-reloads once ([dashboard.md](dashboard.md#expired-session-handling)). Raise `ACCESS_SESSION_DURATION` to make it rarer |
 | The tab reloads repeatedly | Something other than our API is answering `/api/*` | The 15 s cooldown caps this, so a loop means the API is genuinely unreachable — check the Pages deployment and bindings |
 | Search misses matches | `LIKE '%term%'` is exact-substring, not fuzzy | Try a shorter or different substring |

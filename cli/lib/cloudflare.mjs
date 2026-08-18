@@ -40,13 +40,62 @@ export function isAuthError(err) {
   return err.codes.some((c) => [9109, 10000, 6003, 6111].includes(c));
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Whether an error is worth retrying rather than surfacing immediately. The
+// non-obvious case is auth-shaped failures (403 / 9109 / 10000): a freshly
+// created or freshly edited Cloudflare API token takes tens of seconds to
+// propagate across the edge, during which calls that will ultimately succeed
+// fail as "authentication error". Retrying a small number of times absorbs that
+// window; a genuinely missing permission simply fails again after the (short)
+// backoff and surfaces with its real message. Network blips and 429/5xx are
+// retried for the usual reasons.
+function isRetryableError(err) {
+  if (!(err instanceof CloudflareError)) return false;
+  if (err.status === undefined) return true;                 // network error (no HTTP response)
+  if (err.status === 429 || (err.status >= 500 && err.status <= 599)) return true;
+  return isAuthError(err);
+}
+
+// Backoff schedule for retried calls, in ms. Kept short and shallow: enough to
+// ride out token propagation without turning a genuinely misconfigured token
+// into a multi-minute hang across a dozen provisioning calls.
+const RETRY_BACKOFFS_MS = [1500, 4000, 8000];
+// Methods safe to retry automatically (idempotent). POSTs opt in per-call via
+// `{ retries }` where the operation is effectively idempotent for us (e.g.
+// enabling Email Routing, creating the single Zero-Trust org).
+const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'DELETE', 'HEAD']);
+const DEFAULT_RETRIES = 2;
+
 export class Cloudflare {
   constructor(token) {
     if (!token) throw new Error('Cloudflare API token is required');
     this.token = token;
   }
 
-  async request(method, path, body, { raw = false, contentType = 'application/json' } = {}) {
+  // Thin retry wrapper around _doRequest. `retries` defaults to a couple of
+  // attempts for idempotent methods and zero for others; a caller can override
+  // it (e.g. an effectively-idempotent POST passes `{ retries: 2 }`). The retry
+  // only fires on transient failures (see isRetryableError) — a real
+  // permission error still surfaces, just a few seconds later.
+  async request(method, path, body, opts = {}) {
+    const attempts = Number.isInteger(opts.retries)
+      ? opts.retries
+      : (IDEMPOTENT_METHODS.has(method) ? DEFAULT_RETRIES : 0);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this._doRequest(method, path, body, opts);
+      } catch (err) {
+        if (attempt < attempts && isRetryableError(err)) {
+          await sleep(RETRY_BACKOFFS_MS[Math.min(attempt, RETRY_BACKOFFS_MS.length - 1)]);
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  async _doRequest(method, path, body, { raw = false, contentType = 'application/json' } = {}) {
     const headers = { Authorization: `Bearer ${this.token}` };
     let payload;
     if (body !== undefined && body !== null) {
@@ -225,11 +274,26 @@ export class Cloudflare {
     return this.post(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/domains`, { name: domain });
   }
 
+  /**
+   * Detach a custom domain from a Pages project. Cloudflare refuses to delete a
+   * project while any custom domain is still attached ([8000028]), so `destroy`
+   * calls this for every domain before deleting the project.
+   */
+  deletePagesDomain(accountId, name, domain) {
+    return this.delete(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/domains/${encodeURIComponent(domain)}`);
+  }
+
   // ── DNS ────────────────────────────────────────────────────────────────────
 
   async findDnsRecord(zoneId, name) {
     const list = await this.get(`/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}&per_page=50`);
     return (list || [])[0] || null;
+  }
+
+  /** All DNS records of one type on a zone (e.g. 'MX'). Empty array on none. */
+  async listDnsRecordsByType(zoneId, type) {
+    const list = await this.get(`/zones/${zoneId}/dns_records?type=${encodeURIComponent(type)}&per_page=100`);
+    return list || [];
   }
 
   createDnsRecord(zoneId, record) {
@@ -246,9 +310,14 @@ export class Cloudflare {
     return this.get(`/zones/${zoneId}/email/routing`);
   }
 
-  /** Enable Email Routing, adding and locking the required MX + SPF records. */
+  /**
+   * Enable Email Routing, adding and locking the required MX + SPF records.
+   * Retried on transient auth failures (token propagation): the call is
+   * effectively idempotent — enabling an already-enabled zone is a no-op that
+   * reads as "already enabled".
+   */
   enableEmailRouting(zoneId) {
-    return this.post(`/zones/${zoneId}/email/routing/enable`, {});
+    return this.request('POST', `/zones/${zoneId}/email/routing/enable`, {}, { retries: 2 });
   }
 
   getCatchAll(zoneId) {
@@ -286,7 +355,15 @@ export class Cloudflare {
   }
 
   createAccessOrganization(accountId, { name, authDomain }) {
-    return this.post(`/accounts/${accountId}/access/organizations`, { name, auth_domain: authDomain });
+    // Retried on transient auth failures (token propagation). There is one
+    // organization per account; a second create returns "already exists",
+    // which the caller treats as success.
+    return this.request(
+      'POST',
+      `/accounts/${accountId}/access/organizations`,
+      { name, auth_domain: authDomain },
+      { retries: 2 },
+    );
   }
 
   listAccessIdentityProviders(accountId) {

@@ -69,16 +69,24 @@ cp .env.example .env      # paste your Cloudflare API token
 ## Requirements
 
 - **A Cloudflare account** with a domain already added as a zone. A cheap
-  throwaway domain is ideal — targets will see it.
+  throwaway domain with **no prior mail (MX) records** is ideal — targets will
+  see it, and enabling mail capture takes over inbound mail for the whole zone.
 - **R2 enabled** on the account (dashboard → R2 → *Get started*; the free tier
   may still ask for a card). Captured email and uploaded payloads live there.
+- **Zero Trust activated once** (dashboard → *Zero Trust* → pick a team name →
+  Free plan) — this backs the dashboard's login and the API can't activate it for
+  you. Skip only if you deploy with `--no-access`.
 - **Node.js 20+** and npm.
 - **A Cloudflare API token** with the permissions listed in
-  [docs/setup.md#api-token](docs/setup.md#api-token). One token, ten checkboxes.
+  [docs/setup.md#api-token](docs/setup.md#api-token) — one token, thirteen
+  checkboxes. The easy one to miss is **Zone · Zone Settings · Edit**, which is
+  what actually enables Email Routing.
 
 Everything else — the D1 database, both R2 buckets, three Workers, the Pages
 project, DNS records, Email Routing, and the Cloudflare Access policy — is
-created for you.
+created for you. See [docs/setup.md](docs/setup.md) for the full prerequisite and
+permission detail, including the two "permission is set but still denied" traps
+(Zone Resources scope and token propagation).
 
 ---
 
@@ -157,12 +165,12 @@ See [docs/autopilot.md](docs/autopilot.md).
 ./a51 status           show what is deployed and where
 ./a51 doctor [--fix]   verify every binding, domain and policy; probe the live hosts
 ./a51 domains          list | add <host> [http,mail] | remove <host>
-./a51 access [list]    set who may open the dashboard
+./a51 access           edit who may open the dashboard: --list | --add | --remove <email|domain>,...
 ./a51 purge            delete captured data (database rows and their objects, in lockstep)
 ./a51 rotate-secret    replace the Autopilot shared secret
 ./a51 tail [target]    stream a worker's structured logs
 ./a51 dev <target>     run a piece locally against the remote stores
-./a51 destroy          tear it all down (two typed confirmations)
+./a51 destroy          tear it all down — empties buckets, no manual steps (two typed confirmations)
 ```
 
 Add a second black hole any time — no redeploy, no code change:

@@ -8,7 +8,7 @@
 
 import { loadContext, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import { heading, plain, color, info } from '../lib/log.mjs';
-import { applySchema, ensurePagesProject, ensureBlackHole, ensureAccess, pagesBindings } from '../lib/provision.mjs';
+import { applySchema, ensurePagesProject, ensurePagesDomain, ensureBlackHole, ensureAccess, pagesBindings } from '../lib/provision.mjs';
 import { parseList } from '../lib/env.mjs';
 
 const REQUIRED_TABLES = ['domains', 'email_blacklist', 'emails', 'endpoints', 'ip_blacklist', 'requests'];
@@ -196,7 +196,7 @@ export async function run(args) {
           else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 domains add ${row.domain} ${roles.join(',')}\`.`);
         }
       } catch (err) {
-        r.fail(`could not read Email Routing on ${zone.name}: ${err.message}`, 'The token needs Zone · Email Routing Rules:Edit.');
+        r.fail(`could not read Email Routing on ${zone.name}: ${err.message}`, 'Reading Email Routing state needs Zone · Zone Settings:Read (NOT Email Routing Rules, which only covers the catch-all rule). Enabling it needs Zone Settings:Edit.');
       }
     }
   }
@@ -248,6 +248,37 @@ export async function run(args) {
     } catch (err) {
       r.warn(`could not list Pages custom domains: ${err.message}`);
     }
+
+    // Production branch — a mismatch means the branch `deploy` uploads to (main)
+    // is NOT the one the custom domain serves, so the dashboard renders empty.
+    if (project.production_branch && project.production_branch !== 'main') {
+      if (fix) {
+        await ensurePagesProject(cf, accountId, env, followUps);
+        r.ok(`production branch was "${project.production_branch}" — reset to main; redeploy with \`./a51 deploy dashboard\``);
+      } else {
+        r.fail(`Pages production branch is "${project.production_branch}", not main — the custom domain serves an empty production`, 'Run `./a51 doctor --fix`, then `./a51 deploy dashboard`.');
+      }
+    }
+
+    // DNS target — the dashboard CNAME must point at the project's REAL subdomain
+    // (Cloudflare suffixes it on a global name collision, e.g. area51-ai1.pages.dev),
+    // not a guessed `<name>.pages.dev`.
+    try {
+      const zone = await zoneForHostname(cf, accountId, env.DASHBOARD_HOSTNAME);
+      const record = zone && (await cf.findDnsRecord(zone.id, env.DASHBOARD_HOSTNAME));
+      if (record && record.type === 'CNAME' && project.subdomain && record.content !== project.subdomain) {
+        if (fix) {
+          await ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps);
+          r.ok(`DNS repointed to ${project.subdomain} (was ${record.content})`);
+        } else {
+          r.fail(`dashboard DNS points at ${record.content}, but the Pages subdomain is ${project.subdomain}`, 'Run `./a51 doctor --fix` — it repoints the CNAME.');
+        }
+      } else if (record && record.type === 'CNAME' && record.content === project.subdomain) {
+        r.ok(`DNS → ${project.subdomain}`);
+      }
+    } catch (err) {
+      r.warn(`could not check the dashboard DNS record: ${err.message}`);
+    }
   }
 
   // ── access ────────────────────────────────────────────────────────────────
@@ -258,7 +289,7 @@ export async function run(args) {
     const app = apps.find((a) => (a.domain || '').replace(/\/$/, '') === env.DASHBOARD_HOSTNAME);
     if (!app) {
       if (fix && allowed.length) {
-        await ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, followUps });
+        await ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps });
       } else {
         r.fail(`no Cloudflare Access application protects ${env.DASHBOARD_HOSTNAME} — the dashboard is open to anyone`, allowed.length ? 'Run `./a51 access` (or `./a51 doctor --fix`).' : 'Set ALLOWED_EMAILS in .env, then run `./a51 access`.');
       }
@@ -267,6 +298,22 @@ export async function run(args) {
       const allows = policies.filter((p) => p.decision === 'allow');
       if (!allows.length) r.fail(`the Access app on ${env.DASHBOARD_HOSTNAME} has no allow policy — nobody can get in`, 'Run `./a51 access`.');
       else r.ok(`Access protects ${env.DASHBOARD_HOSTNAME} (${allows.length} allow policy, session ${app.session_duration || 'default'})`);
+
+      // The dashboard is also reachable at the project's *.pages.dev URL. If the
+      // Access app's destinations don't cover it, that URL is an unauthenticated
+      // bypass — one of the most important things to catch here.
+      if (project && project.subdomain) {
+        const uris = (app.destinations || []).map((d) => d.uri || '');
+        const guarded = uris.some((u) => u === project.subdomain || u === `*.${project.subdomain}`);
+        if (guarded) {
+          r.ok(`Access also guards the pages.dev URL (${project.subdomain}) — no bypass`);
+        } else if (fix && allowed.length) {
+          await ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps });
+          r.ok(`added the pages.dev URL (${project.subdomain}) to the Access app`);
+        } else {
+          r.fail(`the Access app does not cover ${project.subdomain} — the dashboard is reachable UNAUTHENTICATED at its *.pages.dev URL`, 'Run `./a51 doctor --fix` (or `./a51 access`) to add it.');
+        }
+      }
     }
   } catch (err) {
     r.warn(`could not check Cloudflare Access: ${err.message}`, 'The token needs Account · Access: Apps and Policies:Edit to read this.');
@@ -295,8 +342,10 @@ export async function run(args) {
           if (auth.ok && auth.status === 200) r.ok('Autopilot accepts the AGENT_SECRET in .env');
           else r.fail(`Autopilot rejected the AGENT_SECRET in .env (HTTP ${auth.status || auth.error})`, 'The deployed secret differs from .env. Run `./a51 deploy autopilot`.');
         }
+      } else if (unauth.status === 530) {
+        r.fail(`https://${env.AUTOPILOT_HOSTNAME} answered 530 — the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy autopilot`, then `./a51 setup` to (re)bind the hostname.');
       } else {
-        r.fail(`Autopilot answered ${unauth.status} without a secret — expected 401`, 'Confirm AGENT_SECRET is installed: `./a51 deploy autopilot`.');
+        r.fail(`Autopilot answered ${unauth.status} without a secret — expected 401`, 'If the worker is deployed, confirm AGENT_SECRET is installed: `./a51 deploy autopilot`.');
       }
     }
 
@@ -306,6 +355,7 @@ export async function run(args) {
       else if ([301, 302, 303, 307, 308].includes(res.status) && /cloudflareaccess\.com/.test(res.location)) r.ok('the dashboard redirects to the Cloudflare Access login (protected)');
       else if (res.status === 200 && /cloudflareaccess/.test(res.body)) r.ok('the dashboard is behind Cloudflare Access');
       else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Set ALLOWED_EMAILS in .env and run `./a51 access`.');
+      else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed (Pages project or its custom domain is missing)`, 'Run `./a51 setup` to (re)create the project and attach the custom domain.');
       else r.warn(`the dashboard answered ${res.status}`);
     }
   }

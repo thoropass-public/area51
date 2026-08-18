@@ -14,6 +14,7 @@
 import { setAssumeYes, closePrompts } from './lib/prompt.mjs';
 import { color, plain, die } from './lib/log.mjs';
 import { CloudflareError } from './lib/cloudflare.mjs';
+import { printTokenPermissions } from './lib/permissions.mjs';
 
 const COMMANDS = {
   setup: {
@@ -43,8 +44,18 @@ const COMMANDS = {
   },
   access: {
     module: './commands/access.mjs',
-    summary: 'set who may open the dashboard (Cloudflare Access)',
-    usage: './a51 access [you@example.com,example.com]',
+    summary: 'edit who may open the dashboard (Cloudflare Access) — --add / --remove',
+    usage: [
+      './a51 access --list                          show the current allow-list (read-only)',
+      '  ./a51 access --add <email|domain>[,...]      add entries to the allow-list',
+      '  ./a51 access --remove <email|domain>[,...]   remove entries from it',
+      '  ./a51 access                                 re-apply ALLOWED_EMAILS from .env',
+      '',
+      '  e.g.  ./a51 access --add new@gmail.com,asca.com',
+      '        ./a51 access --remove new@gmail.com',
+      '',
+      '  To set the whole list at once, edit ALLOWED_EMAILS in .env, then run ./a51 access.',
+    ].join('\n'),
   },
   purge: {
     module: './commands/purge.mjs',
@@ -68,7 +79,7 @@ const COMMANDS = {
   },
   destroy: {
     module: './commands/destroy.mjs',
-    summary: 'tear the deployment down (two typed confirmations)',
+    summary: 'tear the deployment down — empties buckets, no manual steps (two typed confirmations)',
     usage: './a51 destroy',
   },
 };
@@ -84,6 +95,7 @@ function usage() {
     plain(`  ${color.bold(name.padEnd(width))}  ${spec.summary}`);
   }
   plain('');
+  printTokenPermissions();
   plain(`  ${color.dim('first run:')}  cp .env.example .env  &&  ./a51 setup`);
   plain(`  ${color.dim('docs:')}       README.md, then docs/README.md`);
   plain('');
@@ -97,6 +109,18 @@ async function main() {
   // repeat it (`./a51 domains remove domains` must keep its argument).
   const args = argv.filter((_, i) => i !== commandIndex);
 
+  // Version — checked BEFORE the help/no-command fallthrough. `./a51 --version`
+  // has no positional command, so without this it would be treated as "no
+  // command" and print the help screen instead of the version.
+  if (argv.includes('--version') || argv.includes('-v') || command === 'version') {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { repoRoot } = await import('./lib/env.mjs');
+    const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+    plain(pkg.version);
+    return 0;
+  }
+
   if (!command || argv.includes('--help') || argv.includes('-h')) {
     if (command && COMMANDS[command]) {
       plain('');
@@ -108,15 +132,6 @@ async function main() {
     }
     usage();
     return command ? 1 : 0;
-  }
-
-  if (argv.includes('--version') || command === 'version') {
-    const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const { repoRoot } = await import('./lib/env.mjs');
-    const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
-    plain(pkg.version);
-    return 0;
   }
 
   const spec = COMMANDS[command];

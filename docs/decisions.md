@@ -256,6 +256,32 @@ Autopilot also deliberately has **no** binding to the endpoint-files bucket, and
 refuses upsert or delete on file-backed URIs: a human staged that payload through
 the dashboard, and an agent deleting the row would orphan the object.
 
+## `destroy` empties buckets itself: S3 to list, v4 to delete
+
+`./a51 destroy` removes a non-empty R2 bucket with no manual dashboard step, and
+it deletes a Pages project's custom domains before the project. Both are things
+Cloudflare refuses to do implicitly (`[10008]` bucket-not-empty, `[8000028]`
+project-has-domains).
+
+**Why the split (S3 for listing, v4 for deleting):** the Cloudflare v4 REST API
+exposes single-object GET/PUT/DELETE but no dependable object *list* — the docs
+steer you to the S3-compatible API for that. So `destroy` enumerates keys over
+R2's S3 endpoint ([cli/lib/r2s3.mjs](../cli/lib/r2s3.mjs), a ~100-line
+dependency-free SigV4 signer) and deletes each through the already-used v4
+`deleteR2Object`. Keeping the hand-rolled S3 surface to a single signed GET
+(no body, no `Content-MD5`, no multi-object-delete XML) is deliberate: less
+signing code to get wrong on a destructive path. The signer is checked against
+the AWS SigV4 `get-vanilla` known-answer vector.
+
+**No extra credentials.** R2's S3 credentials are derived from the same account
+API token the CLI already holds — Access Key ID = the token's id, Secret =
+SHA-256 of the token value — so emptying needs nothing a human has to create.
+
+**Only inside the DELETE-DATA gate.** Emptying is destructive, so it runs only
+after the second typed confirmation, alongside the database and bucket deletes.
+Enumeration is S3-first (not from D1) on purpose: by the time buckets are
+deleted the D1 database may already be gone, so D1 can't be the source of keys.
+
 ---
 
 # Automation decisions
@@ -277,17 +303,38 @@ The cost is a hand-written API client (`cli/lib/cloudflare.mjs`) and a dependenc
 on request shapes Cloudflare could change. It is small, dependency-free, and
 `A51_API_BASE` makes it testable against a mock.
 
-## Pages bindings are set at project creation
+## Pages bindings are set before the first upload — via create-then-patch
 
-The project is created with its D1 and R2 bindings already attached, on both the
-production and preview configurations, *before* the first upload.
+The project ends up with its D1 and R2 bindings on both the production and preview
+configurations *before* the first upload, and its `production_branch` pinned to
+`main` (the branch `./a51 deploy` uploads to).
 
 **Why:** the manual flow (deploy, discover every `/api/*` call returns 500, add
 three bindings in the dashboard for two environments, redeploy) was the single most
 error-prone step in the old setup — and forgetting the preview environment produced
 failures that only showed up later. Doing it over the API in the right order
-removes the class of problem. `./a51 deploy dashboard` re-asserts the bindings
-every time, so a project someone edited by hand repairs itself.
+removes the class of problem.
+
+**Why create-then-patch, not create-with-bindings:** creating the project and its
+`deployment_configs` in a *single* `POST` is rejected on some accounts with a
+generic `[8000000] An unknown error occurred`, while a bare create (name +
+`production_branch`) succeeds — which is why wrangler could make the project when
+the API couldn't. So `ensurePagesProject` creates minimally, then `PATCH`es the
+bindings. The guarantee (bindings present before the upload) is unchanged; only
+the call sequence is. `./a51 deploy dashboard` re-asserts the bindings and branch
+every time, so a project someone edited by hand — or one wrangler created bare as a
+fallback — repairs itself.
+
+**Two failure modes this also closes:**
+- **Wrong production branch.** If the API create ever fails outright, wrangler
+  creates the project with its production branch defaulted to the local git branch
+  and deploys to `main` — a *preview*, so the custom domain serves nothing. Setup
+  now pins `production_branch = main` on the patch and redeploys, and treats a
+  failed create as "attach bindings + redeploy," not a dead end.
+- **Wrong DNS target.** The `*.pages.dev` subdomain is global; a common name like
+  `area51` collides and Cloudflare hands back a suffixed one (`area51-ai1.pages.dev`).
+  `ensurePagesDomain` reads the project's *real* subdomain instead of guessing
+  `<name>.pages.dev`, and repoints a stale Pages CNAME to it automatically.
 
 ## Cloudflare Access is part of setup, not an afterthought
 

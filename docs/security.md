@@ -48,6 +48,13 @@ method (Access emails a code; no identity provider to integrate), and a
 `self_hosted` application on the dashboard hostname with one allow policy built
 from `ALLOWED_EMAILS`.
 
+- **The `*.pages.dev` URL is guarded too.** A Pages dashboard is reachable at both
+  its custom domain and its `<project>.pages.dev` URL (apex + every preview
+  deployment). Guarding only the custom domain would leave the pages.dev URL as an
+  unauthenticated way straight into the dashboard, so the Access app's
+  `destinations` cover the custom host **and** `<subdomain>.pages.dev` **and**
+  `*.<subdomain>.pages.dev`. `./a51 doctor` reports a **failure** if that
+  destination is ever missing — treat it as a live bypass, not a warning.
 - **`--no-access` leaves it off.** Setup warns; `./a51 doctor` reports it as a
   failure and its live probe checks for a real Access challenge, not just a 200.
 - **Tighten it further** in Zero Trust if you want: add a device-posture or

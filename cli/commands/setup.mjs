@@ -20,8 +20,10 @@ import { ask, confirm, select, closePrompts, isAssumeYes } from '../lib/prompt.m
 import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
-  ensurePagesProject, ensurePagesDomain, ensureAccess,
+  ensurePagesProject, ensurePagesDomain, ensureAccess, authFixHint,
 } from '../lib/provision.mjs';
+import { isAuthError } from '../lib/cloudflare.mjs';
+import { printTokenPermissions } from '../lib/permissions.mjs';
 import { deployWorker, deployPages, putWorkerSecret, requireWrangler, WORKER_TARGETS } from '../lib/wrangler.mjs';
 
 const DEFAULTS = {
@@ -68,9 +70,7 @@ export async function run(args) {
 
   if (!env.CLOUDFLARE_API_TOKEN) {
     plain('');
-    plain('  Create a token at: Cloudflare dashboard → My Profile → API Tokens →');
-    plain('  Create Token → Custom token. Permissions are listed in docs/setup.md.');
-    plain('');
+    printTokenPermissions();
     const token = await ask('  Cloudflare API token', '', { required: true });
     env.CLOUDFLARE_API_TOKEN = token.trim();
     saveEnv({ CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN });
@@ -267,18 +267,35 @@ export async function run(args) {
       });
       ok(`${color.bold(env.AUTOPILOT_HOSTNAME)} → Custom Domain on ${env.AGENT_WORKER_NAME}`);
     } catch (err) {
+      const manual = `Bind it by hand: dashboard → Workers & Pages → ${env.AGENT_WORKER_NAME} → Settings → Domains & Routes → Add → Custom Domain.`;
       followUps.push({
         label: `could not bind ${env.AUTOPILOT_HOSTNAME} to ${env.AGENT_WORKER_NAME}: ${err.message}`,
-        detail: `Bind it by hand: dashboard → Workers & Pages → ${env.AGENT_WORKER_NAME} → Settings → Domains & Routes → Add → Custom Domain.`,
+        detail: isAuthError(err)
+          ? authFixHint(`Zone · Workers Routes:Edit on ${autopilotZone.name}`, { zone: autopilotZone.name, extra: manual })
+          : manual,
       });
     }
   }
 
   // ── 9. dashboard ──────────────────────────────────────────────────────────
   step('Dashboard (Cloudflare Pages)');
-  const project = await ensurePagesProject(cf, accountId, env, followUps);
+  let project = await ensurePagesProject(cf, accountId, env, followUps);
+  const bindingsReady = !!project;   // API create + bindings PATCH succeeded
   if (!deployPages(env).ok) {
     followUps.push({ label: 'the dashboard failed to upload', detail: 'Fix the error above, then run `./a51 deploy dashboard`.' });
+  }
+  if (!bindingsReady) {
+    // The API create failed entirely, so `wrangler pages deploy` created a bare
+    // project — no D1/R2 bindings, and its production branch defaulted to the
+    // local git branch. Attach the bindings + pin the branch now that the project
+    // exists, then redeploy so THIS deployment actually carries them; otherwise
+    // every /api/* call 500s for a missing DB binding.
+    const repaired = await ensurePagesProject(cf, accountId, env, followUps);
+    if (repaired) {
+      project = repaired;
+      info('re-deploying the dashboard now that its D1/R2 bindings are attached…');
+      deployPages(env);
+    }
   }
   await ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps);
 
@@ -292,6 +309,7 @@ export async function run(args) {
       allowed,
       sessionDuration: env.ACCESS_SESSION_DURATION,
       teamName: env.ACCESS_TEAM_NAME,
+      pagesProjectName: env.PAGES_PROJECT_NAME,
       followUps,
     });
   }

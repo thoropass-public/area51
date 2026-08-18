@@ -21,6 +21,41 @@ export const PAGES_COMPATIBILITY_DATE = '2024-10-11';
 
 export const SCHEMA_PATH = join(repoRoot, 'db', 'schema.sql');
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Compose the fix hint for an auth-shaped failure. Cloudflare returns the same
+ * 403 / [10000] / [9109] shape for several distinct causes, and naming only one
+ * of them (as this code used to) sends operators to re-check a permission that
+ * was already correct. So every auth failure lists the real candidates, most
+ * likely first:
+ *
+ *   1. token propagation — a token created/edited seconds ago (setup retries a
+ *      few times, but a long propagation still needs a re-run),
+ *   2. the specific permission this step needs — which is often NOT the
+ *      obvious one (enabling Email Routing needs Zone Settings, not Email
+ *      Routing Rules),
+ *   3. Zone Resources scope — a zone permission that doesn't *include* this
+ *      zone throws the same error even when the checkbox is ticked,
+ *   4. an extra manual step below, when there is one (e.g. Zero Trust).
+ *
+ * `permission` is the precise permission for this step. `zone` scopes the
+ * Zone-Resources note; pass null for account-level steps. `extra` is an
+ * optional trailing line (a manual click-path).
+ */
+export function authFixHint(permission, { zone = null, extra = null } = {}) {
+  const lines = [
+    `This is an auth-shaped error, which has more than one possible cause:`,
+    `  • A just-created/edited token can take up to a minute to propagate — wait and re-run \`./a51 setup\`.`,
+    `  • The token needs ${permission}.`,
+  ];
+  if (zone) {
+    lines.push(`  • The token's Zone Resources must INCLUDE ${zone} (or "All zones") — a zone permission scoped elsewhere fails the same way.`);
+  }
+  if (extra) lines.push(`  • ${extra}`);
+  return lines.join('\n');
+}
+
 // ─── storage ────────────────────────────────────────────────────────────────
 
 /** Create the D1 database if absent. Returns { id, created }. */
@@ -78,7 +113,7 @@ export async function ensureBuckets(cf, accountId, { emails, files }, followUps)
         followUps,
         `could not create R2 bucket ${name}: ${err.message}`,
         isAuthError(err)
-          ? 'The token needs Account · Workers R2 Storage:Edit. R2 must also be enabled on the account\n(dashboard → R2 → Get started) before any bucket can be created.'
+          ? authFixHint('Account · Workers R2 Storage:Edit', { extra: 'R2 must also be ENABLED on the account first (dashboard → R2 → Get started) — the API cannot enable it for you.' })
           : `Create it by hand: dashboard → R2 → Create bucket → name it "${name}".`,
       );
     }
@@ -110,10 +145,13 @@ export async function ensureBlackHole(cf, accountId, opts) {
       await cf.attachWorkerDomain(accountId, { hostname, service: workerName, zoneId: zone.id });
       ok(`${color.bold(hostname)} → Custom Domain on ${workerName}`);
     } catch (err) {
+      const manual = `Bind it by hand: dashboard → Workers & Pages → ${workerName} → Settings → Domains & Routes\n→ Add → Custom Domain → ${hostname}.`;
       degraded(
         followUps,
         `could not bind ${hostname} to ${workerName}: ${err.message}`,
-        `Bind it by hand: dashboard → Workers & Pages → ${workerName} → Settings → Domains & Routes\n→ Add → Custom Domain → ${hostname}.\nThe token needs Zone · Workers Routes:Edit on ${zone.name}.`,
+        isAuthError(err)
+          ? authFixHint(`Zone · Workers Routes:Edit on ${zone.name}`, { zone: zone.name, extra: manual })
+          : `${manual}\nThe token needs Zone · Workers Routes:Edit on ${zone.name}.`,
       );
     }
   }
@@ -130,26 +168,67 @@ export async function ensureBlackHole(cf, accountId, opts) {
 
 /** Enable Email Routing on the zone and point its catch-all at the worker. */
 export async function ensureEmailRouting(cf, zone, workerName, followUps) {
+  // NOTE ON PERMISSIONS: the /email/routing settings + enable endpoints are
+  // governed by Zone · Zone Settings — NOT by Email Routing Rules (which only
+  // covers the catch-all rule set below). A token with Email Routing Rules but
+  // no Zone Settings gets a bare [10000] "Authentication error" on enable, which
+  // is exactly the trap this messaging is written to defuse. See docs/setup.md.
+
+  // Read current state. A zone that never touched Email Routing can 404 here —
+  // that legitimately means "disabled". An AUTH error, though, is the real
+  // problem (missing Zone Settings, or a zone-scope miss) and must NOT be
+  // swallowed as "disabled" — doing so sent us straight into an enable() that
+  // failed again with a misleading message.
   let enabled = false;
   try {
     const settings = await cf.getEmailRouting(zone.id);
     enabled = Boolean(settings && settings.enabled);
-  } catch {
-    // A zone that has never used Email Routing can 404 here — treat as disabled.
+  } catch (err) {
+    if (isAuthError(err)) {
+      degraded(
+        followUps,
+        `could not read Email Routing state on ${zone.name}: ${err.message}`,
+        authFixHint(`Zone · Zone Settings:Read on ${zone.name} (Email Routing settings live under Zone Settings, not Email Routing Rules)`, { zone: zone.name }),
+      );
+      return;
+    }
+    // Non-auth (e.g. 404): treat as not-yet-enabled and continue to enable.
   }
 
   if (!enabled) {
+    // Pre-existing MX means the zone already receives mail somewhere. Enabling
+    // Email Routing adds and LOCKS its own MX for the whole zone, taking over
+    // inbound mail — so warn loudly rather than silently break real delivery.
+    try {
+      const mx = await cf.listDnsRecordsByType(zone.id, 'MX');
+      if (mx.length) {
+        const shown = mx.slice(0, 3).map((r) => r.content).join(', ');
+        warn(`${zone.name} already has ${mx.length} MX record${mx.length === 1 ? '' : 's'} (${shown}${mx.length > 3 ? ', …' : ''}).`);
+        warn('  Enabling Email Routing adds and LOCKS its own MX for the whole zone — this takes over inbound mail and breaks existing delivery. Use a domain with no prior mail (see docs/setup.md).');
+      }
+    } catch { /* preflight only — never block the enable on a failed lookup */ }
+
     try {
       await cf.enableEmailRouting(zone.id);
       ok(`enabled Email Routing on ${color.bold(zone.name)} (MX + SPF records added)`);
     } catch (err) {
       if (isAlreadyExists(err)) {
         skip(`Email Routing already enabled on ${zone.name}`);
+      } else if (isAuthError(err)) {
+        degraded(
+          followUps,
+          `could not enable Email Routing on ${zone.name}: ${err.message}`,
+          authFixHint(
+            `Zone · Zone Settings:Edit on ${zone.name} — enabling Email Routing writes and locks MX/SPF DNS records, which is a Zone Settings write, NOT "Email Routing Rules". This is the usual cause of a [10000] error here.`,
+            { zone: zone.name, extra: `Or enable it by hand: dashboard → ${zone.name} → Email → Email Routing → Get started.` },
+          ),
+        );
+        return;
       } else {
         degraded(
           followUps,
           `could not enable Email Routing on ${zone.name}: ${err.message}`,
-          `Enable it by hand: dashboard → ${zone.name} → Email → Email Routing → Get started.\nThe token needs Zone · Email Routing Rules:Edit on ${zone.name}.`,
+          `Enable it by hand: dashboard → ${zone.name} → Email → Email Routing → Get started.`,
         );
         return;
       }
@@ -165,7 +244,9 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps) {
     degraded(
       followUps,
       `could not point the ${zone.name} catch-all at ${workerName}: ${err.message}`,
-      `Set it by hand: dashboard → ${zone.name} → Email → Email Routing → Routing rules\n→ Catch-all address → Edit → Action "Send to a Worker" → ${workerName} → Save.`,
+      isAuthError(err)
+        ? authFixHint(`Zone · Email Routing Rules:Edit on ${zone.name} (the catch-all RULE is Email Routing Rules; enabling routing above is Zone Settings)`, { zone: zone.name })
+        : `Set it by hand: dashboard → ${zone.name} → Email → Email Routing → Routing rules\n→ Catch-all address → Edit → Action "Send to a Worker" → ${workerName} → Save.`,
     );
   }
 }
@@ -242,15 +323,25 @@ export async function ensurePagesProject(cf, accountId, env, followUps) {
   const bindings = pagesBindings(env);
   const existing = await cf.getPagesProject(accountId, name);
 
+  // Applied to production AND preview, and re-applied on every run so a project
+  // someone edited by hand repairs itself. `production_branch` is pinned so the
+  // branch `./a51 deploy` uploads to (main) is the one the custom domain serves.
+  const patch = {
+    production_branch: 'main',
+    deployment_configs: { production: bindings, preview: bindings },
+  };
+
   if (!existing) {
+    // Create MINIMALLY, then attach bindings with a PATCH. Creating with
+    // `deployment_configs` in the same call is rejected on some accounts with a
+    // generic [8000000] "unknown error" — while a bare create (name +
+    // production_branch) succeeds. Create-then-patch is the reliable order and
+    // still lands the bindings before the first upload (the whole point of doing
+    // this over the API), so the dashboard's /api/* never 500s for a missing DB.
+    let project;
     try {
-      const project = await cf.createPagesProject(accountId, {
-        name,
-        production_branch: 'main',
-        deployment_configs: { production: bindings, preview: bindings },
-      });
-      ok(`created Pages project ${color.bold(name)} with DB / EML / FILES bindings`);
-      return project;
+      project = await cf.createPagesProject(accountId, { name, production_branch: 'main' });
+      ok(`created Pages project ${color.bold(name)}`);
     } catch (err) {
       degraded(
         followUps,
@@ -259,12 +350,22 @@ export async function ensurePagesProject(cf, accountId, env, followUps) {
       );
       return null;
     }
+    try {
+      await cf.patchPagesProject(accountId, name, patch);
+      ok(`Pages project ${color.bold(name)}: DB / EML / FILES bindings attached`);
+    } catch (err) {
+      degraded(
+        followUps,
+        `created ${name} but could not attach its bindings: ${err.message}`,
+        `Set them by hand: dashboard → Pages → ${name} → Settings → Bindings.\nD1: DB → ${env.D1_DATABASE_NAME}. R2: EML → ${env.R2_BUCKET_NAME}, FILES → ${env.R2_FILES_BUCKET_NAME}.\nAdd them to BOTH Production and Preview, then redeploy.`,
+      );
+    }
+    // Re-read so the caller gets the real (possibly globally-suffixed) subdomain.
+    try { return (await cf.getPagesProject(accountId, name)) || project; } catch { return project; }
   }
 
   try {
-    await cf.patchPagesProject(accountId, name, {
-      deployment_configs: { production: bindings, preview: bindings },
-    });
+    await cf.patchPagesProject(accountId, name, patch);
     ok(`Pages project ${color.bold(name)}: bindings confirmed (DB, EML, FILES)`);
   } catch (err) {
     degraded(
@@ -279,7 +380,14 @@ export async function ensurePagesProject(cf, accountId, env, followUps) {
 /** Attach the dashboard hostname to the Pages project, DNS record included. */
 export async function ensurePagesDomain(cf, accountId, env, hostname, project, followUps) {
   const name = env.PAGES_PROJECT_NAME;
-  const target = (project && project.subdomain) || `${name}.pages.dev`;
+  // Always resolve the project's REAL subdomain. Pages appends a suffix (e.g.
+  // area51-ai1.pages.dev) when the base name is taken globally, so a guessed
+  // `${name}.pages.dev` would point the custom domain at a host that isn't ours.
+  let live = project;
+  if (!live || !live.subdomain) {
+    try { live = await cf.getPagesProject(accountId, name); } catch { /* fall back below */ }
+  }
+  const target = (live && live.subdomain) || `${name}.pages.dev`;
 
   const zone = await zoneForHostname(cf, accountId, hostname);
   if (!zone) {
@@ -320,6 +428,18 @@ export async function ensurePagesDomain(cf, accountId, env, hostname, project, f
       ok(`DNS: ${color.bold(hostname)} CNAME → ${target} (proxied)`);
     } else if (record.type === 'CNAME' && record.content === target) {
       skip(`DNS record for ${hostname} already points at ${target}`);
+    } else if (record.type === 'CNAME' && /(^|\.)pages\.dev$/i.test(record.content)) {
+      // A Pages-managed CNAME pointing at the WRONG subdomain — e.g. a stale
+      // `${name}.pages.dev` guess written before the real suffixed subdomain was
+      // known. It is clearly ours to repoint, so fix it rather than warn.
+      await cf.updateDnsRecord(zone.id, record.id, {
+        type: 'CNAME',
+        name: hostname,
+        content: target,
+        proxied: true,
+        comment: 'AREA 51 dashboard (Cloudflare Pages)',
+      });
+      ok(`DNS: repointed ${color.bold(hostname)} CNAME → ${target} ${color.dim(`(was ${record.content})`)}`);
     } else {
       warn(`DNS record for ${hostname} is a ${record.type} → ${record.content}; leaving it alone. Point it at ${target} if the dashboard doesn't resolve.`);
     }
@@ -334,6 +454,23 @@ export async function ensurePagesDomain(cf, accountId, env, hostname, project, f
 
 // ─── Cloudflare Access ──────────────────────────────────────────────────────
 
+/**
+ * Poll until a just-created Zero-Trust org reads back, so the identity-provider
+ * and application calls that follow don't race a not-yet-propagated org. Best
+ * effort: returns after the org appears or the attempts run out (the caller's
+ * own error handling covers a genuinely broken org).
+ */
+async function waitForAccessOrg(cf, accountId, { attempts = 4, delayMs = 1500 } = {}) {
+  for (let i = 0; i < attempts; i++) {
+    await sleep(delayMs);
+    try {
+      const org = await cf.getAccessOrganization(accountId);
+      if (org) return org;
+    } catch { /* keep polling — transient during propagation */ }
+  }
+  return null;
+}
+
 /** Turn an allow-list entry into an Access include rule. */
 function accessRule(entry) {
   return entry.includes('@')
@@ -347,12 +484,18 @@ function accessRule(entry) {
  * identity provider to configure).
  */
 export async function ensureAccess(cf, accountId, opts) {
-  const { hostname, allowed, sessionDuration, teamName, followUps } = opts;
+  const { hostname, allowed, sessionDuration, teamName, followUps, pagesProjectName } = opts;
 
   if (!allowed.length) {
     warn('ALLOWED_EMAILS is empty — skipping Cloudflare Access. The dashboard will be readable by anyone who finds it.');
     return;
   }
+
+  // Manual click-path for turning Zero Trust on. Cloudflare Access requires the
+  // account to have Zero Trust activated once (pick a team name / subscribe to
+  // the free plan) before the org API works — the API cannot do that first
+  // activation for you. Referenced from several branches below.
+  const ZT_ACTIVATE = 'If this is a brand-new account, Zero Trust may not be activated yet: open dashboard → Zero Trust once, choose a team name and the Free plan, then re-run `./a51 access`.';
 
   // 1. Zero Trust organization. One per account; it owns the login subdomain.
   let org = null;
@@ -362,7 +505,9 @@ export async function ensureAccess(cf, accountId, opts) {
     degraded(
       followUps,
       `could not read the Zero Trust organization: ${err.message}`,
-      'The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit.',
+      isAuthError(err)
+        ? authFixHint('Account · Access: Organizations, Identity Providers, and Groups:Edit', { extra: ZT_ACTIVATE })
+        : `The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit.\n${ZT_ACTIVATE}`,
     );
     return;
   }
@@ -372,11 +517,20 @@ export async function ensureAccess(cf, accountId, opts) {
     try {
       org = await cf.createAccessOrganization(accountId, { name: teamName, authDomain });
       ok(`created Zero Trust organization ${color.bold(authDomain)}`);
+      // A just-created org isn't instantly usable by the IdP / app endpoints —
+      // that first-run race is what made the app creation below fail until a
+      // second run. Poll until the org reads back before proceeding.
+      await waitForAccessOrg(cf, accountId);
     } catch (err) {
       degraded(
         followUps,
         `could not create a Zero Trust organization (${authDomain}): ${err.message}`,
-        'Team names are globally unique — set ACCESS_TEAM_NAME in .env to something else and re-run\n`./a51 access`, or create the team by hand at dashboard → Zero Trust.',
+        [
+          'This can fail for a few reasons:',
+          '  • Team names are globally unique — if taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 access`.',
+          `  • ${ZT_ACTIVATE}`,
+          '  • The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit (and a just-edited token may need a minute to propagate).',
+        ].join('\n'),
       );
       return;
     }
@@ -401,11 +555,32 @@ export async function ensureAccess(cf, accountId, opts) {
     warn(`could not confirm the One-time PIN login method: ${err.message}`);
   }
 
-  // 3. The application itself, with its allow policy attached inline.
+  // 3. The destinations to guard. A Cloudflare Pages dashboard is reachable at
+  // BOTH its custom domain AND the project's *.pages.dev URL — the apex plus
+  // every preview deployment (main.<sub>.pages.dev, <hash>.<sub>.pages.dev). If
+  // Access only guards the custom domain, the pages.dev URL is an
+  // UNAUTHENTICATED BYPASS, so the app must cover all of them. The custom host is
+  // listed first so the app's `domain` (and our lookup on it) stays stable.
+  const destinations = [{ type: 'public', uri: hostname }];
+  if (pagesProjectName) {
+    try {
+      const proj = await cf.getPagesProject(accountId, pagesProjectName);
+      const sub = proj && proj.subdomain;   // e.g. area51-ai1.pages.dev
+      if (sub && !destinations.some((d) => d.uri === sub)) {
+        destinations.push({ type: 'public', uri: sub });          // the apex
+        destinations.push({ type: 'public', uri: `*.${sub}` });   // preview + branch URLs
+      }
+    } catch { /* if the project can't be read, guard the custom host only */ }
+  }
+
+  // 4. The application itself, with its allow policy attached inline. `domain`
+  // (legacy, single) is kept alongside `destinations` (the current multi-host
+  // model — self_hosted_domains was deprecated in 2025).
   const body = {
     name: 'AREA 51 dashboard',
     type: 'self_hosted',
     domain: hostname,
+    destinations,
     session_duration: sessionDuration,
     app_launcher_visible: false,
     ...(otpId ? { allowed_idps: [otpId], auto_redirect_to_identity: true } : {}),
@@ -429,11 +604,19 @@ export async function ensureAccess(cf, accountId, opts) {
       ok(`Access application protects ${color.bold(hostname)} (${allowed.length} identity rule${allowed.length === 1 ? '' : 's'})`);
     }
     info(color.dim(`allowed: ${allowed.join(', ')}`));
+    if (destinations.length > 1) {
+      info(color.dim(`also guards the pages.dev URL (no Access bypass): ${destinations.slice(1).map((d) => d.uri).join(', ')}`));
+    } else if (pagesProjectName) {
+      warn('could not read the Pages subdomain — the app guards only the custom domain. Re-run once the Pages project exists so the *.pages.dev URL is covered too.');
+    }
   } catch (err) {
+    const manual = `Configure it by hand: dashboard → Zero Trust → Access → Applications → Add an application\n→ Self-hosted → domain ${hostname} → policy Allow / Emails: ${allowed.join(', ')}.`;
     degraded(
       followUps,
       `could not configure Cloudflare Access on ${hostname}: ${err.message}`,
-      `Configure it by hand: dashboard → Zero Trust → Access → Applications → Add an application\n→ Self-hosted → domain ${hostname} → policy Allow / Emails: ${allowed.join(', ')}.\nThe token needs Account · Access: Apps and Policies:Edit.`,
+      isAuthError(err)
+        ? authFixHint('Account · Access: Apps and Policies:Edit', { extra: manual })
+        : `${manual}\nThe token needs Account · Access: Apps and Policies:Edit.`,
     );
   }
 }

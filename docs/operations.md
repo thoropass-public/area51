@@ -113,13 +113,24 @@ pasted somewhere it should not have been, or on a schedule you set.
 ## Changing who can log in
 
 ```bash
-./a51 access                                  # re-apply ALLOWED_EMAILS from .env
-./a51 access alice@example.com,example.com    # set it explicitly (also writes .env)
+./a51 access --list                             # show the current allow-list (read-only)
+./a51 access --add new@gmail.com,asca.com       # add entries, keep the existing ones
+./a51 access --remove new@gmail.com             # remove entries, keep the rest
+./a51 access                                    # re-apply ALLOWED_EMAILS from .env
 ```
 
-The allow policy is replaced, not appended to. Existing sessions keep working
-until they expire — revoke them in Zero Trust → Access → *your app* if that
-matters.
+`--add` / `--remove` edit the allow-list incrementally against what is already in
+`ALLOWED_EMAILS`. Entries are full addresses (`you@example.com`) or bare domains
+(`example.com`), normalised to lowercase. Both write the result to the Access
+policy **and** back to `ALLOWED_EMAILS` in `.env`.
+
+There is no positional "replace the whole list" form — it was removed as a
+footgun (it silently wiped any entry you forgot to re-type). **To set the list
+wholesale**, edit `ALLOWED_EMAILS` in `.env` and run a bare `./a51 access`, which
+re-applies exactly what the file says. You cannot leave the list empty (that would
+make the dashboard public — use `./a51 setup --no-access` if you truly want that).
+Existing sessions keep working until they expire — revoke them in Zero Trust →
+Access → *your app* if that matters.
 
 ## Renaming things
 
@@ -174,8 +185,21 @@ repository. The second (`DELETE-DATA`) deletes the database and both buckets,
 which is permanent. Answering no to the second leaves your captures intact and
 lets `./a51 setup` rebuild on top of them.
 
-R2 refuses to delete a bucket that still holds objects; empty it in the dashboard
-first if that happens. Email Routing is left enabled on the zone — it has its own
-locked DNS records, and disabling it is a zone-level decision.
+**No manual dashboard steps.** `destroy` handles the two cases Cloudflare refuses
+to do implicitly, so the whole teardown stays one command:
+
+- **Pages custom domains** are detached before the project is deleted (Cloudflare
+  will not delete a project that still has one — `[8000028]`).
+- **Non-empty R2 buckets** are emptied before deletion (R2 refuses to delete a
+  bucket with objects — `[10008]`). Emptying happens only inside the `DELETE-DATA`
+  gate. It lists the objects over R2's S3 API using credentials derived from your
+  existing API token — nothing extra to create — and deletes them via the REST
+  object API. See [decisions.md](decisions.md#destroy-empties-buckets-itself-s3-to-list-v4-to-delete).
+
+`destroy` is also safe to re-run over a half-torn-down deployment: anything
+already gone (a worker, the database, a bucket) is skipped rather than erroring.
+
+Email Routing is left enabled on the zone — it has its own locked DNS records,
+and disabling it is a zone-level decision (dashboard → Email → Email Routing).
 
 `.env` is never touched. Delete it yourself when you are done.

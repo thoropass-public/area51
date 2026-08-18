@@ -11,6 +11,9 @@
 import { loadContext, zoneForHostname } from '../lib/context.mjs';
 import { heading, plain, ok, warn, skip, color, info } from '../lib/log.mjs';
 import { typeToConfirm, confirm, closePrompts } from '../lib/prompt.mjs';
+import { deriveR2Credentials, listR2ObjectKeys } from '../lib/r2s3.mjs';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function run() {
   const { env, cf, accountId } = await loadContext();
@@ -48,11 +51,37 @@ export async function run() {
 
   try {
     const project = await cf.getPagesProject(accountId, env.PAGES_PROJECT_NAME);
-    if (project) {
-      await cf.deletePagesProject(accountId, env.PAGES_PROJECT_NAME);
-      ok(`deleted Pages project ${env.PAGES_PROJECT_NAME}`);
-    } else {
+    if (!project) {
       skip(`Pages project ${env.PAGES_PROJECT_NAME} does not exist`);
+    } else {
+      // Cloudflare refuses to delete a project while any custom domain is still
+      // attached ([8000028]). Detach every one first — no manual dashboard step.
+      let domains = [];
+      try { domains = (await cf.listPagesDomains(accountId, env.PAGES_PROJECT_NAME)) || []; }
+      catch (err) { warn(`could not list the Pages custom domains: ${err.message}`); }
+      for (const d of domains) {
+        try {
+          await cf.deletePagesDomain(accountId, env.PAGES_PROJECT_NAME, d.name);
+          ok(`removed custom domain ${d.name} from ${env.PAGES_PROJECT_NAME}`);
+        } catch (err) {
+          warn(`could not remove custom domain ${d.name}: ${err.message}`);
+        }
+      }
+      // The detach can take a moment to register; retry the project delete a few
+      // times before giving up so the whole thing stays one command.
+      let lastErr = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await cf.deletePagesProject(accountId, env.PAGES_PROJECT_NAME);
+          ok(`deleted Pages project ${env.PAGES_PROJECT_NAME}`);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 2) await sleep(2000);
+        }
+      }
+      if (lastErr) throw lastErr;
     }
   } catch (err) {
     warn(`could not delete the Pages project: ${err.message}`);
@@ -104,21 +133,64 @@ export async function run() {
   plain('');
   if (env.D1_DATABASE_ID) {
     try {
-      await cf.delete(`/accounts/${accountId}/d1/database/${env.D1_DATABASE_ID}`);
-      ok(`deleted D1 database ${env.D1_DATABASE_NAME}`);
+      let exists = true;
+      try {
+        await cf.get(`/accounts/${accountId}/d1/database/${env.D1_DATABASE_ID}`);
+      } catch (e) {
+        if (e.status === 404) exists = false; else throw e;
+      }
+      if (!exists) {
+        skip(`D1 database ${env.D1_DATABASE_NAME} does not exist`);
+      } else {
+        await cf.delete(`/accounts/${accountId}/d1/database/${env.D1_DATABASE_ID}`);
+        ok(`deleted D1 database ${env.D1_DATABASE_NAME}`);
+      }
     } catch (err) {
       warn(`could not delete the database: ${err.message}`);
     }
   }
 
+  // R2 refuses to delete a non-empty bucket ([10008]), so each bucket is emptied
+  // first. Objects are ENUMERATED via R2's S3 API (the v4 REST API has no
+  // reliable object list) using credentials derived from this same token, then
+  // DELETED via the v4 object API. This runs only inside the DELETE-DATA gate
+  // above, so emptying is always an explicit, confirmed choice. R2 creds are
+  // derived once and reused across both buckets.
+  let r2creds = null;
   for (const bucket of [env.R2_BUCKET_NAME, env.R2_FILES_BUCKET_NAME].filter(Boolean)) {
     try {
+      // Skip a bucket that is already gone, so re-running after a partial destroy
+      // is boring rather than noisy.
+      let exists = true;
+      try {
+        await cf.get(`/accounts/${accountId}/r2/buckets/${encodeURIComponent(bucket)}`);
+      } catch (e) {
+        if (e.status === 404) exists = false; else throw e;
+      }
+      if (!exists) { skip(`R2 bucket ${bucket} does not exist`); continue; }
+
+      // Empty it. Listing is S3; deletion is the v4 object API.
+      if (!r2creds) r2creds = await deriveR2Credentials(cf);
+      const keys = await listR2ObjectKeys(accountId, bucket, r2creds);
+      if (keys.length) {
+        info(color.dim(`  emptying ${bucket}: ${keys.length} object${keys.length === 1 ? '' : 's'}`));
+        let deleted = 0;
+        let failed = 0;
+        const CONCURRENCY = 16;
+        for (let i = 0; i < keys.length; i += CONCURRENCY) {
+          const batch = keys.slice(i, i + CONCURRENCY);
+          const results = await Promise.allSettled(batch.map((k) => cf.deleteR2Object(accountId, bucket, k)));
+          for (const r of results) { if (r.status === 'fulfilled') deleted += 1; else failed += 1; }
+        }
+        if (failed) warn(`  ${failed} object${failed === 1 ? '' : 's'} in ${bucket} could not be deleted — the bucket delete below may fail`);
+        ok(`emptied ${bucket} (${deleted} object${deleted === 1 ? '' : 's'} deleted)`);
+      }
+
       await cf.delete(`/accounts/${accountId}/r2/buckets/${encodeURIComponent(bucket)}`);
       ok(`deleted R2 bucket ${bucket}`);
     } catch (err) {
       warn(`could not delete bucket ${bucket}: ${err.message}`);
-      info(color.dim('  R2 refuses to delete a bucket that still has objects. Empty it first:'));
-      info(color.dim(`  dashboard → R2 → ${bucket} → select all → Delete, then re-run.`));
+      info(color.dim('  If this persists, empty it in the dashboard (R2 → bucket → select all → Delete) and re-run.'));
     }
   }
 

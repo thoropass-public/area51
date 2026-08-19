@@ -197,6 +197,7 @@ Start at **[docs/README.md](docs/README.md)**. In reading order:
 |---|---|
 | [architecture.md](docs/architecture.md) | Every component, both capture flows, what talks to what |
 | [setup.md](docs/setup.md) | API token permissions, what setup does step by step, manual fallbacks |
+| [deployment.md](docs/deployment.md) | What a healthy deployment looks like in the Cloudflare dashboard — annotated screenshots |
 | [configuration.md](docs/configuration.md) | Every `.env` value: meaning, default, what changing it costs |
 | [database.md](docs/database.md) | Table-by-table schema, both R2 buckets, migrations |
 | [api.md](docs/api.md) | The dashboard's HTTP API contract |
@@ -207,7 +208,7 @@ Start at **[docs/README.md](docs/README.md)**. In reading order:
 | [operations.md](docs/operations.md) | Day-two: deploys, domains, purging, logs, quotas, rotation |
 | [security.md](docs/security.md) | Trust model, what is public, what protects what |
 | [troubleshooting.md](docs/troubleshooting.md) | Symptom → cause → fix |
-| [development.md](docs/development.md) | Local dev, code map, conventions |
+| [development.md](docs/development.md) | Local dev, the code map, conventions, common tasks (add an API route or tab), and testing |
 | [decisions.md](docs/decisions.md) | Why the non-obvious choices are the way they are |
 
 ---

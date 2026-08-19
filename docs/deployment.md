@@ -1,0 +1,108 @@
+# Deployment reference — a healthy deployment in the Cloudflare dashboard
+
+After `./a51 setup` finishes (and the manual prerequisites are done — see
+[setup.md](setup.md)), this is what a correctly-provisioned AREA 51 deployment
+looks like in the Cloudflare dashboard. Use it to eyeball that everything landed;
+`./a51 doctor` checks the same things programmatically.
+
+> The screenshots are from a real deployment on a throwaway zone; account ids,
+> the zone name and email addresses are partly redacted.
+
+---
+
+## Workers & Pages
+
+The three Workers and the Pages project, all deployed:
+
+![Workers & Pages overview](images/workers-and-pages.png)
+
+- **area51-black-holes** — the public catcher (HTTP + email).
+- **area51-autopilot** — the agent-facing REST + MCP server, on its own hostname.
+- **area51-cleanup** — the retention worker; **no active routes** (cron only).
+- **area51** — the dashboard, a Pages project served at `area51-ai1.pages.dev`
+  ( *+ 1 other domain* = the custom `area51.<zone>` domain). The `-ai1` suffix is
+  Cloudflare disambiguating a globally-taken `*.pages.dev` name — expected, and
+  the reason Access must also guard the pages.dev URL (below).
+
+---
+
+## D1 database
+
+One database, `area51`, holds all metadata (six tables — no message bodies):
+
+![D1 database](images/d1-database.png)
+
+Created by setup; `./a51 doctor` verifies the schema and every binding onto it.
+
+---
+
+## R2 object storage
+
+Captured email lives in the **area51-emails** bucket, with **Public Access
+Disabled** and the verbatim `.eml` objects under the `emails/` prefix:
+
+![R2 object storage](images/r2-object-storage.png)
+
+There is a second bucket, **area51-files**, for file-backed endpoint uploads
+(not shown). Both are private — nothing in R2 is publicly reachable.
+
+---
+
+## Cloudflare Access (Zero Trust)
+
+Access is the dashboard's **only** authentication. These three views confirm it
+is configured correctly — including that the `*.pages.dev` URL is guarded, so the
+dashboard can't be reached unauthenticated by its Pages URL.
+
+### The application
+
+A self-hosted application, **AREA 51 dashboard**, with an **AREA 51 operators**
+allow policy. Note *+ 2 other domains* under Destinations — the app protects more
+than just the custom hostname:
+
+![Access application](images/access-application.png)
+
+### The allow policy
+
+Default-deny, with one **Allow** policy of two include rules — an email-domain
+rule and an exact-address rule (built from `ALLOWED_EMAILS`). Only these
+identities get a one-time PIN and in:
+
+![Access allow policy](images/access-policy.png)
+
+### Destinations — the pages.dev bypass is closed
+
+The important one. The application guards **three** public hostnames:
+
+1. `area51.<zone>` — the custom dashboard domain
+2. `area51-ai1.pages.dev` — the Pages **apex** URL
+3. `*.area51-ai1.pages.dev` — every **preview / branch** deployment URL
+
+![Access destinations](images/access-destinations.png)
+
+If only the custom domain were listed, anyone with the `*.pages.dev` URL could
+reach the dashboard with **no login**. `./a51 setup` and `./a51 access` add all
+three automatically, and `./a51 doctor` fails if the pages.dev destination is
+ever missing.
+
+### Preview
+
+The end-to-end summary — **all authenticated users** matching the **AREA 51
+operators** policy may reach the three destinations:
+
+![Access preview](images/access-preview.png)
+
+---
+
+## Cross-check with the CLI
+
+Everything above is what these commands assert without opening the dashboard:
+
+```bash
+./a51 status     # what is deployed, and where
+./a51 doctor     # every binding, domain, policy — and probes the live hosts
+```
+
+`doctor` specifically confirms the Workers and Pages bindings, the D1 schema,
+both R2 buckets, the Access application **and** that its destinations include the
+`*.pages.dev` URL.

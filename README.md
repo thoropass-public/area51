@@ -32,26 +32,7 @@ cp .env.example .env      # paste your Cloudflare API token
 
 ## How it works
 
-```
-                       ┌──────────────────────── your Cloudflare account ───────┐
-                       │                                                        │
- target ──HTTP────────►│  black-hole.com/*        Black Holes worker             │
- target ──email───────►│  *@black-hole.com        ├── serves your endpoint       │
-                       │                          ├── logs the request     ┐     │
-                       │                          └── stores the raw .eml  │     │
-                       │                                                   ▼     │
-                       │                                    ┌──────────────────┐ │
- you ──browser────────►│  area51.your-domain.com            │ D1  (metadata)   │ │
-                       │  Cloudflare Pages + Access         │ R2  (.eml, files)│ │
-                       │  ├── React dashboard               └──────────────────┘ │
-                       │  └── /api/* Pages Functions ─────────────►  ▲  ▲        │
-                       │                                            │  │        │
- AI agent ──MCP───────►│  autopilot.your-domain.com  ───────────────┘  │        │
-                       │  shared-secret REST + MCP server              │        │
-                       │                                              │        │
-                       │  cleanup worker (daily cron) ────────────────┘        │
-                       └────────────────────────────────────────────────────────┘
-```
+![AREA 51 architecture](docs/arch.png)
 
 - A request to any path on a black hole is **logged** (method, URL, IP, headers,
   body) and answered with the endpoint you configured for that exact path — or
@@ -98,7 +79,7 @@ cp .env.example .env       # then paste CLOUDFLARE_API_TOKEN into it
 ./a51 setup                # provisions and deploys everything
 ```
 
-`setup` asks four things and remembers the answers in `.env`:
+`setup` asks a handful of things and remembers the answers in `.env`:
 
 | Prompt | Default | What it becomes |
 |---|---|---|
@@ -187,9 +168,10 @@ Add a second black hole any time — no redeploy, no code change:
 .
 ├── a51                     CLI entrypoint (./a51 <command>)
 ├── .env.example            every configuration value, documented
+├── CLAUDE.md               guidance for AI agents working in this repo
 ├── cli/                    the CLI: provisioning over the Cloudflare API
 │   ├── a51.mjs             command dispatch
-│   ├── lib/                API client, .env handling, prompts, wrangler wrapper
+│   ├── lib/                API client, .env I/O, prompts, wrangler wrapper, R2 S3 signer
 │   └── commands/           one file per command
 ├── db/
 │   └── schema.sql          the D1 schema (idempotent, commented)

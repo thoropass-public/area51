@@ -4,87 +4,8 @@ Everything runs on one Cloudflare account. There are three Workers, one Pages
 project, one D1 database and two R2 buckets. No origin server, no container, no
 long-lived process.
 
-```mermaid
-%%{init: {'theme':'base','flowchart':{'curve':'basis','nodeSpacing':40,'rankSpacing':80},'themeVariables':{'fontSize':'14px','lineColor':'#94a3b8','clusterBkg':'#f8fafc','clusterBorder':'#cbd5e1'}}}%%
-flowchart LR
-  target["<b>Target</b><br/>HTTP + email"]:::actor
-  operator["<b>You</b><br/>browser"]:::actor
-  agent["<b>AI agent</b><br/>MCP"]:::actor
+![AREA 51 architecture](arch.png)
 
-  subgraph CF["&nbsp;☁&nbsp; Your Cloudflare account — no origin server &nbsp;"]
-    direction LR
-    bh["<b>Black Holes worker</b><br/>black-hole.com/*<br/>*@black-hole.com<br/>serves endpoints · logs requests · stores .eml"]:::worker
-    pages["<b>Dashboard</b><br/>area51.your-domain.com<br/>Cloudflare Pages + Access<br/>React + /api/* Functions"]:::app
-    ap["<b>Autopilot</b><br/>autopilot.your-domain.com<br/>shared-secret REST + MCP · /-/* only"]:::worker
-    cleanup["<b>Cleanup worker</b><br/>daily cron"]:::worker
-
-    subgraph STORE["&nbsp; Shared state — the only coupling &nbsp;"]
-      direction TB
-      d1[("<b>D1</b><br/>metadata")]:::store
-      r2[("<b>R2</b><br/>.eml + files")]:::store
-    end
-  end
-
-  %% entry points — mail goes straight to the worker's email() handler via the
-  %% zone catch-all; Access sits on the dashboard hostname (folded into Pages).
-  target -->|HTTP| bh
-  target -->|email| bh
-  operator -->|browser| pages
-  agent -->|"MCP · secret"| ap
-
-  %% every piece shares state ONLY through D1 + R2 — no service bindings, no RPC.
-  bh ==> STORE
-  pages ==> STORE
-  ap ==> STORE
-  cleanup ==> STORE
-
-  classDef actor  fill:#dbeafe,stroke:#3b82f6,stroke-width:1.5px,color:#1e3a8a;
-  classDef worker fill:#dcfce7,stroke:#22c55e,stroke-width:1.5px,color:#14532d;
-  classDef app    fill:#ede9fe,stroke:#8b5cf6,stroke-width:1.5px,color:#4c1d95;
-  classDef store  fill:#e2e8f0,stroke:#64748b,stroke-width:1.5px,color:#0f172a;
-```
-
-The same picture in more detail, with the internal data paths:
-
-```
-                ┌──────────────────────────────────────────────────────────┐
-                │ Cloudflare                                               │
-                │                                                          │
-  Internet ─────┼─► <black-hole>/*   ── Black Holes worker                  │
-  (targets,     │     ├── fetch()  ─────┐                                  │
-   senders)     │     └── email()  ──┐  │                                  │
-                │                    │  │                                  │
-                │                    │  ▼                                  │
-                │                    │ ┌──────────────────────────────────┐│
-                │                    │ │ D1: one database                 ││
-                │                    │ │  endpoints · requests · emails   ││
-                │                    │ │  ip_blacklist · email_blacklist  ││
-                │                    │ │  domains                         ││
-                │      raw .eml ─────┤ └──────────────────────────────────┘│
-                │            ▼       │   ▲   ▲                             │
-                │ ┌──────────────────┴─┐ │   │                             │
-                │ │ R2: captured email │ │   │                             │
-                │ │   emails/<id>.eml  │ │   │                             │
-                │ ├────────────────────┤ │   │                             │
-                │ │ R2: endpoint files │ │   │                             │
-                │ │   <uuid>           │ │   │                             │
-                │ └────────────────────┘ │   │                             │
-                │                        │   │                             │
-  Operator ─────┼─► dashboard (Pages)    │   │                             │
-   (browser)    │   ├── static React ────┘   │  read/write D1               │
-                │   └── /api/* Functions ────┤  read/write both buckets     │
-                │        ▲                   │                             │
-                │   Cloudflare Access        │                             │
-                │                            │                             │
-  AI agent ─────┼─► autopilot worker ────────┤  read D1 + email bucket,     │
-   (MCP/REST)   │   X-A51-Secret             │  write only /-/* endpoints   │
-                │                            │                             │
-                │   cleanup worker (cron) ───┘  delete old rows + objects   │
-                │                                                          │
-                │   Email Routing fallback ──► FALLBACK_ADDRESS             │
-                │   (only when capture fails)                              │
-                └──────────────────────────────────────────────────────────┘
-```
 
 ## Components
 

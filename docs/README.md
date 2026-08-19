@@ -27,6 +27,7 @@ For a first read, in this order:
 
 | Document | Covers |
 |---|---|
+| [deployment.md](deployment.md) | What a healthy deployment looks like in the Cloudflare dashboard — annotated screenshots of Workers & Pages, D1, R2 and Access (a visual companion to `./a51 doctor`) |
 | [database.md](database.md) | D1 tables column by column, both R2 buckets, indexes, migrations, what is deliberately *not* stored |
 | [api.md](api.md) | Every dashboard API route: parameters, response shapes, pagination, error conventions |
 | [dashboard.md](dashboard.md) | The frontend: file responsibilities, list/pin/grouping behaviour, modals, email rendering, session handling |

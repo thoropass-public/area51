@@ -261,7 +261,7 @@ export async function run(args) {
     }
 
     // DNS target — the dashboard CNAME must point at the project's REAL subdomain
-    // (Cloudflare suffixes it on a global name collision, e.g. area51-ai1.pages.dev),
+    // (Cloudflare suffixes it on a global name collision, e.g. area51-xxxx.pages.dev),
     // not a guessed `<name>.pages.dev`.
     try {
       const zone = await zoneForHostname(cf, accountId, env.DASHBOARD_HOSTNAME);

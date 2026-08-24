@@ -332,7 +332,7 @@ fallback — repairs itself.
   now pins `production_branch = main` on the patch and redeploys, and treats a
   failed create as "attach bindings + redeploy," not a dead end.
 - **Wrong DNS target.** The `*.pages.dev` subdomain is global; a common name like
-  `area51` collides and Cloudflare hands back a suffixed one (`area51-ai1.pages.dev`).
+  `area51` collides and Cloudflare hands back a suffixed one (`area51-xxxx.pages.dev`).
   `ensurePagesDomain` reads the project's *real* subdomain instead of guessing
   `<name>.pages.dev`, and repoints a stale Pages CNAME to it automatically.
 

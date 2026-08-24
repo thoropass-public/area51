@@ -19,10 +19,12 @@ The three Workers and the Pages project, all deployed:
 - **area51-black-holes** — the public catcher (HTTP + email).
 - **area51-autopilot** — the agent-facing REST + MCP server, on its own hostname.
 - **area51-cleanup** — the retention worker; **no active routes** (cron only).
-- **area51** — the dashboard, a Pages project served at `area51-ai1.pages.dev`
-  ( *+ 1 other domain* = the custom `area51.<zone>` domain). The `-ai1` suffix is
+- **area51** — the dashboard, a Pages project served at `area51-xxxx.pages.dev`
+  ( *+ 1 other domain* = the custom `area51.<zone>` domain). The `-xxxx` suffix is
   Cloudflare disambiguating a globally-taken `*.pages.dev` name — expected, and
-  the reason Access must also guard the pages.dev URL (below).
+  the reason Access must also guard the pages.dev URL (below). Yours will carry a
+  different suffix; the screenshots on this page show one real assignment, so read
+  `area51-xxxx` wherever they show a concrete one.
 
 ---
 
@@ -75,8 +77,8 @@ identities get a one-time PIN and in:
 The important one. The application guards **three** public hostnames:
 
 1. `area51.<zone>` — the custom dashboard domain
-2. `area51-ai1.pages.dev` — the Pages **apex** URL
-3. `*.area51-ai1.pages.dev` — every **preview / branch** deployment URL
+2. `area51-xxxx.pages.dev` — the Pages **apex** URL
+3. `*.area51-xxxx.pages.dev` — every **preview / branch** deployment URL
 
 ![Access destinations](images/access-destinations.png)
 

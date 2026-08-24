@@ -35,3 +35,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Media Kit
+media-kit/

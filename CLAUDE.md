@@ -188,5 +188,5 @@ The root [README.md](README.md) is deliberately non-technical: what the tool is,
 what it proves, requirements, the four install commands, and links. Keep detail
 out of it; put it in the right `docs/` tier instead.
 
-Licensed Apache-2.0 (`LICENSE`, `NOTICE`, copyright Thoropass). Brand assets that
+Licensed Apache-2.0 (`LICENSE`, `NOTICE`); © Copyright 2026 Thoropass, Inc. Brand assets that
 the README renders live in `.github/assets/brand/`; `media-kit/` is gitignored.

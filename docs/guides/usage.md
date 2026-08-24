@@ -294,8 +294,7 @@ endpoints you crafted, so the next engagement starts from a clean namespace.
 
 Captured data is client data: request bodies and inbound mail routinely contain
 tokens, reset links and personal information. Treat the deployment as evidence
-storage, keep retention short, and purge when the report ships
-([security](../security.md#what-lands-on-a-public-host)).
+storage, keep retention short, and purge when the report ships.
 
 ---
 

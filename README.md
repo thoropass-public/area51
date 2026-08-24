@@ -160,7 +160,6 @@ Full walkthrough, with the manual fallback for every step:
 | **[CLI](docs/reference/cli.md)** · **[Configuration](docs/reference/configuration.md)** | Every command; every `.env` value |
 | **[API](docs/reference/api.md)** · **[Database](docs/reference/database.md)** | The dashboard's HTTP API; tables and buckets |
 | **[Internals](docs/internals/architecture.md)** | Architecture, catcher, Autopilot, dashboard, retention |
-| **[Security](docs/security.md)** | Trust model, exposure, authentication, secrets |
 | **[Decisions](docs/decisions.md)** | Why the non-obvious choices are the way they are |
 
 Start at **[docs/README.md](docs/README.md)** for the full map.

@@ -14,8 +14,8 @@ Three tiers, organised by *why you opened the page*:
 - **[reference/](#reference)** — lookup. "What is the exact value, flag or route?"
 - **[internals/](#internals)** — mechanism. "How does this actually work?"
 
-Plus three cross-cutting documents everyone reads eventually:
-[security](security.md), [development](development.md), [decisions](decisions.md).
+Plus two cross-cutting documents everyone reads eventually:
+[development](development.md) and [decisions](decisions.md).
 
 ---
 
@@ -23,12 +23,12 @@ Plus three cross-cutting documents everyone reads eventually:
 
 | If you are… | Read, in order |
 |---|---|
-| **Deploying it for the first time** | [guides/getting-started](guides/getting-started.md) → [guides/verify-deployment](guides/verify-deployment.md) → [security](security.md) |
+| **Deploying it for the first time** | [guides/getting-started](guides/getting-started.md) → [guides/verify-deployment](guides/verify-deployment.md) |
 | **Running an engagement with it** | [guides/usage](guides/usage.md) → [reference/cli](reference/cli.md) |
 | **Operating it day to day** | [guides/operations](guides/operations.md) → [reference/configuration](reference/configuration.md) → [guides/troubleshooting](guides/troubleshooting.md) |
 | **Wiring it into an AI agent** | [guides/usage → hand it to an agent](guides/usage.md#hand-the-engagement-to-an-agent) → [internals/autopilot](internals/autopilot.md) |
 | **Taking over the codebase** | [internals/architecture](internals/architecture.md) → [development](development.md) → [decisions](decisions.md) |
-| **Reviewing it before you trust it** | [security](security.md) → [internals/architecture](internals/architecture.md) → [reference/database](reference/database.md) |
+| **Reviewing it before you trust it** | [internals/architecture](internals/architecture.md) → [reference/database](reference/database.md) → [decisions](decisions.md) |
 
 ## Guides
 
@@ -69,7 +69,6 @@ How each runtime piece behaves. Read the relevant page before changing one.
 
 | Document | Covers |
 |---|---|
-| [security](security.md) | Trust model, what is public by design, Cloudflare Access as the dashboard's only authentication, secret handling, untrusted-content handling, and the deliberate non-features |
 | [development](development.md) | Running pieces locally, the code map, conventions per layer, testing, and how to add a route, a column, a command or an MCP tool |
 | [decisions](decisions.md) | The design decision log — every non-obvious trade-off and what undoing it costs. Read this before "fixing" something that looks wrong |
 

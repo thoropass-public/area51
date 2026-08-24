@@ -180,7 +180,7 @@ page in the same commit:
 | [docs/reference/](docs/reference/) | cli, configuration, api, database | a command or flag, a `.env` value, a route, a column |
 | [docs/internals/](docs/internals/) | architecture, black-holes, autopilot, dashboard, cleanup | how a runtime piece behaves |
 
-Cross-cutting: [security](docs/security.md), [development](docs/development.md),
+Cross-cutting: [development](docs/development.md) and
 [decisions](docs/decisions.md). The index at [docs/README.md](docs/README.md)
 carries a table per tier — add new pages there too.
 

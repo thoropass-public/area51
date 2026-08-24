@@ -149,50 +149,6 @@ in the dashboard seconds later; mail to any address at it lands in the same plac
 Full walkthrough, with the manual fallback for every step:
 **[docs/guides/getting-started.md](docs/guides/getting-started.md)**.
 
-## Architecture
-
-<img src=".github/assets/architecture.png" alt="AREA 51 architecture" width="100%">
-
-Four serverless pieces sharing one database and two object-storage buckets. No
-origin server exists, so there is nothing to patch, scale or pay for between
-engagements. Details in
-[docs/internals/architecture.md](docs/internals/architecture.md).
-
-## The CLI
-
-| Command | Does |
-|---|---|
-| `./a51 setup` | Provision the whole deployment (safe to re-run) |
-| `./a51 deploy [target]` | Upload code: `all`, `black-holes`, `autopilot`, `cleanup`, `dashboard`, `schema` |
-| `./a51 status` | What is deployed, and where |
-| `./a51 doctor [--fix]` | Verify every binding, domain and policy; probe the live hosts |
-| `./a51 domains` | `list` · `add <host> [http,mail]` · `remove <host>` |
-| `./a51 access` | `--list` · `--add` · `--remove` who may open the dashboard |
-| `./a51 purge` | Delete captured data — records and stored messages together |
-| `./a51 rotate-secret` | Replace the Autopilot shared secret |
-| `./a51 tail [target]` | Stream a Worker's structured logs |
-| `./a51 dev <target>` | Run a piece locally against the remote stores |
-| `./a51 destroy` | Tear it all down (two typed confirmations) |
-
-Full reference: [docs/reference/cli.md](docs/reference/cli.md).
-
-## Repository layout
-
-```
-a51                  the CLI entrypoint
-cli/                 provisioning over the Cloudflare API — commands + libraries
-db/schema.sql        the database schema, idempotent and commented
-workers/
-  black-holes/       the catcher: HTTP + email capture
-  autopilot/         the agent-facing REST + MCP server
-  cleanup/           scheduled retention
-dashboard/           the dashboard — no build step, plus its JSON API
-docs/                guides, reference, internals
-```
-
-Conventions, code map and how to extend each layer:
-[docs/development.md](docs/development.md).
-
 ## Documentation
 
 | | |

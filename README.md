@@ -176,10 +176,7 @@ Test only what you are authorised to test.
 
 ## License and attribution
 
-Licensed under the **[Apache License 2.0](LICENSE)**. Copyright 2026 Thoropass.
+AREA is © Copyright 2026 Thoropass, Inc., licensed and released under the **[Apache License 2.0](LICENSE)**.
 See [NOTICE](NOTICE) for third-party components.
 
-The AREA 51 name and the alien mark are trademarks of Thoropass; the Apache-2.0
-grant covers the software, not the marks. The brand assets used here live in
-[`.github/assets/brand/`](.github/assets/brand); the full media kit — colour,
-type, clear space and misuse rules — is available on request.
+Built with ❤️ by Thoropass — https://thoropass.com

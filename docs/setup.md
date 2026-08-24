@@ -264,7 +264,7 @@ Same Custom Domain call, pointed at the Autopilot Worker.
   and redeploys so the live deployment carries them.
 - `POST /pages/projects/{p}/domains` for the dashboard hostname, plus a proxied
   `CNAME` to the project's **real** `*.pages.dev` subdomain (which Cloudflare may
-  suffix, e.g. `area51-ai1.pages.dev`, when the name is globally taken). A stale
+  suffix, e.g. `area51-xxxx.pages.dev`, when the name is globally taken). A stale
   Pages CNAME is repointed automatically; an unrelated record is left alone with a
   warning.
 

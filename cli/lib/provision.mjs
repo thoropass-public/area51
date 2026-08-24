@@ -381,7 +381,7 @@ export async function ensurePagesProject(cf, accountId, env, followUps) {
 export async function ensurePagesDomain(cf, accountId, env, hostname, project, followUps) {
   const name = env.PAGES_PROJECT_NAME;
   // Always resolve the project's REAL subdomain. Pages appends a suffix (e.g.
-  // area51-ai1.pages.dev) when the base name is taken globally, so a guessed
+  // area51-xxxx.pages.dev) when the base name is taken globally, so a guessed
   // `${name}.pages.dev` would point the custom domain at a host that isn't ours.
   let live = project;
   if (!live || !live.subdomain) {
@@ -565,7 +565,7 @@ export async function ensureAccess(cf, accountId, opts) {
   if (pagesProjectName) {
     try {
       const proj = await cf.getPagesProject(accountId, pagesProjectName);
-      const sub = proj && proj.subdomain;   // e.g. area51-ai1.pages.dev
+      const sub = proj && proj.subdomain;   // e.g. area51-xxxx.pages.dev
       if (sub && !destinations.some((d) => d.uri === sub)) {
         destinations.push({ type: 'public', uri: sub });          // the apex
         destinations.push({ type: 'public', uri: `*.${sub}` });   // preview + branch URLs

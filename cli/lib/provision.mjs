@@ -172,7 +172,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps) {
   // governed by Zone · Zone Settings — NOT by Email Routing Rules (which only
   // covers the catch-all rule set below). A token with Email Routing Rules but
   // no Zone Settings gets a bare [10000] "Authentication error" on enable, which
-  // is exactly the trap this messaging is written to defuse. See docs/setup.md.
+  // is exactly the trap this messaging is written to defuse. See docs/guides/getting-started.md.
 
   // Read current state. A zone that never touched Email Routing can 404 here —
   // that legitimately means "disabled". An AUTH error, though, is the real
@@ -204,7 +204,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps) {
       if (mx.length) {
         const shown = mx.slice(0, 3).map((r) => r.content).join(', ');
         warn(`${zone.name} already has ${mx.length} MX record${mx.length === 1 ? '' : 's'} (${shown}${mx.length > 3 ? ', …' : ''}).`);
-        warn('  Enabling Email Routing adds and LOCKS its own MX for the whole zone — this takes over inbound mail and breaks existing delivery. Use a domain with no prior mail (see docs/setup.md).');
+        warn('  Enabling Email Routing adds and LOCKS its own MX for the whole zone — this takes over inbound mail and breaks existing delivery. Use a domain with no prior mail (see docs/guides/getting-started.md).');
       }
     } catch { /* preflight only — never block the enable on a failed lookup */ }
 

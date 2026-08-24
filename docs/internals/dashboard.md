@@ -13,7 +13,7 @@ and deploying is a pure file upload.
 
 The cost is ~3 MB of JavaScript on first load and no tree-shaking or type
 checking. For a tool a handful of people open and leave open, that trade is worth
-it ([decisions.md](decisions.md#no-build-pipeline-for-the-frontend)). Because
+it ([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)). Because
 Babel-standalone does not resolve modules, every shared symbol is published on
 `window` — that is why `ui.jsx` assigns its exports to globals.
 
@@ -135,7 +135,7 @@ timestamp. A group is marked by three things that do not collide with the channe
 already in use (left edge = ribbons, background = read state): a **stack icon**, a
 To cell reading `<latest recipient>, and more`, and three fanned "page edge" bars
 on the row's right edge. There is deliberately **no count**
-([decisions.md](decisions.md#email-grouping-is-client-side-and-exact-pair)).
+([decisions.md](../decisions.md#email-grouping-is-client-side-and-exact-pair)).
 
 Clicking the stack icon confirms, then bulk-toggles the group's read state via
 `PATCH /api/emails` — scoped to the active filter when one is set. Clicking
@@ -160,7 +160,7 @@ filter change cannot land late and clobber the filtered view.
   `localStorage['area51:activeDomain']`. Only hosts with the `http` role are
   selectable; mail-only hosts are locked out.
 - **`Settings`** — blacklist management only. Purging is deliberately not in the
-  UI ([decisions.md](decisions.md#no-purge-in-the-dashboard)); use `./a51 purge`.
+  UI ([decisions.md](../decisions.md#no-purge-in-the-dashboard)); use `./a51 purge`.
 
 ## Untrusted content
 

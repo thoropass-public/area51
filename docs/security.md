@@ -32,7 +32,7 @@ sends you is stored. Assume:
 - **Captured data is sensitive.** Request bodies and inbound email routinely
   contain tokens, reset links, session identifiers and customer data. Treat the
   database and buckets as evidence storage: purge at the end of an engagement
-  (`./a51 purge`), and keep retention short ([cleanup.md](cleanup.md)).
+  (`./a51 purge`), and keep retention short ([cleanup.md](internals/cleanup.md)).
 
 Use a burner domain. It ends up in target logs, threat-intel feeds and blocklists,
 and it is publicly linked to your testing.
@@ -62,7 +62,7 @@ from `ALLOWED_EMAILS`.
   allow-list for your VPN egress. AREA 51 does not care how the policy is composed.
 - **`ACCESS_SESSION_DURATION`** trades convenience against a stolen-laptop window.
   The frontend handles mid-session expiry gracefully
-  ([dashboard.md](dashboard.md#expired-session-handling)), so a short duration is
+  ([dashboard.md](internals/dashboard.md#expired-session-handling)), so a short duration is
   cheap.
 - Pages Functions inherit the protection automatically — Access sits in front of
   the hostname, not in front of a route list.

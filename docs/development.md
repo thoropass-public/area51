@@ -49,12 +49,16 @@ Two things cannot be exercised locally:
 | `cli/lib/{log,prompt,context,sql}.mjs` | Output, prompts, per-command bootstrap, SQL splitting |
 | `cli/commands/*.mjs` | One file per command, each exporting `run(args) → exit code` |
 | `db/schema.sql` | The D1 schema, idempotent and commented |
-| `workers/black-holes/src/index.js` | HTTP + email capture ([black-holes.md](black-holes.md)) |
-| `workers/autopilot/src/index.js` | REST + MCP for agents ([autopilot.md](autopilot.md)) |
-| `workers/cleanup/src/index.js` | Scheduled retention ([cleanup.md](cleanup.md)) |
-| `dashboard/js/*.jsx` | Frontend ([dashboard.md](dashboard.md)) |
-| `dashboard/functions/api/**` | The dashboard's JSON API ([api.md](api.md)) |
-| `docs/` | This documentation set |
+| `workers/black-holes/src/index.js` | HTTP + email capture ([black-holes.md](internals/black-holes.md)) |
+| `workers/autopilot/src/index.js` | REST + MCP for agents ([autopilot.md](internals/autopilot.md)) |
+| `workers/cleanup/src/index.js` | Scheduled retention ([cleanup.md](internals/cleanup.md)) |
+| `dashboard/js/*.jsx` | Frontend ([dashboard.md](internals/dashboard.md)) |
+| `dashboard/functions/api/**` | The dashboard's JSON API ([api.md](reference/api.md)) |
+| `dashboard/functions/api/_shared.js` | `PAGE_SIZE`, `MAX_UPLOAD_BYTES`, `withErrorHandler`, `json` / `errResp` |
+| `docs/guides/` | Task-oriented documentation |
+| `docs/reference/` | CLI, `.env`, API and schema lookup tables |
+| `docs/internals/` | One page per runtime piece |
+| `LICENSE`, `NOTICE` | Apache-2.0 text, and the copyright / third-party notice |
 
 ## Conventions
 
@@ -96,23 +100,26 @@ Two things cannot be exercised locally:
 
 **Documentation**
 
-- `docs/` is expected to be exhaustive. If a change alters behaviour described
-  there, update it in the same commit.
+- `docs/` is expected to be exhaustive, and is organised in three tiers:
+  `guides/` (how do I…), `reference/` (what is the exact value), `internals/`
+  (how does it work). Put a new page in the tier matching *why a reader opens
+  it*, and add it to the tables in `docs/README.md`. If a change alters behaviour
+  described anywhere in `docs/`, update it in the same commit.
 - The design decision log ([decisions.md](decisions.md)) records *why*. Add an entry
   when you make a trade-off someone might undo without realising the cost.
 
 ## Common tasks
 
-**Add an API route** — see [api.md#adding-a-route](api.md#adding-a-route).
+**Add an API route** — see [api.md#adding-a-route](reference/api.md#adding-a-route).
 
 **Add a column**
 
 1. Add it to `db/schema.sql`.
 2. `ALTER TABLE` on live deployments — `CREATE TABLE IF NOT EXISTS` will not alter
-   an existing table ([database.md#migrations](database.md#migrations)).
+   an existing table ([database.md#migrations](reference/database.md#migrations)).
 3. Add a column check to `cli/commands/doctor.mjs` so existing deployments get told.
 4. List it explicitly in every `SELECT` / `INSERT` that needs it.
-5. Document it in [database.md](database.md).
+5. Document it in [database.md](reference/database.md).
 
 **Add a CLI command**
 
@@ -132,7 +139,7 @@ command, so error handling and the `A51_API_BASE` test override keep working.
 2. Add the tool definition — the description is the agent's only instruction
    manual, so say *when* to use it and what the result does **not** contain.
 3. Bump `serverInfo.version`; clients read descriptions at connect time.
-4. Document it in [autopilot.md](autopilot.md).
+4. Document it in [autopilot.md](internals/autopilot.md).
 
 ## Testing
 
@@ -142,8 +149,8 @@ There is no test suite in the repository. What exists instead:
   routing, policies, plus live probes of all three hostnames.
 - **`./a51 setup --dry-run`** resolves configuration and prints the plan without
   touching Cloudflare.
-- **Smoke tests** per component: [black-holes.md](black-holes.md#deploying-and-testing),
-  [autopilot.md](autopilot.md#smoke-tests), [cleanup.md](cleanup.md#running-it-on-demand).
+- **Smoke tests** per component: [black-holes.md](internals/black-holes.md#deploying-and-testing),
+  [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#running-it-on-demand).
 
 If you add automated tests, the CLI is the tractable part: `cli/lib/cloudflare.mjs`
 honours `A51_API_BASE`, so the whole provisioning path can run against a local mock

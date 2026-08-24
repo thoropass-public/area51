@@ -56,7 +56,7 @@ the prefix.
 
 Every response sets `Cache-Control: no-store`, and there is no edge cache: an
 agent polling during an engagement wants freshness over saved reads
-([decisions.md](decisions.md#no-edge-cache-on-autopilot)).
+([decisions.md](../decisions.md#no-edge-cache-on-autopilot)).
 
 ## The `/-/` guardrail
 

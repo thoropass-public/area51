@@ -69,7 +69,7 @@ export async function run(args) {
     if (token && token.status === 'active') r.ok('API token is active');
     else r.fail(`API token status is "${token && token.status}"`, 'Create a new token and update CLOUDFLARE_API_TOKEN in .env.');
   } catch (err) {
-    r.fail(`API token rejected: ${err.message}`, 'See docs/setup.md#api-token for the exact permission list.');
+    r.fail(`API token rejected: ${err.message}`, 'See docs/guides/getting-started.md#api-token for the exact permission list.');
     summarise(r);
     return r.fails.length ? 1 : 0;
   }

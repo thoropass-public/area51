@@ -6,7 +6,7 @@
 // where both halves can be deleted in lockstep (R2 first, then D1 — a failure
 // leaves a visible row to retry rather than an unreachable object).
 //
-// Unattended retention is the cleanup worker's job (docs/cleanup.md). This is
+// Unattended retention is the cleanup worker's job (docs/internals/cleanup.md). This is
 // for one-off, ad-hoc purges and for the things the worker never touches.
 
 import { loadContext } from '../lib/context.mjs';

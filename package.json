@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Self-hosted out-of-band callback infrastructure on Cloudflare: a dashboard, catch-all HTTP/email black holes, and an MCP server for AI agents.",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=20"
   },

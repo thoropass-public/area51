@@ -1,6 +1,6 @@
 // `./a51 tail [target]` — stream a worker's structured JSON logs.
 //
-// Every worker logs one JSON object per event (docs/black-holes.md lists the
+// Every worker logs one JSON object per event (docs/internals/black-holes.md lists the
 // event names), so this pipes nicely into jq:
 //   ./a51 tail black-holes -- --format=json | jq 'select(.event=="email_stored")'
 

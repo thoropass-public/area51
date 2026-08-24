@@ -10,7 +10,7 @@ Storage is split in two on purpose:
 The split exists because D1's limits (2 MB per row, 500 MB per database on the
 free plan) make it the wrong home for a 12 MB email with attachments, while R2 is
 10 GB free with no egress fees. See
-[decisions.md](decisions.md#raw-eml-in-r2-d1-stays-lean-browser-parses-on-demand).
+[decisions.md](../decisions.md#raw-eml-in-r2-d1-stays-lean-browser-parses-on-demand).
 
 The schema is `db/schema.sql`. Apply or re-apply it with:
 
@@ -50,7 +50,7 @@ carry a custom status or extra headers, so a test needing a `302 Location` or an
 `Access-Control-Allow-Origin` must use a text endpoint.
 
 The `/-/*` prefix inside this table is reserved for Autopilot
-([autopilot.md](autopilot.md)). The dashboard treats those rows like any other.
+([autopilot.md](../internals/autopilot.md)). The dashboard treats those rows like any other.
 
 ## `requests`
 
@@ -92,7 +92,7 @@ read the body from the object on demand.
 Index: `idx_emails_ts ON emails(ts DESC)`.
 
 Every row has a matching object in R2 — capture is all-or-nothing
-([black-holes.md](black-holes.md#email-handler)) — so a row the UI or an agent can
+([black-holes.md](../internals/black-holes.md#email-handler)) — so a row the UI or an agent can
 see is always fully retrievable.
 
 ## `ip_blacklist` and `email_blacklist`
@@ -182,7 +182,7 @@ rule is the lever if that ever becomes a problem.
 ## Deliberate omissions
 
 - **No counters table, and no `COUNT(*)` in the UI.** D1 bills per row *read*, so
-  counting scans. See [decisions.md](decisions.md#no-row-counts-anywhere-in-the-ui).
+  counting scans. See [decisions.md](../decisions.md#no-row-counts-anywhere-in-the-ui).
 - **No foreign keys.** Requests are not linked to the endpoint that matched them;
   the three logs are independent.
 - **No soft deletes.** Delete is delete. Purging is out-of-band and unrecoverable.

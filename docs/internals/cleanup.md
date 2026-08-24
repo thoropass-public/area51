@@ -7,7 +7,7 @@ A cron trigger in its config fires it once a day (`CLEANUP_CRON`, default
 database nor the request log grows without bound.
 
 It is the unattended counterpart to `./a51 purge`
-([decisions.md](decisions.md#retention-is-a-scheduled-worker-not-a-crond-script)).
+([decisions.md](../decisions.md#retention-is-a-scheduled-worker-not-a-crond-script)).
 
 ## What a run does
 
@@ -33,7 +33,7 @@ scheduled(event, env, ctx)
 expresses "keep the newest N" exactly, with no boundary or tie ambiguity. It
 costs one scan of `requests` per day, which is negligible against the free read
 budget — and unlike a UI `COUNT(*)`
-([decisions.md](decisions.md#no-row-counts-anywhere-in-the-ui)) it happens once,
+([decisions.md](../decisions.md#no-row-counts-anywhere-in-the-ui)) it happens once,
 unattended.
 
 **Emails are deleted by age**, objects before rows, and the row delete targets

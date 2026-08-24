@@ -86,7 +86,7 @@ const COMMANDS = {
 
 function usage() {
   plain('');
-  plain(`${color.bold('AREA 51')} — out-of-band callback infrastructure on your own Cloudflare account`);
+  plain(`${color.bold('AREA 51')} — the exploit server for out-of-band findings`);
   plain('');
   plain(`  ${color.dim('usage:')} ./a51 <command> [options]`);
   plain('');
@@ -159,7 +159,7 @@ main()
       console.error(`${color.red('Cloudflare API error')} on ${err.method} ${err.path}`);
       console.error(`  ${err.message}`);
       if (err.status === 403 || err.status === 401) {
-        console.error(`  ${color.dim('This usually means the API token is missing a permission — see docs/setup.md#api-token.')}`);
+        console.error(`  ${color.dim('This usually means the API token is missing a permission — see docs/guides/getting-started.md#api-token.')}`);
       }
     } else {
       console.error(`${color.red('error')} ${err && err.message ? err.message : err}`);

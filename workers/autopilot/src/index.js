@@ -2,7 +2,7 @@
 //
 // The REST + MCP server that authorized Claude Code / Codex agents talk to
 // during pentests. Bound to its own Cloudflare Custom Domain by `./a51 setup`
-// (see docs/autopilot.md). Separate from the Black Holes worker so it can be
+// (see docs/internals/autopilot.md). Separate from the Black Holes worker so it can be
 // locked behind a shared secret without affecting the black holes' public
 // reachability.
 //

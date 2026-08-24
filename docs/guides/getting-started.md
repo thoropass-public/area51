@@ -1,9 +1,13 @@
-# Setup
+# Getting started
 
 `./a51 setup` takes a Cloudflare API token and a domain that is already on the
-account, and leaves you with a working deployment. This document explains what
-it needs, what it does at each step, and how to finish any step by hand if the
-API refuses.
+account, and leaves you with a working deployment. This document explains what it
+needs, what it does at each step, and how to finish any step by hand if the API
+refuses.
+
+Once it is up: [verify-deployment](verify-deployment.md) shows what a healthy
+deployment looks like in the Cloudflare dashboard, and
+[usage](usage.md) is the playbook for using it on an engagement.
 
 ```bash
 npm install
@@ -258,7 +262,7 @@ Same Custom Domain call, pointed at the Autopilot Worker.
   500 until you add the binding and redeploy" trap. (Create-then-patch, rather
   than one create-with-bindings call, because the combined call is rejected on
   some accounts with `[8000000]`; see
-  [decisions.md](decisions.md#pages-bindings-are-set-before-the-first-upload--via-create-then-patch).)
+  [decisions.md](../decisions.md#pages-bindings-are-set-before-the-first-upload--via-create-then-patch).)
 - `wrangler pages deploy .` from `dashboard/`. If the API create had failed and
   wrangler created the project bare as a fallback, setup re-attaches the bindings
   and redeploys so the live deployment carries them.
@@ -325,13 +329,17 @@ Access application and its policy — then makes live requests:
 `./a51 doctor --fix` re-applies the schema, repairs Pages bindings, re-binds
 black hole hostnames and re-applies the Access policy.
 
-Then:
+Then, in order:
 
-- Create an endpoint in the dashboard and `curl` it.
-- Send mail to `anything@<mail-enabled-host>` and watch **Emails**.
-- Register Autopilot with your agent
-  ([autopilot.md](autopilot.md#registering-with-claude-code)).
-- Read [operations.md](operations.md) once.
+1. **Eyeball it in the Cloudflare dashboard** —
+   [verify-deployment](verify-deployment.md) walks the Workers, the database, both
+   buckets and the Access application, screenshot by screenshot.
+2. **Create an endpoint** in the dashboard and `curl` it.
+3. **Send mail** to `anything@<mail-enabled-host>` and watch **Emails**.
+4. **Register Autopilot** with your agent
+   ([autopilot](../internals/autopilot.md#registering-with-claude-code)).
+5. **Read [usage](usage.md)** — the engagement playbooks — and
+   [operations](operations.md) once each.
 
 ## Re-running, upgrading, and second deployments
 

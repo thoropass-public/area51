@@ -5,7 +5,7 @@
 // single-quoted strings (with '' escapes), and `;` terminators. That covers
 // db/schema.sql completely. It does NOT understand BEGIN…END blocks, so if a
 // trigger or a multi-statement body is ever added to the schema, apply it with
-// `wrangler d1 execute --file` instead and note it in docs/database.md.
+// `wrangler d1 execute --file` instead and note it in docs/reference/database.md.
 
 export function splitSqlStatements(sql) {
   const statements = [];

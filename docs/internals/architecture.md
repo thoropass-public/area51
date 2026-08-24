@@ -4,7 +4,7 @@ Everything runs on one Cloudflare account. There are three Workers, one Pages
 project, one D1 database and two R2 buckets. No origin server, no container, no
 long-lived process.
 
-![AREA 51 architecture](arch.png)
+![AREA 51 architecture](../../.github/assets/architecture.png)
 
 
 ## Components
@@ -48,7 +48,7 @@ target ──► https://<black-hole>/some/path
 ```
 
 Matching is **exact** on `url.pathname`: no globs, no path parameters, no
-precedence rules ([decisions.md](decisions.md#endpoints-are-exact-match-not-glob)).
+precedence rules ([decisions.md](../decisions.md#endpoints-are-exact-match-not-glob)).
 Query strings are captured but ignored for matching.
 
 The request log is fire-and-forget. If the insert fails, a `http_log_insert_failed`
@@ -110,7 +110,7 @@ operator ──► https://<dashboard>
 ```
 
 The browser renders JSX at runtime (React + Babel from a CDN) — there is no
-build step ([decisions.md](decisions.md#no-build-pipeline-for-the-frontend)).
+build step ([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)).
 
 ## Agent flow
 

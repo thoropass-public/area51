@@ -21,13 +21,13 @@ database and two R2 buckets:
 | Dashboard | `dashboard/` | Cloudflare Pages (React + `/api/*` Functions), behind Access |
 | CLI | `cli/` (`./a51`) | Provisions and deploys everything |
 
-Full map: [docs/architecture.md](docs/architecture.md). Data model:
-[docs/database.md](docs/database.md) and [db/schema.sql](db/schema.sql).
+Full map: [docs/internals/architecture.md](docs/internals/architecture.md). Data model:
+[docs/reference/database.md](docs/reference/database.md) and [db/schema.sql](db/schema.sql).
 
 ## First deploy (install fast-path)
 
 The whole thing installs with one idempotent command. Follow this order; the
-full reference with per-step manual fallbacks is [docs/setup.md](docs/setup.md).
+full reference with per-step manual fallbacks is [docs/guides/getting-started.md](docs/guides/getting-started.md).
 
 **Prerequisites (the API cannot do these for you — do them first):**
 1. A domain already added to the Cloudflare account, ideally a burner with **no
@@ -53,7 +53,7 @@ way to converge after fixing anything — completed steps report "already correc
 
 **The API token is where installs fail.** Create it at **My Profile → API
 Tokens → Create Token → Custom token** with these **thirteen** permissions (the
-full table with per-permission rationale is [docs/setup.md#api-token](docs/setup.md)):
+full table with per-permission rationale is [docs/guides/getting-started.md#api-token](docs/guides/getting-started.md#api-token)):
 
 | Scope | Permissions |
 |---|---|
@@ -137,7 +137,7 @@ schema, Pages bindings, domain bindings and the Access policy.
   retries transient auth errors to ride out **API-token propagation** (a
   just-created token takes ~a minute to work).
 - **Known Cloudflare permission traps** (documented in
-  [docs/setup.md#api-token](docs/setup.md)):
+  [docs/guides/getting-started.md#api-token](docs/guides/getting-started.md#api-token)):
   - *Enabling* Email Routing needs **Zone · Zone Settings:Edit**, NOT Email
     Routing Rules (which only covers the catch-all rule). Missing it → `[10000]`.
   - A Zone permission whose **Zone Resources** don't include the target zone
@@ -168,3 +168,25 @@ hole is deliberately public (targets must reach it); the dashboard is protected
 only by Cloudflare Access; Autopilot only by a shared secret. Don't weaken those
 boundaries, don't log secrets, and keep the Autopilot fence (`/-/` + no FILES
 binding + 60-min window) intact.
+
+## Where the documentation lives
+
+`docs/` is in three tiers, and a change to behaviour must update the matching
+page in the same commit:
+
+| Tier | Holds | Update it when you change… |
+|---|---|---|
+| [docs/guides/](docs/guides/) | getting-started, verify-deployment, usage, operations, troubleshooting | setup steps, an operator workflow, a failure mode |
+| [docs/reference/](docs/reference/) | cli, configuration, api, database | a command or flag, a `.env` value, a route, a column |
+| [docs/internals/](docs/internals/) | architecture, black-holes, autopilot, dashboard, cleanup | how a runtime piece behaves |
+
+Cross-cutting: [security](docs/security.md), [development](docs/development.md),
+[decisions](docs/decisions.md). The index at [docs/README.md](docs/README.md)
+carries a table per tier — add new pages there too.
+
+The root [README.md](README.md) is deliberately non-technical: what the tool is,
+what it proves, requirements, the four install commands, and links. Keep detail
+out of it; put it in the right `docs/` tier instead.
+
+Licensed Apache-2.0 (`LICENSE`, `NOTICE`, copyright Thoropass). Brand assets that
+the README renders live in `.github/assets/brand/`; `media-kit/` is gitignored.

@@ -60,7 +60,7 @@ that rule over the API.
    JSON.parse(headers || '{}')})`. The parse is wrapped in try/catch and falls
    back to `{}`, so a corrupt headers field cannot break serving.
 
-Exact-path matching only ([decisions.md](decisions.md#endpoints-are-exact-match-not-glob)).
+Exact-path matching only ([decisions.md](../decisions.md#endpoints-are-exact-match-not-glob)).
 
 ## Email handler
 
@@ -100,7 +100,7 @@ Consequences worth knowing:
 - **No size or attachment threshold.** Every message is stored in full.
 - **Capture is binary.** Either both stores hold the message, or neither does and
   it is in the fallback inbox. No marker rows
-  ([decisions.md](decisions.md#all-or-nothing-email-capture-no-marker-rows)).
+  ([decisions.md](../decisions.md#all-or-nothing-email-capture-no-marker-rows)).
 - **Memory ceiling.** The whole message is buffered to hash it into R2 and parse
   it. Workers cap at 128 MB; SMTP messages are typically ≤ 25–50 MB, so this is
   comfortable, but a pathological message errors and falls to the fallback path.

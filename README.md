@@ -179,4 +179,4 @@ Test only what you are authorised to test.
 AREA 51 is **© Copyright 2026 Thoropass, Inc.**, licensed and released under the **[Apache License 2.0](LICENSE)**.
 See [NOTICE](NOTICE) for third-party components.
 
-Built with ❤️ by **[Thoropass](https://thoropass.com)**.
+Built with ❤️ by the Pentest Team at **[Thoropass](https://thoropass.com)**.

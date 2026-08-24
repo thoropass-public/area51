@@ -1,233 +1,229 @@
-# AREA 51
+<div align="center">
 
-**Out-of-band callback infrastructure you run on your own Cloudflare account.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brand/lockup-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset=".github/assets/brand/lockup-light.png">
+  <img src=".github/assets/brand/lockup-dark.png" alt="AREA 51 — exploit server" width="460">
+</picture>
 
-Point a target at one of your domains, and every HTTP request and every email it
-sends lands in a dashboard you control — with whatever response you want served
-back. Built for penetration testers: SSRF, blind XSS, XXE, OAuth `redirect_uri`
-abuse, email verification flows, payload hosting, and any other
-interaction-based finding that needs proof it fired.
+### Every callback, captured.
 
-Three pieces, one Cloudflare account, no servers:
+**The exploit server for out-of-band findings.** Point a target at a domain you
+own, and every HTTP request and every email it sends back lands in a dashboard you
+control — with whatever response you choose served in return.
 
-| | | |
+[![License](https://img.shields.io/badge/license-Apache--2.0-88C0D0?style=flat-square)](LICENSE)
+[![Serverless](https://img.shields.io/badge/origin_servers-none-88C0D0?style=flat-square)](docs/internals/architecture.md)
+[![Node](https://img.shields.io/badge/node-20%2B-88C0D0?style=flat-square)](#requirements)
+[![MCP](https://img.shields.io/badge/MCP-agent_ready-8FBCBB?style=flat-square)](docs/internals/autopilot.md)
+[![Setup](https://img.shields.io/badge/setup-one_command-A3BE8C?style=flat-square)](docs/guides/getting-started.md)
+
+[Getting started](docs/guides/getting-started.md) ·
+[Playbooks](docs/guides/usage.md) ·
+[CLI](docs/reference/cli.md) ·
+[Architecture](docs/internals/architecture.md) ·
+[Documentation](docs/README.md)
+
+</div>
+
+---
+
+## Why it exists
+
+Half of what you find on an engagement only proves itself when something calls
+home. A blind SSRF. An XXE that exfiltrates over HTTP. A stored XSS firing in an
+admin's browser you will never see. A password-reset flow you need to read. An
+OAuth `redirect_uri` nobody validated. Each one needs infrastructure that is
+reachable from the target, captures everything, and answers exactly how you want.
+
+Public interaction services give you a hostname and a log. AREA 51 gives you the
+whole thing, on infrastructure you own:
+
+- **Nothing shared.** Your domains, your storage, your captures. No third party
+  holds your clients' tokens, reset links or internal hostnames.
+- **Any response you like.** Serve a `302` into a metadata endpoint, a DTD, a
+  `.js` beacon, a JSON stub, or a 25 MB binary — per exact path.
+- **Email is a first-class capture,** not an add-on. Every address at the domain
+  is live, and every message is kept verbatim with headers and attachments.
+- **Your agent can drive it.** An MCP server exposes recent captures and a
+  sandboxed slice of the endpoint table, so an AI agent can inject a callback URL
+  and confirm the hit without you in the loop.
+- **One command to stand up, one to tear down.** No servers, no containers, no
+  cron host, and no bill at pentest volumes.
+
+## The three pieces
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**AREA 51** · the dashboard
+
+Configure endpoints, read captured requests and email, manage noise filters.
+Locked behind single sign-on with an emailed one-time PIN.
+
+</td>
+<td width="33%" valign="top">
+
+**Black Holes** · your domains
+
+Every path serves what you defined; every request and every address at the domain
+is captured. Public by necessity — targets have to reach it.
+
+</td>
+<td width="33%" valign="top">
+
+**Autopilot** · the agent interface
+
+A secret-authenticated MCP + REST server. Reads the last hour of callbacks,
+stages its own response stubs, and cannot touch anything else.
+
+</td>
+</tr>
+</table>
+
+## What it looks like
+
+<table>
+<tr>
+<td width="50%"><img src=".github/assets/ui-home.png" alt="AREA 51 Home"></td>
+<td width="50%"><img src=".github/assets/ui-endpoints.png" alt="Endpoints"></td>
+</tr>
+<tr>
+<td width="50%"><img src=".github/assets/ui-requests.png" alt="Captured requests"></td>
+<td width="50%"><img src=".github/assets/ui-emails.png" alt="Captured email"></td>
+</tr>
+</table>
+
+## What you can do with it
+
+| Finding | How AREA 51 proves it | Playbook |
 |---|---|---|
-| **AREA 51** | the dashboard | Configure endpoints, read captured requests and email, manage blacklists. Locked behind Cloudflare Access. |
-| **Black Holes** | your catch-all domains | Every path on them serves a response you define; every request and every email to `*@domain` is captured. |
-| **Autopilot** | an MCP server | Lets a Claude Code / Codex agent read recent callbacks and stage its own response stubs, unattended. |
-
-Setup is one command. You provide a Cloudflare API token and a domain that is
-already on the account; the CLI provisions everything else — database, storage,
-three Workers, the dashboard, DNS, TLS, email routing, and the access policy in
-front of the dashboard.
-
-```bash
-git clone <this-repo> area51 && cd area51
-npm install
-cp .env.example .env      # paste your Cloudflare API token
-./a51 setup
-```
-
----
-
-## How it works
-
-![AREA 51 architecture](docs/arch.png)
-
-- A request to any path on a black hole is **logged** (method, URL, IP, headers,
-  body) and answered with the endpoint you configured for that exact path — or
-  `404! Not Found` if you configured nothing.
-- An endpoint can serve typed text (with your own status and headers) **or an
-  uploaded file** (a DTD, a payload, an image) streamed straight from storage.
-- Mail to *any* address at a mail-enabled black hole is captured: metadata into
-  the database, the verbatim `.eml` into object storage, rendered in the
-  dashboard with headers, HTML body (strictly sandboxed) and attachments.
-- Nothing has an origin server. Cost at pentest volumes sits inside
-  Cloudflare's free tier ([details](docs/operations.md#quotas-and-cost)).
-
----
+| Blind SSRF | An unconfigured path already captures the hit, with egress IP, User-Agent and every header | [→](docs/guides/usage.md#confirm-a-blind-callback-ssrf) |
+| SSRF filter bypass | A text endpoint answers `302` into the address you actually want fetched | [→](docs/guides/usage.md#control-the-response-redirects-and-metadata) |
+| XXE / XSLT exfiltration | Host the external DTD, then read the exfiltrated bytes out of the second request | [→](docs/guides/usage.md#host-a-dtd-for-xxe-exfiltration) |
+| Blind XSS | Serve the beacon; the capture's `Referer` names the internal page that executed it | [→](docs/guides/usage.md#catch-a-blind-xss-beacon) |
+| Email-driven flows | Every address is a live inbox — signup, invite, reset and verification mail arrives in full | [→](docs/guides/usage.md#drive-email-flows-signup-reset-verification) |
+| OAuth `redirect_uri` abuse | Stage the landing page and capture the `code`, `state` or token the flow hands over | [→](docs/guides/usage.md#intercept-an-oauth-redirect_uri) |
+| Payload delivery | Upload an archive, binary, PDF or font and serve it inline with its own content type | [→](docs/guides/usage.md#host-a-file-payload) |
+| Mail authentication review | The full `Received` chain plus SPF, DKIM and DMARC results on real delivered mail | [→](docs/guides/usage.md#drive-email-flows-signup-reset-verification) |
 
 ## Requirements
 
-- **A Cloudflare account** with a domain already added as a zone. A cheap
-  throwaway domain with **no prior mail (MX) records** is ideal — targets will
-  see it, and enabling mail capture takes over inbound mail for the whole zone.
-- **R2 enabled** on the account (dashboard → R2 → *Get started*; the free tier
-  may still ask for a card). Captured email and uploaded payloads live there.
-- **Zero Trust activated once** (dashboard → *Zero Trust* → pick a team name →
-  Free plan) — this backs the dashboard's login and the API can't activate it for
-  you. Skip only if you deploy with `--no-access`.
-- **Node.js 20+** and npm.
-- **A Cloudflare API token** with the permissions listed in
-  [docs/setup.md#api-token](docs/setup.md#api-token) — one token, thirteen
-  checkboxes. The easy one to miss is **Zone · Zone Settings · Edit**, which is
-  what actually enables Email Routing.
+- A **Cloudflare account** with a domain already added as a zone — ideally a
+  throwaway with no prior mail records, since it will end up in target logs.
+- **R2 object storage** enabled, and **Zero Trust** activated once. One click
+  each; neither can be turned on through the API.
+- **Node.js 20+**.
+- One **API token**. The exact permission list is in
+  [getting-started](docs/guides/getting-started.md#api-token).
 
-Everything else — the D1 database, both R2 buckets, three Workers, the Pages
-project, DNS records, Email Routing, and the Cloudflare Access policy — is
-created for you. See [docs/setup.md](docs/setup.md) for the full prerequisite and
-permission detail, including the two "permission is set but still denied" traps
-(Zone Resources scope and token propagation).
+Everything else — database, storage, three Workers, the dashboard, DNS, TLS, mail
+routing and the access policy — is created for you.
 
----
-
-## Quick start
+## Getting started
 
 ```bash
-npm install                # wrangler + postal-mime
-cp .env.example .env       # then paste CLOUDFLARE_API_TOKEN into it
-./a51 setup                # provisions and deploys everything
+git clone https://github.com/heylaika/area51.git && cd area51
+npm install
+cp .env.example .env        # paste your API token
+./a51 setup                 # provisions and deploys everything
 ```
 
-`setup` asks a handful of things and remembers the answers in `.env`:
+`setup` asks which domain to use and what to call the three hostnames, then
+provisions in order: database and schema → storage → the three Workers → your
+first black hole and its mail catch-all → the dashboard with its bindings already
+attached → DNS → the access policy. Every step is idempotent, so it is also the
+command you re-run after changing anything.
 
-| Prompt | Default | What it becomes |
-|---|---|---|
-| Which domain? | *(pick from your zones)* | the zone everything is provisioned on |
-| Black hole hostname | `example.com` (apex) | where targets send traffic and mail |
-| Dashboard hostname | `area51.example.com` | the console, behind Cloudflare Access |
-| Autopilot hostname | `autopilot.example.com` | the MCP endpoint for agents |
-| Who may open the dashboard? | — | the Access allow-list (emails or domains) |
-
-Then it provisions, in order: the D1 database and schema → both R2 buckets →
-the three Workers → the black hole's Custom Domain and mail catch-all → the
-Pages project *with its bindings already attached* → DNS → Cloudflare Access.
-Every step is idempotent, so `./a51 setup` is also the way to converge a
-deployment after editing `.env` or pulling new code.
-
-When it finishes it prints your three URLs and the command that registers
-Autopilot with Claude Code.
-
-### Verify
+Then confirm it:
 
 ```bash
-./a51 status     # what is deployed, and where
-./a51 doctor     # checks every binding, domain and policy, then probes the live hosts
+./a51 doctor
 ```
 
-```bash
-curl -i https://<your-black-hole>/anything
-```
+`doctor` checks every binding, domain and policy, then probes the live hosts. A
+request to any path on your black hole should answer `404! Not Found` and appear
+in the dashboard seconds later; mail to any address at it lands in the same place.
 
-You should get `404! Not Found` — and see that request appear under **Requests**
-in the dashboard. If a mail role is enabled, send an email to
-`literally-anything@<your-black-hole>` and watch it land under **Emails**.
+Full walkthrough, with the manual fallback for every step:
+**[docs/guides/getting-started.md](docs/guides/getting-started.md)**.
 
-### First endpoint
+## Architecture
 
-In the dashboard: **Endpoints → + New**, path `/callback`, status `200`, headers
-`Content-Type: application/json`, body `{"ok":true}`. Save, then:
+<img src=".github/assets/architecture.png" alt="AREA 51 architecture" width="100%">
 
-```bash
-curl -i https://<your-black-hole>/callback
-```
-
-The leading icon on each endpoint row copies its full URL to your clipboard.
-
-### Hand it to an agent
-
-```bash
-claude mcp add autopilot https://<your-autopilot-host>/mcp \
-  --transport http --header "X-A51-Secret: <AGENT_SECRET from .env>"
-```
-
-The agent gets eight tools: read the last hour of requests and emails, fetch a
-raw message, list your black holes, and create/read/update/delete response stubs
-under the reserved `/-/*` path space. It cannot touch anything else.
-See [docs/autopilot.md](docs/autopilot.md).
-
----
+Four serverless pieces sharing one database and two object-storage buckets. No
+origin server exists, so there is nothing to patch, scale or pay for between
+engagements. Details in
+[docs/internals/architecture.md](docs/internals/architecture.md).
 
 ## The CLI
 
-```
-./a51 setup            provision the whole deployment (safe to re-run)
-./a51 deploy [target]  upload code: all | black-holes | autopilot | cleanup | dashboard | schema
-./a51 status           show what is deployed and where
-./a51 doctor [--fix]   verify every binding, domain and policy; probe the live hosts
-./a51 domains          list | add <host> [http,mail] | remove <host>
-./a51 access           edit who may open the dashboard: --list | --add | --remove <email|domain>,...
-./a51 purge            delete captured data (database rows and their objects, in lockstep)
-./a51 rotate-secret    replace the Autopilot shared secret
-./a51 tail [target]    stream a worker's structured logs
-./a51 dev <target>     run a piece locally against the remote stores
-./a51 destroy          tear it all down — empties buckets, no manual steps (two typed confirmations)
-```
+| Command | Does |
+|---|---|
+| `./a51 setup` | Provision the whole deployment (safe to re-run) |
+| `./a51 deploy [target]` | Upload code: `all`, `black-holes`, `autopilot`, `cleanup`, `dashboard`, `schema` |
+| `./a51 status` | What is deployed, and where |
+| `./a51 doctor [--fix]` | Verify every binding, domain and policy; probe the live hosts |
+| `./a51 domains` | `list` · `add <host> [http,mail]` · `remove <host>` |
+| `./a51 access` | `--list` · `--add` · `--remove` who may open the dashboard |
+| `./a51 purge` | Delete captured data — records and stored messages together |
+| `./a51 rotate-secret` | Replace the Autopilot shared secret |
+| `./a51 tail [target]` | Stream a Worker's structured logs |
+| `./a51 dev <target>` | Run a piece locally against the remote stores |
+| `./a51 destroy` | Tear it all down (two typed confirmations) |
 
-Add a second black hole any time — no redeploy, no code change:
-
-```bash
-./a51 domains add other-domain.example http,mail
-```
-
----
+Full reference: [docs/reference/cli.md](docs/reference/cli.md).
 
 ## Repository layout
 
 ```
-.
-├── a51                     CLI entrypoint (./a51 <command>)
-├── .env.example            every configuration value, documented
-├── CLAUDE.md               guidance for AI agents working in this repo
-├── cli/                    the CLI: provisioning over the Cloudflare API
-│   ├── a51.mjs             command dispatch
-│   ├── lib/                API client, .env I/O, prompts, wrangler wrapper, R2 S3 signer
-│   └── commands/           one file per command
-├── db/
-│   └── schema.sql          the D1 schema (idempotent, commented)
-├── workers/
-│   ├── black-holes/        the catcher: HTTP + email handlers
-│   ├── autopilot/          the agent-facing REST + MCP server
-│   └── cleanup/            scheduled retention trimmer (cron only)
-├── dashboard/              Cloudflare Pages site
-│   ├── index.html          no build step: React + Babel from a CDN
-│   ├── styles.css
-│   ├── js/                 ui.jsx (shared), tabs.jsx (lists), app.jsx (shell)
-│   └── functions/api/      Pages Functions — the dashboard's JSON API
-└── docs/                   the full documentation set
+a51                  the CLI entrypoint
+cli/                 provisioning over the Cloudflare API — commands + libraries
+db/schema.sql        the database schema, idempotent and commented
+workers/
+  black-holes/       the catcher: HTTP + email capture
+  autopilot/         the agent-facing REST + MCP server
+  cleanup/           scheduled retention
+dashboard/           the dashboard — no build step, plus its JSON API
+docs/                guides, reference, internals
 ```
 
----
+Conventions, code map and how to extend each layer:
+[docs/development.md](docs/development.md).
 
 ## Documentation
 
-Start at **[docs/README.md](docs/README.md)**. In reading order:
-
-| Doc | What is in it |
+| | |
 |---|---|
-| [architecture.md](docs/architecture.md) | Every component, both capture flows, what talks to what |
-| [setup.md](docs/setup.md) | API token permissions, what setup does step by step, manual fallbacks |
-| [deployment.md](docs/deployment.md) | What a healthy deployment looks like in the Cloudflare dashboard — annotated screenshots |
-| [configuration.md](docs/configuration.md) | Every `.env` value: meaning, default, what changing it costs |
-| [database.md](docs/database.md) | Table-by-table schema, both R2 buckets, migrations |
-| [api.md](docs/api.md) | The dashboard's HTTP API contract |
-| [dashboard.md](docs/dashboard.md) | Frontend internals: tabs, grouping, pins, modals |
-| [black-holes.md](docs/black-holes.md) | The catcher worker: handlers, blacklists, log events |
-| [autopilot.md](docs/autopilot.md) | The MCP server: tools, auth, guardrails, agent setup |
-| [cleanup.md](docs/cleanup.md) | Retention: what is deleted, when, and what is never touched |
-| [operations.md](docs/operations.md) | Day-two: deploys, domains, purging, logs, quotas, rotation |
-| [security.md](docs/security.md) | Trust model, what is public, what protects what |
-| [troubleshooting.md](docs/troubleshooting.md) | Symptom → cause → fix |
-| [development.md](docs/development.md) | Local dev, the code map, conventions, common tasks (add an API route or tab), and testing |
-| [decisions.md](docs/decisions.md) | Why the non-obvious choices are the way they are |
+| **[Getting started](docs/guides/getting-started.md)** | Prerequisites, token permissions, every setup step and its manual equivalent |
+| **[Playbooks](docs/guides/usage.md)** | Running an engagement: SSRF, XXE, blind XSS, email flows, OAuth, payload hosting, evidence |
+| **[Operations](docs/guides/operations.md)** | Deploys, domains, purging, retention, logs, quotas, teardown |
+| **[Troubleshooting](docs/guides/troubleshooting.md)** | Symptom → cause → fix |
+| **[CLI](docs/reference/cli.md)** · **[Configuration](docs/reference/configuration.md)** | Every command; every `.env` value |
+| **[API](docs/reference/api.md)** · **[Database](docs/reference/database.md)** | The dashboard's HTTP API; tables and buckets |
+| **[Internals](docs/internals/architecture.md)** | Architecture, catcher, Autopilot, dashboard, retention |
+| **[Security](docs/security.md)** | Trust model, exposure, authentication, secrets |
+| **[Decisions](docs/decisions.md)** | Why the non-obvious choices are the way they are |
 
----
+Start at **[docs/README.md](docs/README.md)** for the full map.
 
-## Notes before you deploy
+## Authorised use only
 
-- **The black holes are public on purpose.** Targets have to reach them. Never
-  put anything sensitive in an endpoint response, and assume scanners will find
-  the hostname.
-- **The dashboard has no login of its own.** Cloudflare Access is the only thing
-  in front of it. `./a51 setup` configures it; `./a51 doctor` fails loudly if it
-  is missing. Do not skip it.
-- **Autopilot is a shared secret away from your capture data.** Treat
-  `AGENT_SECRET` like a password and rotate it when someone leaves.
-- **Use a domain you do not mind burning.** It ends up in target logs, threat
-  intel feeds and blocklists.
-- Only test systems you are authorised to test.
+This is offensive-security tooling. The black holes are deliberately reachable by
+anyone on the internet, and everything a target sends is stored, so treat a
+deployment as client-data storage: keep retention short, purge when the report
+ships, and use a domain you do not mind burning.
 
-## License
+Test only what you are authorised to test.
 
-No license has been chosen for this code yet, so no rights are granted by
-default. If you want to use it outside your own account, open an issue and ask.
+## License and attribution
+
+Licensed under the **[Apache License 2.0](LICENSE)**. Copyright 2026 Thoropass.
+See [NOTICE](NOTICE) for third-party components.
+
+The AREA 51 name and the alien mark are trademarks of Thoropass; the Apache-2.0
+grant covers the software, not the marks. The brand assets used here live in
+[`.github/assets/brand/`](.github/assets/brand); the full media kit — colour,
+type, clear space and misuse rules — is available on request.

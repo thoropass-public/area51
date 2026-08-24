@@ -22,7 +22,7 @@ instead, which is free.
 
 If counts come back, do it with counters and triggers, not `COUNT(*)`. The one
 place a full scan is acceptable is the cleanup worker's once-daily maintenance
-delete ([cleanup.md](cleanup.md)).
+delete ([cleanup.md](internals/cleanup.md)).
 
 ## Endpoints list shows URI and status, and nothing else
 

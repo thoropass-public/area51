@@ -1,7 +1,7 @@
 # Deployment reference — a healthy deployment in the Cloudflare dashboard
 
 After `./a51 setup` finishes (and the manual prerequisites are done — see
-[setup.md](setup.md)), this is what a correctly-provisioned AREA 51 deployment
+[getting-started.md](getting-started.md)), this is what a correctly-provisioned AREA 51 deployment
 looks like in the Cloudflare dashboard. Use it to eyeball that everything landed;
 `./a51 doctor` checks the same things programmatically.
 
@@ -14,7 +14,7 @@ looks like in the Cloudflare dashboard. Use it to eyeball that everything landed
 
 The three Workers and the Pages project, all deployed:
 
-![Workers & Pages overview](images/workers-and-pages.png)
+![Workers & Pages overview](../../.github/assets/workers-and-pages.png)
 
 - **area51-black-holes** — the public catcher (HTTP + email).
 - **area51-autopilot** — the agent-facing REST + MCP server, on its own hostname.
@@ -32,7 +32,7 @@ The three Workers and the Pages project, all deployed:
 
 One database, `area51`, holds all metadata (six tables — no message bodies):
 
-![D1 database](images/d1-database.png)
+![D1 database](../../.github/assets/d1-database.png)
 
 Created by setup; `./a51 doctor` verifies the schema and every binding onto it.
 
@@ -43,7 +43,7 @@ Created by setup; `./a51 doctor` verifies the schema and every binding onto it.
 Captured email lives in the **area51-emails** bucket, with **Public Access
 Disabled** and the verbatim `.eml` objects under the `emails/` prefix:
 
-![R2 object storage](images/r2-object-storage.png)
+![R2 object storage](../../.github/assets/r2-object-storage.png)
 
 There is a second bucket, **area51-files**, for file-backed endpoint uploads
 (not shown). Both are private — nothing in R2 is publicly reachable.
@@ -62,7 +62,7 @@ A self-hosted application, **AREA 51 dashboard**, with an **AREA 51 operators**
 allow policy. Note *+ 2 other domains* under Destinations — the app protects more
 than just the custom hostname:
 
-![Access application](images/access-application.png)
+![Access application](../../.github/assets/access-application.png)
 
 ### The allow policy
 
@@ -70,7 +70,7 @@ Default-deny, with one **Allow** policy of two include rules — an email-domain
 rule and an exact-address rule (built from `ALLOWED_EMAILS`). Only these
 identities get a one-time PIN and in:
 
-![Access allow policy](images/access-policy.png)
+![Access allow policy](../../.github/assets/access-policy.png)
 
 ### Destinations — the pages.dev bypass is closed
 
@@ -80,7 +80,7 @@ The important one. The application guards **three** public hostnames:
 2. `area51-xxxx.pages.dev` — the Pages **apex** URL
 3. `*.area51-xxxx.pages.dev` — every **preview / branch** deployment URL
 
-![Access destinations](images/access-destinations.png)
+![Access destinations](../../.github/assets/access-destinations.png)
 
 If only the custom domain were listed, anyone with the `*.pages.dev` URL could
 reach the dashboard with **no login**. `./a51 setup` and `./a51 access` add all
@@ -92,7 +92,7 @@ ever missing.
 The end-to-end summary — **all authenticated users** matching the **AREA 51
 operators** policy may reach the three destinations:
 
-![Access preview](images/access-preview.png)
+![Access preview](../../.github/assets/access-preview.png)
 
 ---
 

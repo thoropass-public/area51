@@ -72,7 +72,7 @@ real inbox can serve both fields.
 
 | Key | Default | Notes |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | — | **Required.** Permissions listed in [setup.md#api-token](setup.md#api-token). Also passed to wrangler through the environment, so wrangler never opens a browser login. |
+| `CLOUDFLARE_API_TOKEN` | — | **Required.** Permissions listed in [setup.md#api-token](../guides/getting-started.md#api-token). Also passed to wrangler through the environment, so wrangler never opens a browser login. |
 | `CLOUDFLARE_ACCOUNT_ID` | discovered | Filled in by setup. Set it by hand to skip the account prompt. |
 | `CLOUDFLARE_ZONE` | prompted | The zone setup provisions on. Only used to offer sensible hostname defaults and to resolve zone ids. |
 
@@ -91,7 +91,7 @@ real inbox can serve both fields.
 |---|---|---|
 | `ALLOWED_EMAILS` | — | Comma-separated allow-list. `alice@example.com` (exact) or `example.com` (any address at that domain). Empty means **no protection** — `doctor` treats that as a failure. Edit it incrementally with `./a51 access --add <…>` / `--remove <…>` (both write back here), or set it wholesale by editing this value and running a bare `./a51 access`. |
 | `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organisation yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers** — if creation fails, pick another. |
-| `ACCESS_SESSION_DURATION` | `24h` | How long a login lasts. Formats: `30m`, `24h`, `730h`. Shorter means more one-time PINs; longer means a stolen laptop stays logged in. The dashboard auto-reloads when a session expires mid-use ([dashboard.md](dashboard.md#expired-session-handling)). |
+| `ACCESS_SESSION_DURATION` | `24h` | How long a login lasts. Formats: `30m`, `24h`, `730h`. Shorter means more one-time PINs; longer means a stolen laptop stays logged in. The dashboard auto-reloads when a session expires mid-use ([dashboard.md](../internals/dashboard.md#expired-session-handling)). |
 
 ### Storage
 
@@ -100,7 +100,7 @@ real inbox can serve both fields.
 | `D1_DATABASE_NAME` | `area51` | Renaming after creation does **not** rename the database; setup would create a second one. |
 | `D1_DATABASE_ID` | filled in by setup | The real identity. If it stops resolving, setup falls back to looking the name up. |
 | `R2_BUCKET_NAME` | `area51-emails` | Captured `.eml` objects. Bound as `EML`. |
-| `R2_FILES_BUCKET_NAME` | `area51-files` | Endpoint uploads. Bound as `FILES`. Kept separate from email so uploads can be wiped or given a lifecycle rule independently ([decisions.md](decisions.md#file-backed-endpoints-server-owned-response-separate-bucket)). |
+| `R2_FILES_BUCKET_NAME` | `area51-files` | Endpoint uploads. Bound as `FILES`. Kept separate from email so uploads can be wiped or given a lifecycle rule independently ([decisions.md](../decisions.md#file-backed-endpoints-server-owned-response-separate-bucket)). |
 
 Renaming a bucket in `.env` and redeploying points the Workers at a **new empty
 bucket**; the old objects still exist and still cost storage. Migrate
@@ -117,7 +117,7 @@ deliberately or not at all.
 
 Renaming any of these creates a **new** Worker or project on the next deploy and
 leaves the old one running, still bound to its domains. See
-[operations.md#renaming-things](operations.md#renaming-things).
+[operations.md#renaming-things](../guides/operations.md#renaming-things).
 
 ### Black Holes worker
 

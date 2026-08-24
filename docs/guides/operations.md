@@ -3,6 +3,9 @@
 The day-two runbook: deploying changes, managing black holes, purging, reading
 logs, watching quotas, rotating secrets, and tearing things down.
 
+This page is *when and why*. For the exhaustive per-command surface — every flag,
+every exit code — see [reference/cli](../reference/cli.md).
+
 ## Deploying
 
 ```bash
@@ -64,7 +67,7 @@ An interactive menu with three options, each gated by typing `PURGE`:
 stay behind unreachable, and nothing would ever list them again. The whole reason
 this command exists is that the two stores have to move together.
 
-Unattended retention is the cleanup worker's job — see [cleanup.md](cleanup.md).
+Unattended retention is the cleanup worker's job — see [cleanup.md](../internals/cleanup.md).
 Use `./a51 purge` for one-off clear-downs (end of an engagement) and for the
 things the worker never touches.
 
@@ -78,8 +81,8 @@ things the worker never touches.
 ```
 
 Every worker emits one JSON object per event. Event names are listed in
-[black-holes.md](black-holes.md#log-events), [autopilot.md](autopilot.md) and
-[cleanup.md](cleanup.md#watching-it). Logs are also persisted and queryable in the
+[black-holes.md](../internals/black-holes.md#log-events), [autopilot.md](../internals/autopilot.md) and
+[cleanup.md](../internals/cleanup.md#watching-it). Logs are also persisted and queryable in the
 Cloudflare dashboard (`[observability] enabled = true` in every config).
 
 Pages Functions log to the Pages project's own log stream, not to `wrangler tail`.
@@ -169,7 +172,7 @@ Notes:
 - **Search is a full table scan** (`LIKE '%term%'`), and reads are billed per row
   scanned. Prefer narrower terms on large tables.
 - **No row counts anywhere in the UI** for exactly this reason
-  ([decisions.md](decisions.md#no-row-counts-anywhere-in-the-ui)).
+  ([decisions.md](../decisions.md#no-row-counts-anywhere-in-the-ui)).
 - Usage lives in the Cloudflare dashboard: D1 → *database* → Metrics, R2 → *bucket*,
   Workers & Pages → *worker* → Metrics.
 
@@ -194,7 +197,7 @@ to do implicitly, so the whole teardown stays one command:
   bucket with objects — `[10008]`). Emptying happens only inside the `DELETE-DATA`
   gate. It lists the objects over R2's S3 API using credentials derived from your
   existing API token — nothing extra to create — and deletes them via the REST
-  object API. See [decisions.md](decisions.md#destroy-empties-buckets-itself-s3-to-list-v4-to-delete).
+  object API. See [decisions.md](../decisions.md#destroy-empties-buckets-itself-s3-to-list-v4-to-delete).
 
 `destroy` is also safe to re-run over a half-torn-down deployment: anything
 already gone (a worker, the database, a bucket) is skipped rather than erroring.

@@ -5,7 +5,7 @@
 -- running it against a live database is safe and never drops data.
 --
 -- Six tables, one R2 bucket for captured email, one R2 bucket for endpoint file
--- uploads. Full column-by-column reference: docs/database.md.
+-- uploads. Full column-by-column reference: docs/reference/database.md.
 
 -- ─── endpoints ──────────────────────────────────────────────────────────────
 -- The map of `URI path -> response` the Black Holes worker serves. Matching is

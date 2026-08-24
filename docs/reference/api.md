@@ -7,7 +7,7 @@ versioning. Authentication is entirely Cloudflare Access at the edge — a reque
 that reaches a Function has already been authorised.
 
 Autopilot's agent-facing API is a **separate** surface on a separate worker with
-its own auth; see [autopilot.md](autopilot.md).
+its own auth; see [autopilot.md](../internals/autopilot.md).
 
 ## Conventions
 

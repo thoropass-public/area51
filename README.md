@@ -26,6 +26,12 @@ control — with whatever response you choose served in return.
 
 </div>
 
+> ⚠️ **For authorised security testing and research only.** A black hole is a
+> live, internet-reachable catch-all: everything a target sends it is stored, and
+> it serves back whatever you configure. Only point targets you have **explicit,
+> written authorisation** to test at it, and treat every deployment as
+> client-data storage. Test only what you are authorised to test.
+
 ---
 
 ## Why it exists
@@ -50,6 +56,11 @@ whole thing, on infrastructure you own:
   and confirm the hit without you in the loop.
 - **One command to stand up, one to tear down.** No servers, no containers, no
   cron host, and no bill at pentest volumes.
+
+> **Released early, on purpose.** AREA 51 began as an internal tool for a small,
+> trusted team, so it favours simplicity over hardening and scale. Expect rough
+> edges — and if you hit one, [open an issue](https://github.com/heylaika/area51/issues)
+> with repro steps. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## The three pieces
 
@@ -82,6 +93,15 @@ stages its own response stubs, and cannot touch anything else.
 </tr>
 </table>
 
+### Drive it from an agent 🆕
+
+The part nothing else has: **Autopilot** exposes an MCP server (with a REST
+mirror) so an authorised AI agent can run the loop itself mid-engagement — read
+the last hour of callbacks, stage its own response stub under the fenced `/-/*`
+namespace, and confirm the hit — without you in the loop. It is
+secret-authenticated and sandboxed: it can never read your files or any endpoint
+outside `/-/`. → [Autopilot internals](docs/internals/autopilot.md)
+
 ## What it looks like
 
 <table>
@@ -108,6 +128,26 @@ stages its own response stubs, and cannot touch anything else.
 | Payload delivery | Upload an archive, binary, PDF or font and serve it inline with its own content type | [→](docs/guides/usage.md#host-a-file-payload) |
 | Mail authentication review | The full `Received` chain plus SPF, DKIM and DMARC results on real delivered mail | [→](docs/guides/usage.md#drive-email-flows-signup-reset-verification) |
 
+<!--
+  Optional "How it compares" table — mirrors WRAITH's positioning section. Your
+  CLAUDE.md keeps the README deliberately light, so this is opt-in: delete it if
+  it feels like too much, or keep it for the scannable at-a-glance contrast.
+
+## How it compares
+
+Public interaction services give you a hostname and a log. AREA 51 gives you the
+whole interaction, self-hosted:
+
+| | AREA 51 | Burp Collaborator | interactsh | XSS Hunter / ezXSS |
+|---|---|---|---|---|
+| Self-hosted, you own the data | **Yes** | No (SaaS) | Yes | Yes |
+| Full HTTP request capture | **Yes** | Yes | Yes | via payload |
+| Email capture (catch-all, raw .eml) | **Yes** | Limited | No | No |
+| Serve a custom response / host a file | **Yes** | No | No | No |
+| Dashboard UI | **Yes** | In Burp | CLI | Yes |
+| Agent-drivable (MCP) | **Yes** 🆕 | No | No | No |
+-->
+
 ## Requirements
 
 - A **Cloudflare account** with a domain already added as a zone — ideally a
@@ -122,6 +162,10 @@ Everything else — database, storage, three Workers, the dashboard, DNS, TLS, m
 routing and the access policy — is created for you.
 
 ## Getting started
+
+First complete **[Requirements](#requirements)** above — the API token and the two
+one-click activations (R2 and Zero Trust) **cannot be done through the API**, so do
+them by hand first. Then:
 
 ```bash
 git clone https://github.com/heylaika/area51.git && cd area51
@@ -164,7 +208,14 @@ Full walkthrough, with the manual fallback for every step:
 
 Start at **[docs/README.md](docs/README.md)** for the full map.
 
-## Authorised use only
+## Contributing
+
+Contributions are welcome — bug reports, playbooks, and new capture recipes
+especially. See **[CONTRIBUTING.md](CONTRIBUTING.md)** to get set up. To report a
+security issue **in AREA 51 itself**, follow **[SECURITY.md](SECURITY.md)** rather
+than opening a public issue.
+
+## Authorised use and captured data
 
 This is offensive-security tooling. The black holes are deliberately reachable by
 anyone on the internet, and everything a target sends is stored, so treat a

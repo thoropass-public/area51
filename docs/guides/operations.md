@@ -113,6 +113,28 @@ prints the re-registration command. Every agent breaks until re-registered; ther
 is no dual-secret window. Rotate when someone leaves, when a secret has been
 pasted somewhere it should not have been, or on a schedule you set.
 
+## Lost or stolen device
+
+The machine that ran `./a51` holds `.env`, which contains the **Cloudflare API
+token** and a copy of the **Autopilot secret** (`AGENT_SECRET`). If a device with
+that file is lost or stolen, assume both are exposed and act immediately, in this
+order — none of these steps need the lost machine:
+
+1. **Revoke the Cloudflare API token.** Cloudflare dashboard → *My Profile → API
+   Tokens* → find the AREA 51 deploy token (named for the deployment, e.g.
+   `AREA 51 deploy - <domain>`) → **Roll** or **Delete**. This instantly kills
+   provisioning and deploy access. Mint a fresh token when you redeploy and put it
+   in the new machine's `.env`.
+2. **Rotate the Autopilot secret** from a trusted machine that still has the repo
+   and a valid token: `./a51 rotate-secret`, then re-register every agent. The old
+   `AGENT_SECRET` stops working the moment the new one is installed.
+3. **Revoke dashboard sessions.** Zero Trust → *Access* → your app → revoke active
+   sessions, so a still-logged-in browser on the lost device is cut off. Consider a
+   shorter `ACCESS_SESSION_DURATION` going forward.
+4. **Treat the black-hole domain as potentially burned** if it was tied to live
+   engagements: save any evidence, `./a51 purge` the captures, and move new work to
+   a fresh burner domain.
+
 ## Changing who can log in
 
 ```bash

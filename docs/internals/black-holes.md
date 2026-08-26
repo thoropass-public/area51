@@ -5,7 +5,7 @@ One npm dependency, `postal-mime`, which is why the config sets
 `compatibility_flags = ["nodejs_compat"]`.
 
 One worker serves **every** black hole. It is bound by Custom Domain to each
-hostname and does not know or care which one a request arrived on — the hostname
+hostname and does not know or care which one a request arrived on. The hostname
 only matters as data (it is part of the captured URL).
 
 ```js
@@ -28,7 +28,7 @@ export default {
 `*.workers.dev` URL and no per-version preview URL. It is reachable only through
 the Custom Domains bound to it.
 
-Email Routing is **not** configured in `wrangler.toml` — Wrangler v4 removed the
+Email Routing is **not** configured in `wrangler.toml`, because Wrangler v4 removed the
 `[triggers] email` key. The worker exports an `email()` handler and the zone's
 catch-all rule delivers to it; `./a51 setup` and `./a51 domains add … mail` set
 that rule over the API.
@@ -39,11 +39,11 @@ that rule over the API.
 
 1. Generate `id` (UUID) and read `cf-connecting-ip`. Log `http_request_received`.
 2. **IP blacklist gate.** Load the list (60-minute edge cache) and, on a hit, log
-   `http_rejected_blacklist` and return `403! Forbidden` immediately — before the
+   `http_rejected_blacklist` and return `403! Forbidden` immediately, before the
    body is read, before the endpoint table is consulted, with nothing written.
 3. Build the log row: `{id, ts, method, url (full), ip, ua, headers (JSON of
    every header), body}`. A body read error is swallowed and stored as `''`.
-4. `ctx.waitUntil(insertRequestLog(...))` — fire and forget, so D1 latency never
+4. `ctx.waitUntil(insertRequestLog(...))`, fire and forget, so D1 latency never
    delays the response. A failure logs `http_log_insert_failed` and the capture is
    lost. There is no retry.
 5. `SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ?` against
@@ -69,16 +69,16 @@ the **only** path that forwards to the fallback inbox, and the handler never
 re-throws.
 
 1. `id = uuid`, `ts = now`, `toAddr = message.to`. The SMTP envelope sender
-   (`message.from`) is kept for log lines only — it never reaches storage,
+   (`message.from`) is kept for log lines only. It never reaches storage,
    display, or the blacklist.
 2. Buffer the raw message **once**:
    `buf = await new Response(message.raw).arrayBuffer()`. `message.raw` is a
    stream and can only be read once; the same buffer feeds both the parser and R2.
 3. `parsed = await PostalMime.parse(buf)` for `subject` and
-   `attachment_count`. **No body is extracted** — bodies live only in the raw
+   `attachment_count`. **No body is extracted:** bodies live only in the raw
    `.eml`. A parse failure logs `email_parse_failed` and is *non-fatal*: the
    object is still stored, so the dashboard's own parse still renders everything.
-4. `fromAddr = parsed.from.address` — the `From:` header. **The email blacklist
+4. `fromAddr = parsed.from.address`, the `From:` header. **The email blacklist
    gates on this value and only this value.** On a hit: log
    `email_rejected_blacklist`, `message.setReject('Address not accepted')`,
    return. No object, no row, no forward; the sender's server bounces. If the
@@ -90,7 +90,7 @@ re-throws.
 7. Log `email_stored`.
 
 **Catch (any failure above):** log `email_capture_failed`, forward the original to
-`FALLBACK_ADDRESS` so it is not lost, then roll back whatever landed —
+`FALLBACK_ADDRESS` so it is not lost, then roll back whatever landed:
 `EML.delete(key)` and `DELETE FROM emails WHERE id = ?`. Both are best-effort
 (D1 and R2 share no transaction) and log `email_rollback_r2_failed` /
 `email_rollback_d1_failed` on failure.
@@ -138,7 +138,7 @@ with `./a51 tail black-holes`.
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the fire-and-forget request log |
 | `email_received` | top of the email handler (includes envelope sender and raw size) |
 | `email_rejected_blacklist` | sender on the blacklist; message NACKed |
-| `email_parse_failed` | postal-mime threw — non-fatal |
+| `email_parse_failed` | postal-mime threw, non-fatal |
 | `email_stored` | success: object **and** row exist |
 | `email_capture_failed` | the error path fired; forwarded, then rolled back |
 | `email_rollback_r2_failed` / `email_rollback_d1_failed` | a compensating delete failed (possible orphan) |

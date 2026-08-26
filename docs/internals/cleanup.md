@@ -1,9 +1,9 @@
-# The cleanup worker — retention
+# The cleanup worker, and retention
 
 `workers/cleanup/src/index.js`, service name from `CLEANUP_WORKER_NAME`. Its only
 entry point is a `scheduled()` handler: no `fetch`, no `email`, no Custom Domain.
 A cron trigger in its config fires it once a day (`CLEANUP_CRON`, default
-`0 6 * * *` — 06:00 UTC) and it trims the two append-only logs so neither the
+`0 6 * * *`, meaning 06:00 UTC) and it trims the two append-only logs so neither the
 database nor the request log grows without bound.
 
 It is the unattended counterpart to `./a51 purge`
@@ -32,7 +32,7 @@ scheduled(event, env, ctx)
 **Requests are trimmed by count.** `id NOT IN (… ORDER BY ts DESC LIMIT N)`
 expresses "keep the newest N" exactly, with no boundary or tie ambiguity. It
 costs one scan of `requests` per day, which is negligible against the free read
-budget — and unlike a UI `COUNT(*)`
+budget. And unlike a UI `COUNT(*)`
 ([decisions.md](../decisions.md#no-row-counts-anywhere-in-the-ui)) it happens once,
 unattended.
 
@@ -55,7 +55,7 @@ from the current state.
 Why count for requests but age for emails: requests are high-volume, uniform and
 cheap (no objects), so a fixed cap is predictable under traffic spikes. Emails are
 lower-volume, each owns an object, and are worth keeping for a fixed
-investigation window — age is the natural axis, and it matches how manual purges
+investigation window, so age is the natural axis there, and it matches how manual purges
 are framed.
 
 ## Configuration
@@ -66,7 +66,7 @@ are framed.
 | Email max age (days) | `CLEANUP_EMAIL_MAX_AGE_DAYS` | `90` |
 | Schedule (UTC cron) | `CLEANUP_CRON` | `0 6 * * *` |
 
-All three are substituted into `wrangler.toml` at deploy time — the thresholds as
+All three are substituted into `wrangler.toml` at deploy time: the thresholds as
 `[vars]`, the schedule as the cron trigger. Change them in `.env` and:
 
 ```bash
@@ -91,7 +91,7 @@ the trigger landed under **Workers → *cleanup worker* → Settings → Trigger
 | `cleanup_started` | top of the run, with the resolved `keep` / `maxAgeDays` |
 | `cleanup_requests_done` | requests trim finished (`{keep, deleted}`) |
 | `cleanup_emails_done` | emails purge finished (`{cutoff, matched, r2_deleted, d1_deleted, r2_failed}`) |
-| `cleanup_emails_r2_failed` | a batch object delete threw — those ids are left for the next run |
+| `cleanup_emails_r2_failed` | a batch object delete threw, so those ids are left for the next run |
 | `cleanup_requests_failed` / `cleanup_emails_failed` | one table's purge threw (caught; the other still runs) |
 | `cleanup_finished` | end of run, combined summary |
 

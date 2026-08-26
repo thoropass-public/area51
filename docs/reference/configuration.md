@@ -6,7 +6,7 @@ Cloudflare credentials, every name and hostname, and the Autopilot secret.
 successful run the file describes the whole deployment.
 
 - Gitignored, written with mode `600`. Never commit it.
-- `.env.example` is the annotated template — `cp .env.example .env` to start.
+- `.env.example` is the annotated template; `cp .env.example .env` to start.
 - Edits are surgical: the CLI rewrites the `KEY=` line in place and leaves your
   comments and ordering alone.
 - Values containing spaces must be quoted (`CLEANUP_CRON="0 6 * * *"`), because
@@ -48,7 +48,7 @@ BLACK_HOLE_HOSTNAME=blackhole.com            # targets hit this; public by desig
 BLACK_HOLE_ROLES=http,mail
 DASHBOARD_HOSTNAME=area51.blackhole.com      # you log in here, behind Access
 AUTOPILOT_HOSTNAME=autopilot.blackhole.com   # agents connect here
-ALLOWED_EMAILS=you@gmail.com,teammate@work.com   # your REAL inboxes — who may log in
+ALLOWED_EMAILS=you@gmail.com,teammate@work.com   # your REAL inboxes, who may log in
 FALLBACK_ADDRESS=you@gmail.com               # a REAL inbox for bounced captures
 ```
 
@@ -60,7 +60,7 @@ of confusion:
 | `ALLOWED_EMAILS` | The real inbox(es) allowed to **log into the dashboard**. Access emails a one-time PIN to these. | `you@gmail.com` | An address at the black-hole domain |
 | `FALLBACK_ADDRESS` | A real inbox that receives an email **only when its capture fails** (so it isn't lost). Must be verified once. | `you@gmail.com` | An address at the black-hole domain |
 
-Neither is ever an address *on* the black hole (e.g. `anything@blackhole.com`) —
+Neither is ever an address *on* the black hole (e.g. `anything@blackhole.com`):
 that domain is the trap you point targets at, not a mailbox you own. The same
 real inbox can serve both fields.
 
@@ -89,8 +89,8 @@ real inbox can serve both fields.
 
 | Key | Default | Notes |
 |---|---|---|
-| `ALLOWED_EMAILS` | — | Comma-separated allow-list. `alice@example.com` (exact) or `example.com` (any address at that domain). Empty means **no protection** — `doctor` treats that as a failure. Edit it incrementally with `./a51 access --add <…>` / `--remove <…>` (both write back here), or set it wholesale by editing this value and running a bare `./a51 access`. |
-| `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organization yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers** — if creation fails, pick another. |
+| `ALLOWED_EMAILS` | — | Comma-separated allow-list. `alice@example.com` (exact) or `example.com` (any address at that domain). Empty means **no protection**, and `doctor` treats that as a failure. Edit it incrementally with `./a51 access --add <…>` / `--remove <…>` (both write back here), or set it wholesale by editing this value and running a bare `./a51 access`. |
+| `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organization yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers**, so if creation fails, pick another. |
 | `ACCESS_SESSION_DURATION` | `24h` | How long a login lasts. Formats: `30m`, `24h`, `730h`. Shorter means more one-time PINs; longer means a stolen laptop stays logged in. The dashboard auto-reloads when a session expires mid-use ([dashboard.md](../internals/dashboard.md#expired-session-handling)). |
 
 ### Storage
@@ -123,7 +123,7 @@ leaves the old one running, still bound to its domains. See
 
 | Key | Default | Notes |
 |---|---|---|
-| `FALLBACK_ADDRESS` | — | Last-resort inbox, used **only** when capture fails (object write throws, handler errors). Successful captures are never forwarded. Must be a **verified** Email Routing destination on the account or forwarding silently fails — setup registers it, you click the verification link. Leave empty to accept that a failed capture is simply lost. |
+| `FALLBACK_ADDRESS` | — | Last-resort inbox, used **only** when capture fails (object write throws, handler errors). Successful captures are never forwarded. Must be a **verified** Email Routing destination on the account or forwarding silently fails. Setup registers it; you click the verification link. Leave empty to accept that a failed capture is simply lost. |
 
 ### Autopilot
 
@@ -136,7 +136,7 @@ leaves the old one running, still bound to its domains. See
 | Key | Default | Notes |
 |---|---|---|
 | `CLEANUP_REQUESTS_KEEP` | `1000` | Newest request rows to keep; the rest are deleted daily. Count-based because request volume is spiky. |
-| `CLEANUP_EMAIL_MAX_AGE_DAYS` | `90` | Emails older than this are deleted — rows **and** their `.eml` objects. **Starred email is exempt and kept forever.** |
+| `CLEANUP_EMAIL_MAX_AGE_DAYS` | `90` | Emails older than this are deleted, rows **and** their `.eml` objects. **Starred email is exempt and kept forever.** |
 | `CLEANUP_CRON` | `0 6 * * *` | Standard five-field cron, **UTC**. Must be quoted. Applied by `./a51 deploy cleanup`. |
 
 Both thresholds arrive at the Worker as strings and are parsed with a
@@ -161,5 +161,5 @@ it lives:
 | Compatibility date | `2024-10-11` | the three `wrangler.toml.template` files and `cli/lib/provision.mjs` |
 
 The last one matters: Pages Functions get their compatibility date from the
-project's deployment config, which the CLI sets — so it is defined in
+project's deployment config, which the CLI sets, so it is defined in
 `provision.mjs`, not in a config file you can edit.

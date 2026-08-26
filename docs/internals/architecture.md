@@ -12,10 +12,10 @@ long-lived process.
 | Piece | Implementation | Responsibility |
 |---|---|---|
 | **AREA 51** (dashboard) | Cloudflare Pages project (`PAGES_PROJECT_NAME`) | Static React UI plus Pages Functions that serve the JSON API. The only writer of endpoint definitions, blacklists and per-email read/starred state. |
-| **Black Holes** (catcher) | one Worker (`WORKER_NAME`), bound by Custom Domain to every black hole | Serves endpoint responses; logs every request; captures every inbound email. Domain-agnostic — it does not know or care which black hole a request arrived on. |
+| **Black Holes** (catcher) | one Worker (`WORKER_NAME`), bound by Custom Domain to every black hole | Serves endpoint responses; logs every request; captures every inbound email. Domain-agnostic: it does not know or care which black hole a request arrived on. |
 | **Autopilot** (agent interface) | a second Worker (`AGENT_WORKER_NAME`) on its own Custom Domain | Secret-authenticated REST + MCP server. Recent-capture reads and CRUD confined to the `/-/*` endpoint namespace. |
 | **Cleanup** (retention) | a third Worker (`CLEANUP_WORKER_NAME`), cron trigger only, no domain | Daily: trims `requests` to the newest N rows, deletes non-starred `emails` older than M days along with their `.eml` objects. |
-| **D1 database** | binding `DB` on all three Workers and on Pages | Six tables. Metadata only — no message bodies, no uploaded bytes. |
+| **D1 database** | binding `DB` on all three Workers and on Pages | Six tables. Metadata only, so no message bodies and no uploaded bytes. |
 | **R2: captured email** | binding `EML` (worker, autopilot, cleanup, Pages) | One verbatim `.eml` per captured message at `emails/<id>.eml`. |
 | **R2: endpoint files** | binding `FILES` (worker + Pages only) | One object per file-backed endpoint, keyed by a random UUID. |
 | **Email Routing** | per mail-enabled zone | A catch-all rule that hands every inbound message to the catcher's `email()` handler. |
@@ -52,7 +52,8 @@ precedence rules ([decisions.md](../decisions.md#endpoints-are-exact-match-not-g
 Query strings are captured but ignored for matching.
 
 The request log is fire-and-forget. If the insert fails, a `http_log_insert_failed`
-log line is emitted and the capture is lost — the response has already gone out.
+log line is emitted and the capture is lost, because the response has already
+gone out.
 There is no retry queue.
 
 ## Email capture flow
@@ -81,12 +82,12 @@ sender ──► anything@<mail-enabled black hole>
 
 Capture is **all-or-nothing**. Success means both the object and the row exist;
 failure means neither does and the original is in the fallback inbox. There are
-no marker rows and no size or attachment thresholds — every message is stored in
+no marker rows, and no size or attachment thresholds: every message is stored in
 full. The handler never re-throws.
 
 D1 and R2 share no transaction, so the rollback is a pair of compensating
 deletes. A failed compensating delete is logged (`email_rollback_r2_failed` /
-`email_rollback_d1_failed`) and at worst leaves an invisible orphaned object —
+`email_rollback_d1_failed`) and at worst leaves an invisible orphaned object,
 never a visible half-email.
 
 ## Dashboard flow
@@ -109,7 +110,7 @@ operator ──► https://<dashboard>
                     env.DB (D1) + env.EML / env.FILES (R2)
 ```
 
-The browser renders JSX at runtime (React + Babel from a CDN) — there is no
+The browser renders JSX at runtime (React + Babel from a CDN), so there is no
 build step ([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)).
 
 ## Agent flow

@@ -6,16 +6,13 @@
   <img src=".github/assets/brand/lockup-dark.png" alt="AREA 51 — exploit server" width="460">
 </picture>
 
-<p>
-  <sub>by</sub>
-  <a href="https://thoropass.com">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brand/thoropass-dark.png">
-      <source media="(prefers-color-scheme: light)" srcset=".github/assets/brand/thoropass-light.png">
-      <img src=".github/assets/brand/thoropass-light.png" alt="Thoropass" height="20">
-    </picture>
-  </a>
-</p>
+<a href="https://thoropass.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brand/byline-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/brand/byline-light.png">
+    <img src=".github/assets/brand/byline-dark.png" alt="by Thoropass" width="460">
+  </picture>
+</a>
 
 ### Every callback, captured.
 

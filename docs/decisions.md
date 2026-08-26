@@ -15,8 +15,8 @@ anywhere the dashboard can reach.
 thousand reads for numbers nobody acts on. The scan grows linearly with the table
 forever.
 
-The textbook fix — a `counters` table maintained by `AFTER INSERT/DELETE` triggers
-— is O(1) reads, one extra write per mutation, and about fifty lines of schema. It
+The textbook fix, a `counters` table maintained by `AFTER INSERT/DELETE`
+triggers, is O(1) reads, one extra write per mutation, and about fifty lines of schema. It
 was rejected as complexity that buys polish. Each tab shows `{rows.length} loaded`
 instead, which is free.
 
@@ -39,8 +39,8 @@ eleven.
 The catcher matches `url.pathname` with `WHERE uri = ?`. No wildcards, no regex, no
 trailing-slash equivalence.
 
-**Why:** the table is then the complete, unambiguous source of truth — no
-precedence rules to reason about when two patterns could match — and the lookup is
+**Why:** the table is then the complete, unambiguous source of truth, with no
+precedence rules to reason about when two patterns could match. And the lookup is
 the cheapest possible query, a primary-key hit.
 
 If patterns become necessary, add a separate `endpoint_patterns` table consulted
@@ -69,7 +69,7 @@ verbatim `.eml` in R2, a lean index row in D1.
 **Why:** D1's 500 MB limit made email the one table that could realistically fill
 it, and forwarding on attachment meant attachments were *lost* to a mailbox rather
 than retained. R2 (10 GB free, no egress fees) is the right home for opaque blobs,
-keeps everything, and removes the size and attachment thresholds entirely — one
+keeps everything, and removes the size and attachment thresholds entirely. One
 write path instead of two.
 
 D1 keeps only what the list, search and agent API need. There is **no body column
@@ -85,19 +85,19 @@ than silently showing a stale copy.
 
 ## All-or-nothing email capture (no marker rows)
 
-Earlier designs kept partial records for messages that could not be fully stored —
+Earlier designs kept partial records for messages that could not be fully stored:
 first a `"sent_to_fallback"` sentinel body, then an `is_fallback` marker row. Both
 are gone. Capture is binary: success means the object **and** the row exist;
 failure means neither does and the original was forwarded to the fallback inbox.
 
-**Why:** a row that exists but cannot be opened is worse than no row — a dead end
+**Why:** a row that exists but cannot be opened is worse than no row. It is a dead end
 in the UI and a trap for an agent. Keeping the two stores strictly in lockstep
 means everything the dashboard or an agent can see is fully retrievable, and the
 schema loses a column and a special-case render path.
 
 The trade: D1 and R2 share no transaction, so rollback is a pair of compensating
 deletes. A failed compensating delete is logged and at worst leaves an invisible
-orphaned object — never a visible half-email.
+orphaned object, never a visible half-email.
 
 ## No purge in the dashboard
 
@@ -110,7 +110,7 @@ trivially purgeable with SQL. A CLI plus a typed confirmation keeps a
 destructive-by-design tool out of the click path.
 
 If purging ever needs to be team-accessible rather than admin-only, bring back a
-Function that handles the coupling correctly and put a UI on it — do not turn the
+Function that handles the coupling correctly and put a UI on it. Do not turn the
 script into a service.
 
 ## Retention is a scheduled worker, not a cron'd script
@@ -118,7 +118,7 @@ script into a service.
 `./a51 purge` could have been run from a crontab. Retention is a dedicated
 Cloudflare Worker instead.
 
-**Why:** there is no host to own a crontab — everything else here is serverless, and
+**Why:** there is no host to own a crontab. Everything else here is serverless, and
 a laptop or CI schedule silently stops when that machine or account changes. A
 Worker cron lives in the same account as everything else and is visible in the same
 dashboard. It also gets the bindings natively, in-process, with no API token on
@@ -138,7 +138,7 @@ The modal used to open on the lean row and fetch the raw message only when the u
 clicked *More*, which is why D1 once carried a `text` column.
 
 **Why it changed:** the two-step split the body across two sources and two render
-paths. Fetching on open collapses that to one of each — the view is always the real
+paths. Fetching on open collapses that to one of each, so the view is always the real
 message, HTML included, with no "click More for the rest" cliff. That made the
 `text` column a second, divergent copy with no reader, so it was dropped.
 
@@ -155,11 +155,11 @@ The Emails tab collapses identical mail into conversation rows.
   normalize; the flood being fought is an automated sender blasting the same
   subject at many catch-all aliases. Dropping the recipient collapses that whole
   blast into one row, where a from+to+subject key would split it per alias. Exact
-  matching stays conservative — it never merges unrelated senders or subjects.
+  matching stays conservative, and never merges unrelated senders or subjects.
 - **Grouping happens client-side over loaded rows.** A `GROUP BY` list query would
   scan the table on every load (the per-row cost the no-counts rule avoids) and
-  complicate cursor pagination. The consequence — a group's membership is only as
-  complete as what is loaded — is handled by making the drill-in re-fetch
+  complicate cursor pagination. The consequence, that a group's membership is
+  only as complete as what is loaded, is handled by making the drill-in re-fetch
   authoritatively from the server.
 - **No count on a group row.** An accurate total needs a `COUNT(*)` per group. A
   loaded-members count would be free but is a floor dressed up as a figure. So the
@@ -187,7 +187,7 @@ Fixed in the API client rather than at the edge:
   legitimately redirects, so turning the redirect into an opaque response makes
   session expiry an unambiguous, catchable signal.
 - **Reload rather than prompt.** The reload is a navigation, which is exactly what
-  the auth hop needs — it either re-mints the cookie silently or lands on the login
+  the auth hop needs. It either re-mints the cookie silently or lands on the login
   screen. A "click to re-authenticate" banner would be a manual version of the same
   navigation.
 - **Narrow trigger.** Only edge-auth-shaped responses reload. An offline
@@ -203,14 +203,14 @@ cheaper mitigation than stashing form drafts.
 
 - **The server owns status, headers and body for a file endpoint.** A file plus a
   typed body plus a 404 plus a JSON content type has no coherent meaning, so an
-  upload forces `200`, the detected `Content-Type`, and an empty body — and the
+  upload forces `200`, the detected `Content-Type`, and an empty body, and the
   modal *unmounts* those editors rather than disabling them, because a grayed-out
   field still invites a click. The trade is worth knowing up front: a test needing
   a `302 Location` or an `Access-Control-Allow-Origin` must use a text endpoint. A
   merge model (user headers underneath, server content type on top) would fit the
   schema if that becomes common.
 - **Served inline, never as an attachment.** `Content-Disposition: attachment`
-  would break the actual use cases — a DTD, a script, an HTML proof all have to be
+  would break the actual use cases: a DTD, a script, an HTML proof all have to be
   fetched and executed by the target.
 - **A separate bucket, not a prefix in the email bucket.** The prefix would have
   cost nothing. The dedicated bucket keeps uploads independently wipeable, leaves
@@ -234,7 +234,7 @@ An earlier version wrapped the agent read routes in a 60-second edge cache. It w
 removed.
 
 **Why:** during an engagement an agent polling `/requests` or `/emails` wants the
-freshest possible view — a stale snapshot can hide the callback its next step
+freshest possible view, and a stale snapshot can hide the callback its next step
 depends on. And the read budget at realistic volumes is small enough that the cache
 was not earning its complexity: even one agent polling every 30 seconds against a
 busy black hole stays far inside the free daily read quota.
@@ -264,7 +264,7 @@ Cloudflare refuses to do implicitly (`[10008]` bucket-not-empty, `[8000028]`
 project-has-domains).
 
 **Why the split (S3 for listing, v4 for deleting):** the Cloudflare v4 REST API
-exposes single-object GET/PUT/DELETE but no dependable object *list* — the docs
+exposes single-object GET/PUT/DELETE but no dependable object *list*, and the docs
 steer you to the S3-compatible API for that. So `destroy` enumerates keys over
 R2's S3 endpoint ([cli/lib/r2s3.mjs](../cli/lib/r2s3.mjs), a ~100-line
 dependency-free SigV4 signer) and deletes each through the already-used v4
@@ -274,8 +274,8 @@ signing code to get wrong on a destructive path. The signer is checked against
 the AWS SigV4 `get-vanilla` known-answer vector.
 
 **No extra credentials.** R2's S3 credentials are derived from the same account
-API token the CLI already holds — Access Key ID = the token's id, Secret =
-SHA-256 of the token value — so emptying needs nothing a human has to create.
+API token the CLI already holds. Access Key ID = the token's id, Secret =
+SHA-256 of the token value, so emptying needs nothing a human has to create.
 
 **Only inside the DELETE-DATA gate.** Emptying is destructive, so it runs only
 after the second typed confirmation, alongside the database and bucket deletes.
@@ -303,7 +303,7 @@ The cost is a hand-written API client (`cli/lib/cloudflare.mjs`) and a dependenc
 on request shapes Cloudflare could change. It is small, dependency-free, and
 `A51_API_BASE` makes it testable against a mock.
 
-## Pages bindings are set before the first upload — via create-then-patch
+## Pages bindings are set before the first upload, via create-then-patch
 
 The project ends up with its D1 and R2 bindings on both the production and preview
 configurations *before* the first upload, and its `production_branch` pinned to
@@ -311,24 +311,24 @@ configurations *before* the first upload, and its `production_branch` pinned to
 
 **Why:** the manual flow (deploy, discover every `/api/*` call returns 500, add
 three bindings in the dashboard for two environments, redeploy) was the single most
-error-prone step in the old setup — and forgetting the preview environment produced
+error-prone step in the old setup, and forgetting the preview environment produced
 failures that only showed up later. Doing it over the API in the right order
 removes the class of problem.
 
 **Why create-then-patch, not create-with-bindings:** creating the project and its
 `deployment_configs` in a *single* `POST` is rejected on some accounts with a
 generic `[8000000] An unknown error occurred`, while a bare create (name +
-`production_branch`) succeeds — which is why wrangler could make the project when
+`production_branch`) succeeds, which is why wrangler could make the project when
 the API couldn't. So `ensurePagesProject` creates minimally, then `PATCH`es the
 bindings. The guarantee (bindings present before the upload) is unchanged; only
 the call sequence is. `./a51 deploy dashboard` re-asserts the bindings and branch
-every time, so a project someone edited by hand — or one wrangler created bare as a
-fallback — repairs itself.
+every time, so a project someone edited by hand, or one wrangler created bare as
+a fallback, repairs itself.
 
 **Two failure modes this also closes:**
 - **Wrong production branch.** If the API create ever fails outright, wrangler
   creates the project with its production branch defaulted to the local git branch
-  and deploys to `main` — a *preview*, so the custom domain serves nothing. Setup
+  and deploys to `main`, a *preview*, so the custom domain serves nothing. Setup
   now pins `production_branch = main` on the patch and redeploys, and treats a
   failed create as "attach bindings + redeploy," not a dead end.
 - **Wrong DNS target.** The `*.pages.dev` subdomain is global; a common name like
@@ -348,7 +348,7 @@ open dashboard happens. Making it a step means the default deployment is protect
 as a failure with a live probe to back it up.
 
 One-time PIN was chosen over integrating an identity provider because it needs no
-external configuration — Access emails a code to an allow-listed address. Anyone who
+external configuration: Access emails a code to an allow-listed address. Anyone who
 wants an IdP, device posture or an IP rule can compose that in Zero Trust; the code
 does not care.
 
@@ -359,8 +359,8 @@ directory. Setup writes discovered and generated values (account id, database id
 hostnames, generated secret) back into `.env`.
 
 **Why:** an operator can read the whole deployment in one annotated file, and a
-teammate can take it over by copying it. Writes are surgical — the `KEY=` line is
-replaced in place, comments and ordering preserved — so it stays the human-readable
+teammate can take it over by copying it. Writes are surgical: the `KEY=` line is
+replaced in place, with comments and ordering preserved, so it stays the human-readable
 document `.env.example` starts as.
 
 The consequence: `.env` is both configuration and state, so losing it means
@@ -376,7 +376,7 @@ every follow-up at the end and exits `2`.
 **Why:** the alternative is a half-provisioned deployment and a stack trace. Most
 failures here are one missing token permission or an account-level toggle (R2 not
 enabled), and the rest of the deployment is still worth completing. Because every
-step is idempotent, fixing the cause and re-running converges — the completed steps
+step is idempotent, fixing the cause and re-running converges. The completed steps
 report "already correct" and only the broken one runs again.
 
 ## One `package.json` at the root

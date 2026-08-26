@@ -262,7 +262,7 @@ Same Custom Domain call, pointed at the Autopilot Worker.
   500 until you add the binding and redeploy" trap. (Create-then-patch, rather
   than one create-with-bindings call, because the combined call is rejected on
   some accounts with `[8000000]`; see
-  [decisions.md](../decisions.md#pages-bindings-are-set-before-the-first-upload--via-create-then-patch).)
+  [decisions.md](../decisions.md#pages-bindings-are-set-before-the-first-upload-via-create-then-patch).)
 - `wrangler pages deploy .` from `dashboard/`. If the API create had failed and
   wrangler created the project bare as a fallback, setup re-attaches the bindings
   and redeploys so the live deployment carries them.

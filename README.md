@@ -94,7 +94,7 @@ stages its own response stubs, and cannot touch anything else.
 
 ### Drive it from an agent 🆕
 
-The part nothing else has: **Autopilot** exposes an MCP server (with a REST
+Cool and easy: **Autopilot** exposes an MCP server (with a REST
 mirror) so an authorised AI agent can run the loop itself mid-engagement — read
 the last hour of callbacks, stage its own response stub under the fenced `/-/*`
 namespace, and confirm the hit — without you in the loop. It is

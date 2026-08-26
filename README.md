@@ -13,6 +13,7 @@ own, and every HTTP request and every email it sends back lands in a dashboard y
 control — with whatever response you choose served in return.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-88C0D0?style=flat-square)](LICENSE)
+[![Runs on Cloudflare](https://img.shields.io/badge/runs_on-Cloudflare-D08770?style=flat-square&logo=cloudflare&logoColor=white)](docs/internals/architecture.md)
 [![Node](https://img.shields.io/badge/node-20%2B-88C0D0?style=flat-square)](#requirements)
 [![MCP](https://img.shields.io/badge/MCP-agent_ready-8FBCBB?style=flat-square)](docs/internals/autopilot.md)
 

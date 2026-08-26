@@ -34,7 +34,7 @@ inspects, repairs and tears down.
 |---|---|
 | `0` | Success |
 | `1` | Failure, or the operator declined a confirmation |
-| `2` | Partial success — the work is done except for steps that need a human. Every one is printed with its dashboard click-path. |
+| `2` | Partial success. The work is done except for steps that need a human, and every one is printed with its dashboard click-path. |
 
 Exit `2` is the interesting one: a missing token permission or an
 account-level toggle stops *one* step, not the run. Fix the cause and re-run.
@@ -77,8 +77,8 @@ Uploads code that is already provisioned. Defaults to `all`.
 | `dashboard` | Re-assert the Pages D1/R2 bindings, then upload `dashboard/` |
 | `schema` | Re-apply `db/schema.sql` (idempotent; never drops data) |
 
-A configuration change and a code change ship the same way — the Worker config is
-regenerated from `.env` on every deploy.
+A configuration change and a code change ship the same way, since the Worker
+config is regenerated from `.env` on every deploy.
 
 ## status
 
@@ -90,7 +90,7 @@ One screen: account, zone, database, buckets, the three hostnames, every
 configured black hole with its roles, which Workers are deployed, the retention
 thresholds and the Access allow-list. Read-only.
 
-No row counts, deliberately — D1 bills per row read
+No row counts, deliberately, because D1 bills per row read
 ([decisions](../decisions.md#no-row-counts-anywhere-in-the-ui)).
 
 ## doctor
@@ -133,7 +133,7 @@ hostname bound to the catcher (for `http`), a zone catch-all pointed at the
 catcher (for `mail`), and a row in the `domains` table so the dashboard and
 Autopilot know it exists.
 
-- `add` defaults to `http,mail`. No redeploy — the next page load and the next
+- `add` defaults to `http,mail`. No redeploy needed: the next page load and the next
   agent call pick it up. DNS and the certificate take a minute.
 - `remove` drops the row and detaches the Custom Domain. It deliberately leaves
   Email Routing alone, since that is zone-wide and another black hole on the same
@@ -157,7 +157,7 @@ URLs, so there is no unauthenticated bypass).
 Entries are full addresses (`you@example.com`) or bare domains (`example.com` =
 anyone with that email domain). Everything is lowercased and de-duplicated.
 
-There is deliberately **no positional "replace the list" form** — `--add` and
+There is deliberately **no positional "replace the list" form**. `--add` and
 `--remove` express every change without the footgun of silently dropping entries
 you forgot to retype. To set the list wholesale, edit `ALLOWED_EMAILS` in `.env`
 and run the bare command. Refuses to leave the list empty; use
@@ -174,12 +174,12 @@ Interactive, admin-only deletion. Three options, each gated by typing `PURGE`:
 | Option | What it deletes |
 |---|---|
 | Requests | `requests` rows older than N days. Database only. |
-| Emails | Non-starred `emails` older than N days — **the R2 object first, then the row**, and only for objects confirmed deleted |
+| Emails | Non-starred `emails` older than N days. **The R2 object goes first, then the row**, and only for objects confirmed deleted |
 | Autopilot endpoints | Every `/-/*` row, plus the uploaded object of any file-backed row among them |
 
 This exists because email lives in two stores at once. A bare
 `DELETE FROM emails` in the D1 console leaves the `.eml` objects behind
-unreachable — an invisible storage leak. Starred email is never purged.
+unreachable, which is an invisible storage leak. Starred email is never purged.
 
 Unattended retention is the cleanup worker's job
 ([internals/cleanup](../internals/cleanup.md)).
@@ -192,7 +192,7 @@ Unattended retention is the cleanup worker's job
 
 Generates 32 random bytes (or takes the value you pass), installs it as the
 Autopilot Worker Secret, writes it to `.env`, and prints the re-registration
-command. Every agent breaks until re-registered — there is no dual-secret window.
+command. Every agent breaks until re-registered; there is no dual-secret window.
 
 ## tail
 
@@ -220,7 +220,7 @@ and queryable in the Cloudflare dashboard.
 ```
 
 Runs one piece locally. **Local runs talk to the remote database and buckets by
-default** — real endpoints, real captures, and real mistakes. Pass `-- --local`
+default:** real endpoints, real captures, and real mistakes. Pass `-- --local`
 for isolated local storage.
 
 Two things cannot be exercised locally: inbound email (only Cloudflare Email
@@ -235,10 +235,10 @@ has no edge auth).
 
 Two gates, neither satisfiable by `--yes`:
 
-1. Type `REMOVE` — deletes the three Workers, the Pages project, the dashboard
+1. Type `REMOVE`. Deletes the three Workers, the Pages project, the dashboard
    DNS record and the Access application. All rebuildable from this repository;
    captured data untouched.
-2. Type `DELETE-DATA` — deletes the D1 database and both R2 buckets, emptying
+2. Type `DELETE-DATA`. Deletes the D1 database and both R2 buckets, emptying
    them first. Permanent.
 
 Answering no to the second leaves your captures intact, so `./a51 setup` can

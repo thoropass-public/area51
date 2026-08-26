@@ -70,7 +70,7 @@ Two things cannot be exercised locally:
 - Handlers never throw out to the runtime. The email handler in particular wraps
   everything and treats its catch as the compensating path.
 - Two-store writes go object-first, row-second, with a compensating delete on
-  failure — a visible broken row beats an invisible orphaned object.
+  failure. A visible broken row beats an invisible orphaned object.
 
 **Pages Functions**
 
@@ -110,12 +110,12 @@ Two things cannot be exercised locally:
 
 ## Common tasks
 
-**Add an API route** — see [api.md#adding-a-route](reference/api.md#adding-a-route).
+**Add an API route:** see [api.md#adding-a-route](reference/api.md#adding-a-route).
 
 **Add a column**
 
 1. Add it to `db/schema.sql`.
-2. `ALTER TABLE` on live deployments — `CREATE TABLE IF NOT EXISTS` will not alter
+2. `ALTER TABLE` on live deployments, because `CREATE TABLE IF NOT EXISTS` will not alter
    an existing table ([database.md#migrations](reference/database.md#migrations)).
 3. Add a column check to `cli/commands/doctor.mjs` so existing deployments get told.
 4. List it explicitly in every `SELECT` / `INSERT` that needs it.
@@ -136,7 +136,7 @@ command, so error handling and the `A51_API_BASE` test override keep working.
 **Add an MCP tool**
 
 1. Implement the REST route in `workers/autopilot/src/index.js`.
-2. Add the tool definition — the description is the agent's only instruction
+2. Add the tool definition. The description is the agent's only instruction
    manual, so say *when* to use it and what the result does **not** contain.
 3. Bump `serverInfo.version`; clients read descriptions at connect time.
 4. Document it in [autopilot.md](internals/autopilot.md).
@@ -145,7 +145,7 @@ command, so error handling and the `A51_API_BASE` test override keep working.
 
 There is no test suite in the repository. What exists instead:
 
-- **`./a51 doctor`** is the acceptance test for a deployment — bindings, domains,
+- **`./a51 doctor`** is the acceptance test for a deployment: bindings, domains,
   routing, policies, plus live probes of all three hostnames.
 - **`./a51 setup --dry-run`** resolves configuration and prints the plan without
   touching Cloudflare.

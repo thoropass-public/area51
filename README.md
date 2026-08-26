@@ -215,15 +215,6 @@ especially. See **[CONTRIBUTING.md](CONTRIBUTING.md)** to get set up. To report 
 security issue **in AREA 51 itself**, follow **[SECURITY.md](SECURITY.md)** rather
 than opening a public issue.
 
-## Authorised use and captured data
-
-This is offensive-security tooling. The black holes are deliberately reachable by
-anyone on the internet, and everything a target sends is stored, so treat a
-deployment as client-data storage: keep retention short, purge when the report
-ships, and use a domain you do not mind burning.
-
-Test only what you are authorised to test.
-
 ## License and attribution
 
 AREA 51 is **© Copyright 2026 Thoropass, Inc.**, licensed and released under the **[Apache License 2.0](LICENSE)**.

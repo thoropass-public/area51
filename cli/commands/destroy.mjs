@@ -28,7 +28,7 @@ export async function run() {
   plain('');
 
   if (!(await typeToConfirm('REMOVE', 'Step 1 of 2 — this deletes the three Workers, the Pages project and the Access application.\nCaptured data is NOT touched by this step.'))) {
-    plain('  Cancelled. Nothing was changed.');
+    plain('  Canceled. Nothing was changed.');
     closePrompts();
     return 1;
   }
@@ -125,7 +125,7 @@ export async function run() {
   }
 
   if (!(await typeToConfirm('DELETE-DATA', 'Step 2 of 2 — this permanently deletes every captured request, every captured\nemail (rows AND raw .eml objects), every endpoint and every uploaded payload.'))) {
-    plain('  Cancelled. Data kept.');
+    plain('  Canceled. Data kept.');
     closePrompts();
     return 1;
   }

@@ -59,7 +59,7 @@ name, and choose the **Free** plan. You do this exactly once per account.
 
 If you skip it, setup's Access step fails with an auth-shaped error even when the
 token's Access permissions are correct, because there is no Zero Trust
-organisation for the API to write into. Setup now names this as a candidate cause;
+organization for the API to write into. Setup now names this as a candidate cause;
 `--no-access` skips Access entirely (and leaves the dashboard public).
 
 ### 4. A clean zone — no prior mail (MX) records
@@ -94,7 +94,7 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Account | **Cloudflare Pages** · Edit | creating the Pages project, its bindings and its custom domain |
 | Account | **Account Settings** · Read | discovering the account id |
 | Account | **Access: Apps and Policies** · Edit | the Access application in front of the dashboard |
-| Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organisation and enabling one-time PIN login |
+| Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organization and enabling one-time PIN login |
 | Account | **Email Routing Addresses** · Edit | registering the fallback inbox as a destination |
 | Zone | **Zone** · Read | resolving hostnames to zones |
 | Zone | **Zone Settings** · Edit | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss — see the warning below. |
@@ -233,9 +233,9 @@ nothing else to configure.
   attaches the hostname to the catcher as a Custom Domain. Cloudflare provisions
   DNS and the certificate. The call is an upsert.
 - With the `mail` role: `POST /zones/{z}/email/routing/enable` (adds and locks
-  the MX and SPF records — this call is authorised by **Zone Settings:Edit**, not
+  the MX and SPF records — this call is authorized by **Zone Settings:Edit**, not
   Email Routing Rules), then `PUT /zones/{z}/email/routing/rules/catch_all` with a
-  `worker` action (authorised by **Email Routing Rules:Edit**) pointing at the
+  `worker` action (authorized by **Email Routing Rules:Edit**) pointing at the
   catcher. Setup warns first if the zone already has MX records, since enabling
   routing takes over inbound mail for the whole zone.
 - `INSERT … ON CONFLICT` into the `domains` table so the dashboard and Autopilot
@@ -279,13 +279,13 @@ domain* → redeploy.
 ### 11. Cloudflare Access
 
 - `GET /accounts/{a}/access/organizations`, and if the account has no Zero Trust
-  organisation, creates one with `auth_domain = <ACCESS_TEAM_NAME>.cloudflareaccess.com`,
+  organization, creates one with `auth_domain = <ACCESS_TEAM_NAME>.cloudflareaccess.com`,
   then **polls until the new org is live** before creating the login method and
   application (a just-created org isn't instantly usable, which is what used to
   make the first run fail and a second run "fix it"). Team names are **globally
   unique**; if yours is taken, set `ACCESS_TEAM_NAME` in `.env` and re-run
   `./a51 access`. This step needs **Zero Trust activated on the account** first
-  (Prerequisite 3) — without it there is no organisation to create into and the
+  (Prerequisite 3) — without it there is no organization to create into and the
   step fails with an auth-shaped error.
 - Ensures the **One-time PIN** login method exists (Access emails a code — no
   identity provider to configure).

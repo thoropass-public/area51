@@ -1,4 +1,4 @@
-// Terminal output helpers. No dependencies, and no colour when the output is
+// Terminal output helpers. No dependencies, and no color when the output is
 // not a TTY (or NO_COLOR is set) so piped logs stay readable.
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;

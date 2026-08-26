@@ -94,7 +94,7 @@ async function remove(cf, accountId, env, hostname) {
 
   step(`Remove black hole ${hostname}`);
   if (!(await confirm(`  Detach ${hostname} from ${env.WORKER_NAME} and drop its row?`, false))) {
-    plain('  Cancelled.');
+    plain('  Canceled.');
     closePrompts();
     return 1;
   }

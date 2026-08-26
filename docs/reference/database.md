@@ -41,7 +41,7 @@ No timestamp column. Nothing surfaces one, the catcher does not need one — and
 its absence is why uploads have no automatic retention and why the Autopilot
 purge wipes the whole `/-/*` namespace rather than purging by age.
 
-**File-backed endpoints** exist so you can host a real artefact — a DTD, a
+**File-backed endpoints** exist so you can host a real artifact — a DTD, a
 compiled payload, an image, a `.well-known` document — instead of pasting text
 into a body field. The response is entirely server-owned: `200`, the detected
 `Content-Type`, served **inline** (no `Content-Disposition`, because a hosted
@@ -106,14 +106,14 @@ ranges, no patterns.
 | `ts` | `TEXT NOT NULL` | When it was added |
 | `note` | `TEXT` | Optional label ("shodan scanner"). Available in the API; not surfaced in the UI. |
 
-Behaviour on a match:
+Behavior on a match:
 
 - **IP** → immediate `403`. The body is never read, the endpoint table is never
   consulted, nothing is written to `requests`.
 - **Email** → `message.setReject('Address not accepted')`. The message is NACKed
   so the sender's server generates a bounce. No object, no row, no forward.
 
-The worker reads each list at most **once per 60 minutes per data centre**
+The worker reads each list at most **once per 60 minutes per data center**
 (`caches.default`). Dashboard changes therefore take up to an hour to propagate
 in both directions. That is intentional: a blacklist here is a noise filter, not
 a security boundary, and the long TTL removes the list lookup from the hot path.

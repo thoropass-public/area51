@@ -114,7 +114,7 @@ loadBlacklist(env, 'ip' | 'email')
   → on query error                                → return an empty Set (fail open)
 ```
 
-The cache key is fixed per list, so every invocation in the same data centre
+The cache key is fixed per list, so every invocation in the same data center
 shares one loaded set. `BLACKLIST_CACHE_TTL_SECONDS = 3600` is the knob; raising
 it cuts lookups further, lowering it makes dashboard changes land sooner. Failing
 *open* is deliberate: a database blip must not stop captures.

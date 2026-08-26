@@ -57,7 +57,7 @@ to avoid a flash of the wrong theme; both it and `App` write
 
 `decodeMimeWord` decodes RFC 2047 encoded-words (`=?utf-8?B?…?=`) before display,
 applied to `from_addr`, `to_addr`, `subject` and rendered header values. The worker
-already prefers postal-mime's decoded subject, so this is defence in depth for
+already prefers postal-mime's decoded subject, so this is defense in depth for
 older rows and for display names inside envelope fields.
 
 ### `tabs.jsx` — the three list tabs
@@ -66,23 +66,23 @@ older rows and for display names inside envelope fields.
 visual unit: pin chips wrap inline beside the input, and the border lives on the
 wrapper. Keyboard: **Enter** pins the current text, **Backspace** on an empty
 input removes the last pin, **Escape** clears the input. While any full reload is
-in flight the list shows a centred `querying…` loader instead of stale rows;
+in flight the list shows a centered `querying…` loader instead of stale rows;
 *Load more* keeps the rows and spins its own button.
 
-**Pins** are saved per tab in `localStorage` (`area51:pins:<tab>` plus a colour
-map). Each pinned value gets a colour from a curated theme-aware palette,
+**Pins** are saved per tab in `localStorage` (`area51:pins:<tab>` plus a color
+map). Each pinned value gets a color from a curated theme-aware palette,
 preferring one not already in use. The effective query sent to the API is
 `[<live input>, ...pins]`, all ORed server-side. A `N pinned · OR` badge appears
 next to the loaded count.
 
 **Match ribbons** — every row matched by a pin gets a 6 px left-edge spine, split
-into one segment per matching pin, so a row caught by two pins shows both colours.
+into one segment per matching pin, so a row caught by two pins shows both colors.
 Matching is per tab: `uri` for Endpoints, `url` for Requests, and
 `from + to + subject` for Emails (mirroring the server-side search). The left edge
 belongs *exclusively* to ribbons; unread state uses a background tint so the two
 cues never collide.
 
-**Endpoints** — the list shows URI plus a colour-coded status tag; headers and
+**Endpoints** — the list shows URI plus a color-coded status tag; headers and
 body are fetched only when the modal opens. The leading row icon is a **copy
 button**: it copies `https://<active host><uri>` to the clipboard, flips to a
 check mark, and toasts the host it used (clicking it does not open the modal). The
@@ -92,7 +92,7 @@ error instead.
 The modal is in exactly one of two states. In **text mode** it shows Headers /
 Status / Body editors plus a `FILE` drop target. Attaching a file switches to
 **file mode**: those three editors are *unmounted* — not disabled, because a
-greyed-out field still invites a click — and replaced by a chip showing filename,
+grayed-out field still invites a click — and replaced by a chip showing filename,
 type and size with *Replace* and *Remove*. Saving in file mode POSTs the raw
 `File` as the request body (so it streams); files over 25 MB are rejected before a
 byte leaves the browser. Opening an existing file endpoint never shows a response

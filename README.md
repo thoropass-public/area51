@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brand/lockup-dark.png">
   <source media="(prefers-color-scheme: light)" srcset=".github/assets/brand/lockup-light.png">
-  <img src=".github/assets/brand/lockup-dark.png" alt="AREA 51 — exploit server" width="460">
+  <img src=".github/assets/brand/lockup-dark.png" alt="AREA 51 exploit server" width="460">
 </picture>
 
 <a href="https://thoropass.com">
@@ -17,8 +17,8 @@
 ### Every callback, captured.
 
 **The exploit server for out-of-band findings.** Point a target at a domain you
-own, and every HTTP request and every email it sends back lands in a dashboard you
-control — with whatever response you choose served in return.
+own. Every HTTP request and every email it sends back lands in a dashboard you
+control, and it gets whatever response you choose in return.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-88C0D0?style=flat-square)](LICENSE)
 [![Runs on Cloudflare](https://img.shields.io/badge/runs_on-Cloudflare-D08770?style=flat-square&logo=cloudflare&logoColor=white)](docs/internals/architecture.md)
@@ -33,11 +33,11 @@ control — with whatever response you choose served in return.
 
 </div>
 
-> ⚠️ **For authorised security testing and research only.** A black hole is a
+> ⚠️ **For authorized security testing and research only.** A black hole is a
 > live, internet-reachable catch-all: everything a target sends it is stored, and
 > it serves back whatever you configure. Only point targets you have **explicit,
-> written authorisation** to test at it, and treat every deployment as
-> client-data storage. Test only what you are authorised to test.
+> written authorization** to test at it, and treat every deployment as
+> client-data storage. Test only what you are authorized to test.
 
 ---
 
@@ -54,10 +54,10 @@ whole thing, on infrastructure you own:
 
 - **Nothing shared.** Your domains, your storage, your captures. No third party
   holds your clients' tokens, reset links or internal hostnames.
-- **Any response you like.** Serve a `302` into a metadata endpoint, a DTD, a
-  `.js` beacon, a JSON stub, or a 25 MB binary — per exact path.
-- **Email is a first-class capture,** not an add-on. Every address at the domain
-  is live, and every message is kept verbatim with headers and attachments.
+- **Any response you like.** A `302` into a metadata endpoint, a DTD, a `.js`
+  beacon, a JSON stub, a 25 MB binary. Per exact path.
+- **Email is a first-class capture.** Every address at the domain is live, and
+  every message is kept verbatim, headers and attachments included.
 - **Your agent can drive it.** An MCP server exposes recent captures and a
   sandboxed slice of the endpoint table, so an AI agent can inject a callback URL
   and confirm the hit without you in the loop.
@@ -65,8 +65,8 @@ whole thing, on infrastructure you own:
   cron host, and no bill at pentest volumes.
 
 > **Released early, on purpose.** AREA 51 began as an internal tool for a small,
-> trusted team, so it favours simplicity over hardening and scale. Expect rough
-> edges — and if you hit one, [open an issue](https://github.com/heylaika/area51/issues)
+> trusted team, so it favors simplicity over hardening and scale. Expect rough
+> edges. If you hit one, [open an issue](https://github.com/heylaika/area51/issues)
 > with repro steps. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## The three pieces
@@ -85,8 +85,8 @@ Locked behind single sign-on with an emailed one-time PIN.
 
 **Black Holes** · your domains
 
-Every path serves what you defined; every request and every address at the domain
-is captured. Public by necessity — targets have to reach it.
+Every path serves what you defined, and every request and every address at the
+domain is captured. Public by necessity, because targets have to reach it.
 
 </td>
 <td width="33%" valign="top">
@@ -102,11 +102,11 @@ stages its own response stubs, and cannot touch anything else.
 
 ### Drive it from an agent 🆕
 
-Cool and easy: **Autopilot** exposes an MCP server (with a REST
-mirror) so an authorised AI agent can run the loop itself mid-engagement — read
-the last hour of callbacks, stage its own response stub under the fenced `/-/*`
-namespace, and confirm the hit — without you in the loop. It is
-secret-authenticated and sandboxed: it can never read your files or any endpoint
+Cool and easy: **Autopilot** exposes an MCP server (with a REST mirror) so an
+authorized AI agent can run the loop itself mid-engagement, without you in the
+middle of it. It reads the last hour of callbacks, stages its own response stub
+under the fenced `/-/*` namespace, and confirms the hit. It is
+secret-authenticated and sandboxed: it can never read your files, or any endpoint
 outside `/-/`. → [Autopilot internals](docs/internals/autopilot.md)
 
 ## What it looks like
@@ -130,13 +130,13 @@ outside `/-/`. → [Autopilot internals](docs/internals/autopilot.md)
 | SSRF filter bypass | A text endpoint answers `302` into the address you actually want fetched | [→](docs/guides/usage.md#control-the-response-redirects-and-metadata) |
 | XXE / XSLT exfiltration | Host the external DTD, then read the exfiltrated bytes out of the second request | [→](docs/guides/usage.md#host-a-dtd-for-xxe-exfiltration) |
 | Blind XSS | Serve the beacon; the capture's `Referer` names the internal page that executed it | [→](docs/guides/usage.md#catch-a-blind-xss-beacon) |
-| Email-driven flows | Every address is a live inbox — signup, invite, reset and verification mail arrives in full | [→](docs/guides/usage.md#drive-email-flows-signup-reset-verification) |
+| Email-driven flows | Every address is a live inbox, so signup, invite, reset and verification mail arrives in full | [→](docs/guides/usage.md#drive-email-flows-signup-reset-verification) |
 | OAuth `redirect_uri` abuse | Stage the landing page and capture the `code`, `state` or token the flow hands over | [→](docs/guides/usage.md#intercept-an-oauth-redirect_uri) |
 | Payload delivery | Upload an archive, binary, PDF or font and serve it inline with its own content type | [→](docs/guides/usage.md#host-a-file-payload) |
 | Mail authentication review | The full `Received` chain plus SPF, DKIM and DMARC results on real delivered mail | [→](docs/guides/usage.md#drive-email-flows-signup-reset-verification) |
 
 <!--
-  Optional "How it compares" table — mirrors WRAITH's positioning section. Your
+  Optional "How it compares" table, mirroring WRAITH's positioning section. Your
   CLAUDE.md keeps the README deliberately light, so this is opt-in: delete it if
   it feels like too much, or keep it for the scannable at-a-glance contrast.
 
@@ -157,7 +157,7 @@ whole interaction, self-hosted:
 
 ## Requirements
 
-- A **Cloudflare account** with a domain already added as a zone — ideally a
+- A **Cloudflare account** with a domain already added as a zone. Ideally a
   throwaway with no prior mail records, since it will end up in target logs.
 - **R2 object storage** enabled, and **Zero Trust** activated once. One click
   each; neither can be turned on through the API.
@@ -165,14 +165,14 @@ whole interaction, self-hosted:
 - One **API token**. The exact permission list is in
   [getting-started](docs/guides/getting-started.md#api-token).
 
-Everything else — database, storage, three Workers, the dashboard, DNS, TLS, mail
-routing and the access policy — is created for you.
+Everything else is created for you: the database, storage, three Workers, the
+dashboard, DNS, TLS, mail routing and the access policy.
 
 ## Getting started
 
-First complete **[Requirements](#requirements)** above — the API token and the two
-one-click activations (R2 and Zero Trust) **cannot be done through the API**, so do
-them by hand first. Then:
+First work through **[Requirements](#requirements)** above. The API token and the
+two one-click activations (R2 and Zero Trust) **cannot be done through the API**,
+so those come first, by hand. Then:
 
 ```bash
 git clone https://github.com/heylaika/area51.git && cd area51
@@ -217,7 +217,7 @@ Start at **[docs/README.md](docs/README.md)** for the full map.
 
 ## Contributing
 
-Contributions are welcome — bug reports, playbooks, and new capture recipes
+Contributions are welcome, bug reports and playbooks and new capture recipes
 especially. See **[CONTRIBUTING.md](CONTRIBUTING.md)** to get set up. To report a
 security issue **in AREA 51 itself**, follow **[SECURITY.md](SECURITY.md)** rather
 than opening a public issue.

@@ -69,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_emails_ts ON emails(ts DESC);
 -- ─── blacklists ─────────────────────────────────────────────────────────────
 -- Write filters consulted by the worker before it stores anything. Exact match
 -- only: no CIDR ranges, no patterns. The worker caches each list for 60 minutes
--- per data centre, so dashboard changes take up to an hour to fully propagate.
+-- per data center, so dashboard changes take up to an hour to fully propagate.
 --
 -- An IP hit answers 403 and stores nothing. An email hit rejects the message at
 -- SMTP level (the sender gets a bounce) and stores nothing.

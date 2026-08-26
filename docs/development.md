@@ -100,13 +100,13 @@ Two things cannot be exercised locally:
 
 **Documentation**
 
-- `docs/` is expected to be exhaustive, and is organised in three tiers:
+- `docs/` is expected to be exhaustive, and is organized in three tiers:
   `guides/` (how do I…), `reference/` (what is the exact value), `internals/`
   (how does it work). Put a new page in the tier matching *why a reader opens
-  it*, and add it to the tables in `docs/README.md`. If a change alters behaviour
+  it*, and add it to the tables in `docs/README.md`. If a change alters behavior
   described anywhere in `docs/`, update it in the same commit.
 - The design decision log ([decisions.md](decisions.md)) records *why*. Add an entry
-  when you make a trade-off someone might undo without realising the cost.
+  when you make a trade-off someone might undo without realizing the cost.
 
 ## Common tasks
 
@@ -153,7 +153,7 @@ There is no test suite in the repository. What exists instead:
   [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#running-it-on-demand).
 
 If you add automated tests, the CLI is the tractable part: `cli/lib/cloudflare.mjs`
-honours `A51_API_BASE`, so the whole provisioning path can run against a local mock
+honors `A51_API_BASE`, so the whole provisioning path can run against a local mock
 HTTP server with no Cloudflare account involved.
 
 Before shipping a change, at minimum:

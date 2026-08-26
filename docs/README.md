@@ -8,7 +8,7 @@ The [project README](../README.md) is the introduction. These documents are the
 reference: exhaustive enough that a newcomer can take the codebase over, and an
 operator can debug an outage without paging anyone.
 
-Three tiers, organised by *why you opened the page*:
+Three tiers, organized by *why you opened the page*:
 
 - **[guides/](#guides)** — task-oriented. "How do I do this?"
 - **[reference/](#reference)** — lookup. "What is the exact value, flag or route?"
@@ -89,6 +89,6 @@ How each runtime piece behaves. Read the relevant page before changing one.
   where the Cloudflare dashboard is genuinely required, it is called out
   explicitly.
 
-Documentation is expected to stay exhaustive. If a change alters behaviour
+Documentation is expected to stay exhaustive. If a change alters behavior
 described here, update the relevant document in the same commit — see
 [development → conventions](development.md#conventions).

@@ -349,7 +349,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   // picked-but-not-yet-uploaded File; `savedFile` is what the row already serves
   // ({filename, content_type, size, missing}). Either one puts the modal in file
   // mode, where the status/headers/body editors are unmounted rather than
-  // disabled — a greyed-out field still invites a click.
+  // disabled — a grayed-out field still invites a click.
   const [file, setFile] = useState(null);
   const [savedFile, setSavedFile] = useState(null);
   const fileInput = useRef(null);

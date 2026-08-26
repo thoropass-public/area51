@@ -42,7 +42,7 @@ it. What each check actually asserts is documented in
 | A file endpoint returns 404 with `http_file_missing` in the tail | The row outlived its object (someone emptied the bucket) | Re-upload from the endpoint modal, or delete the endpoint. The modal flags this as *object missing from storage* |
 | A file endpoint returns 404 with `http_file_binding_missing` | The `FILES` binding is not on the **worker** | Confirm `R2_FILES_BUCKET_NAME` in `.env`, then `./a51 deploy black-holes` |
 | Requests return 403 | Your IP is on `ip_blacklist` | Remove it in Settings, then wait up to 60 minutes for the edge cache |
-| A blacklist change has no effect | Blacklists are cached per data centre for 60 minutes, in both directions | Wait, or accept the delay — it is deliberate |
+| A blacklist change has no effect | Blacklists are cached per data center for 60 minutes, in both directions | Wait, or accept the delay — it is deliberate |
 | `http_log_insert_failed` in the tail | Transient D1 error, or a quota | Logs are best-effort by design. If it repeats, check D1 health and storage |
 | A request served fine but never appeared in Requests | Same as above — the log insert is fire-and-forget | Check the tail for `http_log_insert_failed` |
 

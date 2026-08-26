@@ -17,7 +17,7 @@ inspects, repairs and tears down.
 - **Everything is idempotent.** `·` means "already correct", `✓` means "changed
   it". Re-running is the normal way to converge a deployment.
 
-## Global behaviour
+## Global behavior
 
 | Flag / variable | Effect |
 |---|---|
@@ -26,7 +26,7 @@ inspects, repairs and tears down.
 | `--version` | Print the version from `package.json` |
 | `A51_DEBUG=1` | Print a stack trace on an unhandled error |
 | `A51_API_BASE` | Point the API client at another base URL (used to run the CLI against a mock server in tests) |
-| `NO_COLOR` | Disable colour; also disabled automatically when stdout is not a TTY |
+| `NO_COLOR` | Disable color; also disabled automatically when stdout is not a TTY |
 
 **Exit codes**
 
@@ -150,7 +150,7 @@ Autopilot know it exists.
 ```
 
 Manages the Cloudflare Access application in front of the dashboard: the Zero
-Trust organisation, the One-time PIN login method, the application itself, its
+Trust organization, the One-time PIN login method, the application itself, its
 allow policy, and its destinations (custom domain **plus** the `*.pages.dev`
 URLs, so there is no unauthenticated bypass).
 

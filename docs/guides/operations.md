@@ -146,7 +146,7 @@ order — none of these steps need the lost machine:
 
 `--add` / `--remove` edit the allow-list incrementally against what is already in
 `ALLOWED_EMAILS`. Entries are full addresses (`you@example.com`) or bare domains
-(`example.com`), normalised to lowercase. Both write the result to the Access
+(`example.com`), normalized to lowercase. Both write the result to the Access
 policy **and** back to `ALLOWED_EMAILS` in `.env`.
 
 There is no positional "replace the whole list" form — it was removed as a

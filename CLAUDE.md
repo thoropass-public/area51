@@ -171,7 +171,7 @@ binding + 60-min window) intact.
 
 ## Where the documentation lives
 
-`docs/` is in three tiers, and a change to behaviour must update the matching
+`docs/` is in three tiers, and a change to behavior must update the matching
 page in the same commit:
 
 | Tier | Holds | Update it when you change… |

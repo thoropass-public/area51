@@ -13,10 +13,8 @@ own, and every HTTP request and every email it sends back lands in a dashboard y
 control — with whatever response you choose served in return.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-88C0D0?style=flat-square)](LICENSE)
-[![Serverless](https://img.shields.io/badge/origin_servers-none-88C0D0?style=flat-square)](docs/internals/architecture.md)
 [![Node](https://img.shields.io/badge/node-20%2B-88C0D0?style=flat-square)](#requirements)
 [![MCP](https://img.shields.io/badge/MCP-agent_ready-8FBCBB?style=flat-square)](docs/internals/autopilot.md)
-[![Setup](https://img.shields.io/badge/setup-one_command-A3BE8C?style=flat-square)](docs/guides/getting-started.md)
 
 [Getting started](docs/guides/getting-started.md) ·
 [Playbooks](docs/guides/usage.md) ·

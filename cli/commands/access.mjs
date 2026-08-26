@@ -12,7 +12,7 @@
 // and run `./a51 access` (the bare re-apply).
 //
 // Entries are full addresses (you@example.com) or bare domains (example.com =
-// anyone with that email domain). Everything is normalised to lowercase, since
+// anyone with that email domain). Everything is normalized to lowercase, since
 // email addresses and domains are case-insensitive. The resulting list is pushed
 // to the Access application AND written back to ALLOWED_EMAILS in .env.
 

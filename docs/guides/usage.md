@@ -46,7 +46,7 @@ Two other useful facts:
    endpoint's full URL to your clipboard, using the host you selected on Home.
 
 Use one path per injection point. It costs nothing, and it turns the Requests tab
-into a labelled result set instead of a pile of `/test` hits.
+into a labeled result set instead of a pile of `/test` hits.
 
 ---
 
@@ -69,7 +69,7 @@ What the capture tells you, beyond "it fired":
 | Body | Present when the sink does a POST — occasionally the whole document it was told to send |
 | `ts` vs your request | Immediate = synchronous fetch; minutes later = a queue or scheduled job, which changes the exploit story |
 
-Pin the path in the search bar and it stays highlighted with a colour ribbon
+Pin the path in the search bar and it stays highlighted with a color ribbon
 across reloads while you keep testing.
 
 ## Control the response (redirects and metadata)
@@ -198,7 +198,7 @@ Registered-URI validation is often prefix-based, or absent.
 2. Put `https://<host>/-/oauth/cb` in `redirect_uri` and run the flow.
 3. The captured request holds the whole thing: `code`, `state`, and — with an
    implicit or hybrid flow — the token itself in the URL. Confirm on the capture,
-   not on a browser screenshot; the URL fragment behaviour differs.
+   not on a browser screenshot; the URL fragment behavior differs.
 
 The same shape proves open redirects (does the target bounce a browser to your
 host?) and referrer leakage (does your capture show a `Referer` carrying a token
@@ -206,7 +206,7 @@ from the page before?).
 
 ## Host a file payload
 
-For real binaries — an archive, a compiled artefact, a PDF, a font, a signed
+For real binaries — an archive, a compiled artifact, a PDF, a font, a signed
 blob, an image with something appended. Open **Endpoints → + New**, set the path,
 then attach the file under **FILE**.
 

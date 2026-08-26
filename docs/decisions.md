@@ -152,7 +152,7 @@ The Emails tab collapses identical mail into conversation rows.
 
 - **The key is the exact `(from, subject)` pair, and deliberately excludes the
   recipient.** Capture is one-way, so there are no `Re:` / `Fwd:` chains to
-  normalise; the flood being fought is an automated sender blasting the same
+  normalize; the flood being fought is an automated sender blasting the same
   subject at many catch-all aliases. Dropping the recipient collapses that whole
   blast into one row, where a from+to+subject key would split it per alias. Exact
   matching stays conservative — it never merges unrelated senders or subjects.
@@ -165,7 +165,7 @@ The Emails tab collapses identical mail into conversation rows.
   loaded-members count would be free but is a floor dressed up as a figure. So the
   row carries no number: the To cell shows the newest recipient followed by *and
   more*, which is true for any group by construction.
-- **Group versus single is marked by shape, not colour.** Background is already the
+- **Group versus single is marked by shape, not color.** Background is already the
   read/unread channel *and it inverts between themes*; the left edge belongs to pin
   ribbons. That leaves the right edge, where three fanned bars say "not a single
   message" without needing per-theme handling.
@@ -204,7 +204,7 @@ cheaper mitigation than stashing form drafts.
 - **The server owns status, headers and body for a file endpoint.** A file plus a
   typed body plus a 404 plus a JSON content type has no coherent meaning, so an
   upload forces `200`, the detected `Content-Type`, and an empty body — and the
-  modal *unmounts* those editors rather than disabling them, because a greyed-out
+  modal *unmounts* those editors rather than disabling them, because a grayed-out
   field still invites a click. The trade is worth knowing up front: a test needing
   a `302 Location` or an `Access-Control-Allow-Origin` must use a text endpoint. A
   merge model (user headers underneath, server content type on top) would fit the
@@ -338,7 +338,7 @@ fallback — repairs itself.
 
 ## Cloudflare Access is part of setup, not an afterthought
 
-Setup creates the Zero Trust organisation, enables one-time PIN login, and puts an
+Setup creates the Zero Trust organization, enables one-time PIN login, and puts an
 Access application with an allow policy in front of the dashboard.
 
 **Why:** the dashboard has no authentication of its own, and its API can read every

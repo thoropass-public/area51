@@ -70,7 +70,7 @@ export async function run(args) {
     else r.fail(`API token status is "${token && token.status}"`, 'Create a new token and update CLOUDFLARE_API_TOKEN in .env.');
   } catch (err) {
     r.fail(`API token rejected: ${err.message}`, 'See docs/guides/getting-started.md#api-token for the exact permission list.');
-    summarise(r);
+    summarize(r);
     return r.fails.length ? 1 : 0;
   }
 
@@ -360,7 +360,7 @@ export async function run(args) {
     }
   }
 
-  summarise(r);
+  summarize(r);
   return r.fails.length ? 1 : 0;
 }
 
@@ -373,7 +373,7 @@ function safeRoles(raw) {
   }
 }
 
-function summarise(r) {
+function summarize(r) {
   plain('');
   const parts = [
     color.green(`${r.pass} ok`),

@@ -25,7 +25,7 @@ export async function run(args) {
   plain('  until it is re-registered with the new secret.');
   plain('');
   if (!(await confirm('  Continue?', true))) {
-    plain('  Cancelled.');
+    plain('  Canceled.');
     closePrompts();
     return 1;
   }

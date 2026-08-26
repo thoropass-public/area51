@@ -90,7 +90,7 @@ real inbox can serve both fields.
 | Key | Default | Notes |
 |---|---|---|
 | `ALLOWED_EMAILS` | — | Comma-separated allow-list. `alice@example.com` (exact) or `example.com` (any address at that domain). Empty means **no protection** — `doctor` treats that as a failure. Edit it incrementally with `./a51 access --add <…>` / `--remove <…>` (both write back here), or set it wholesale by editing this value and running a bare `./a51 access`. |
-| `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organisation yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers** — if creation fails, pick another. |
+| `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organization yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers** — if creation fails, pick another. |
 | `ACCESS_SESSION_DURATION` | `24h` | How long a login lasts. Formats: `30m`, `24h`, `730h`. Shorter means more one-time PINs; longer means a stolen laptop stays logged in. The dashboard auto-reloads when a session expires mid-use ([dashboard.md](../internals/dashboard.md#expired-session-handling)). |
 
 ### Storage

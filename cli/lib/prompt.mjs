@@ -1,6 +1,6 @@
 // Interactive prompts, built on node:readline/promises.
 //
-// Every prompt honours --yes / A51_YES=1 (non-interactive mode): ask() returns
+// Every prompt honors --yes / A51_YES=1 (non-interactive mode): ask() returns
 // the default, confirm() returns true, and select() takes the first choice. A
 // prompt with no usable default in non-interactive mode is a fatal error, so an
 // unattended run never silently guesses something important.

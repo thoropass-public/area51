@@ -4,7 +4,7 @@ Base path `https://<dashboard-host>/api/`, served by Pages Functions in
 `dashboard/functions/api/`. It is consumed **same-origin** by the dashboard
 frontend and by nothing else: there is no CORS header, no API key, and no
 versioning. Authentication is entirely Cloudflare Access at the edge — a request
-that reaches a Function has already been authorised.
+that reaches a Function has already been authorized.
 
 Autopilot's agent-facing API is a **separate** surface on a separate worker with
 its own auth; see [autopilot.md](../internals/autopilot.md).

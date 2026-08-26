@@ -53,7 +53,7 @@ async function purgeRequests(cf, accountId, dbId) {
   const days = await askDays('captured requests');
   const cutoff = isoCutoff(days);
   if (!(await typeToConfirm('PURGE', `This deletes every row in "requests" with ts < ${cutoff}.`))) {
-    plain('  Cancelled.');
+    plain('  Canceled.');
     return 1;
   }
   const [result] = await cf.d1Query(accountId, dbId, 'DELETE FROM requests WHERE ts < ?', [cutoff]);
@@ -78,7 +78,7 @@ async function purgeEmails(cf, accountId, dbId, bucket) {
   plain(`    · ${rows.length} row${rows.length === 1 ? '' : 's'} deleted from D1 "emails"`);
   plain(`    · starred email is excluded and kept`);
   if (!(await typeToConfirm('PURGE', 'This cannot be undone — the raw messages are gone.'))) {
-    plain('  Cancelled.');
+    plain('  Canceled.');
     return 1;
   }
 
@@ -121,7 +121,7 @@ async function purgeAutopilot(cf, accountId, dbId, filesBucket) {
   if (withFiles.length) plain(`  ${withFiles.length} of them serve an uploaded file; those objects go too (bucket ${filesBucket}).`);
   plain(color.dim('  Endpoints you created by hand (anything not starting with /-/) are untouched.'));
   if (!(await typeToConfirm('PURGE', 'Agents will lose every stub they staged.'))) {
-    plain('  Cancelled.');
+    plain('  Canceled.');
     return 1;
   }
 

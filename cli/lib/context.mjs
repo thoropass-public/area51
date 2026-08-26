@@ -91,7 +91,7 @@ export async function verifyToken(cf) {
   return false;
 }
 
-/** Normalise BLACK_HOLE_ROLES-style role lists to a validated array. */
+/** Normalize BLACK_HOLE_ROLES-style role lists to a validated array. */
 export function parseRoles(value, { fallback = ['http'] } = {}) {
   const roles = String(value || '')
     .split(/[,\s]+/)

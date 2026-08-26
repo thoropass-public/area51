@@ -53,7 +53,7 @@ deployment works for HTTP capture but email capture and file endpoints fail.
 ### 3. Zero Trust activated (for the dashboard's login)
 
 The dashboard is protected by Cloudflare Access, which is part of Cloudflare Zero
-Trust. On a brand-new account Zero Trust has to be **activated once, by hand** —
+Trust. On a brand-new account Zero Trust has to be **activated once, by hand**, because
 the API cannot do that first activation: dashboard → **Zero Trust**, pick a team
 name, and choose the **Free** plan. You do this exactly once per account.
 
@@ -62,11 +62,11 @@ token's Access permissions are correct, because there is no Zero Trust
 organization for the API to write into. Setup now names this as a candidate cause;
 `--no-access` skips Access entirely (and leaves the dashboard public).
 
-### 4. A clean zone — no prior mail (MX) records
+### 4. A clean zone, with no prior mail (MX) records
 
 Use a domain that is **not already receiving mail**. Enabling Email Routing adds
 and **locks** its own MX and SPF records for the whole zone and routes every
-inbound message to the catcher — so any existing mailbox on that domain stops
+inbound message to the catcher, so any existing mailbox on that domain stops
 receiving mail. Setup checks for pre-existing MX records and warns before it
 enables routing, but it will not stop you. A fresh throwaway domain with only the
 default records is ideal. (This only matters for the `mail` role; an `http`-only
@@ -97,22 +97,22 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organization and enabling one-time PIN login |
 | Account | **Email Routing Addresses** · Edit | registering the fallback inbox as a destination |
 | Zone | **Zone** · Read | resolving hostnames to zones |
-| Zone | **Zone Settings** · Edit | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss — see the warning below. |
+| Zone | **Zone Settings** · Edit | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss; see the warning below. |
 | Zone | **DNS** · Edit | the dashboard's CNAME record |
 | Zone | **Workers Routes** · Edit | binding black hole / Autopilot hostnames to Workers |
 | Zone | **Email Routing Rules** · Edit | setting the catch-all rule that points inbound mail at the worker |
 
-That is **thirteen** permissions — eight Account-scoped, five Zone-scoped.
+That is **thirteen** permissions: eight Account-scoped, five Zone-scoped.
 
 > **The Email Routing trap.** *Enabling* Email Routing lives under **Zone
 > Settings**, not **Email Routing Rules**. Email Routing Rules only covers the
 > catch-all *rule*. A token with Email Routing Rules but no Zone Settings fails
-> with a bare `[10000] Authentication error` on the enable step — Cloudflare does
+> with a bare `[10000] Authentication error` on the enable step. Cloudflare does
 > not document which permission that endpoint needs, and the error names none. If
 > you skip mail (`http`-only black hole), you need neither Zone Settings nor
 > Email Routing Rules nor Email Routing Addresses.
 
-> **Zone Resources scope — the other "permission is set but still denied".**
+> **Zone Resources scope, the other "permission is set but still denied".**
 > Under *Zone Resources*, you must **Include → the zone you are deploying to**
 > (or *All zones*). A Zone-scoped permission whose *Zone Resources* points at a
 > different zone (or none) throws the same auth-shaped error as a missing
@@ -125,7 +125,7 @@ It is passed to wrangler through the environment, never on a command line.
 
 A token missing one permission does not break the whole run: the step that needs
 it fails, prints the exact dashboard click-path (now listing every candidate
-cause — propagation, the precise permission, Zone Resources scope, Zero Trust
+cause: propagation, the precise permission, Zone Resources scope, Zero Trust
 activation), and setup carries on and lists the follow-up at the end (exit code
 `2`). Setup also retries auth-shaped failures a few times to ride out token
 propagation, so a brand-new token is less likely to fail spuriously on the first
@@ -144,7 +144,7 @@ black hole on the apex, which gives the shortest callback URLs:
 | Dashboard | `area51.example.com` | Behind Cloudflare Access. |
 | Autopilot | `autopilot.example.com` | Public but useless without `AGENT_SECRET`; every route answers 401. |
 
-Any of them can be a subdomain of any zone the token can see — they do not have
+Any of them can be a subdomain of any zone the token can see, and they do not have
 to share a zone. Common alternatives:
 
 - **Keep the apex free** for a decoy site: use `bh.example.com` as the black hole.
@@ -172,8 +172,8 @@ case you need to finish it by hand.
 
 ### 1. Credentials
 
-Verifies the token (`GET /user/tokens/verify`), lists accounts, and — if the
-token can see more than one — asks which to use. Writes `CLOUDFLARE_ACCOUNT_ID`
+Verifies the token (`GET /user/tokens/verify`), lists accounts, and if the
+token can see more than one, asks which to use. Writes `CLOUDFLARE_ACCOUNT_ID`
 back to `.env`.
 
 *Manual equivalent:* copy the account id from any Workers & Pages project's right
@@ -201,12 +201,12 @@ Prints exactly what will be created, then asks once. `--dry-run` stops here.
 
 ### 6. Storage
 
-- `POST /accounts/{a}/d1/database` — creates the database if no database with
+- `POST /accounts/{a}/d1/database` creates the database if no database with
   that name exists. Writes `D1_DATABASE_ID` to `.env`.
 - Applies `db/schema.sql` **statement by statement** through
   `POST /accounts/{a}/d1/database/{id}/query`, then lists the resulting tables.
   Every statement is `CREATE … IF NOT EXISTS`, so re-applying is a no-op.
-- `POST /accounts/{a}/r2/buckets` — creates the email bucket and the files
+- `POST /accounts/{a}/r2/buckets` creates the email bucket and the files
   bucket, tolerating "already exists".
 
 *Manual equivalent:* `npx wrangler d1 create <name>`,
@@ -222,18 +222,18 @@ The Autopilot deploy also pipes `AGENT_SECRET` into
 `wrangler secret put AGENT_SECRET` first, so the value never appears in a command
 line or in `wrangler.toml`.
 
-The cleanup Worker's cron trigger is registered by the deploy itself — there is
+The cleanup Worker's cron trigger is registered by the deploy itself, so there is
 nothing else to configure.
 
 *Manual equivalent:* `./a51 deploy black-holes` / `autopilot` / `cleanup`.
 
 ### 8. Black hole hostname
 
-- `PUT /accounts/{a}/workers/domains` with `{hostname, service, zone_id}` —
+- `PUT /accounts/{a}/workers/domains` with `{hostname, service, zone_id}`
   attaches the hostname to the catcher as a Custom Domain. Cloudflare provisions
   DNS and the certificate. The call is an upsert.
 - With the `mail` role: `POST /zones/{z}/email/routing/enable` (adds and locks
-  the MX and SPF records — this call is authorized by **Zone Settings:Edit**, not
+  the MX and SPF records; this call is authorized by **Zone Settings:Edit**, not
   Email Routing Rules), then `PUT /zones/{z}/email/routing/rules/catch_all` with a
   `worker` action (authorized by **Email Routing Rules:Edit**) pointing at the
   catcher. Setup warns first if the zone already has MX records, since enabling
@@ -256,8 +256,8 @@ Same Custom Domain call, pointed at the Autopilot Worker.
 ### 10. Dashboard
 
 - Creates the Pages project **bare** (name + `production_branch = main`), then
-  **PATCHes the bindings** onto it — `d1_databases.DB`, `r2_buckets.EML`,
-  `r2_buckets.FILES`, for both the production and preview configurations — before
+  **PATCHes the bindings** onto it: `d1_databases.DB`, `r2_buckets.EML`,
+  `r2_buckets.FILES`, for both the production and preview configurations, before
   the first upload. That ordering avoids the classic "every `/api/*` call returns
   500 until you add the binding and redeploy" trap. (Create-then-patch, rather
   than one create-with-bindings call, because the combined call is rejected on
@@ -285,15 +285,15 @@ domain* → redeploy.
   make the first run fail and a second run "fix it"). Team names are **globally
   unique**; if yours is taken, set `ACCESS_TEAM_NAME` in `.env` and re-run
   `./a51 access`. This step needs **Zero Trust activated on the account** first
-  (Prerequisite 3) — without it there is no organization to create into and the
+  (Prerequisite 3). Without it there is no organization to create into and the
   step fails with an auth-shaped error.
-- Ensures the **One-time PIN** login method exists (Access emails a code — no
+- Ensures the **One-time PIN** login method exists (Access emails a code, with no
   identity provider to configure).
 - Creates or updates a `self_hosted` application with one allow policy built from
   `ALLOWED_EMAILS`, `session_duration` from `ACCESS_SESSION_DURATION`, and
   `auto_redirect_to_identity` so users skip the login-method chooser.
 - **Guards the pages.dev URL too, not just the custom domain.** A Cloudflare Pages
-  site is reachable at *both* its custom domain **and** its `*.pages.dev` URL — the
+  site is reachable at *both* its custom domain **and** its `*.pages.dev` URL: the
   apex (`<project>.pages.dev`) and every preview deployment
   (`main.<project>.pages.dev`, `<hash>.<project>.pages.dev`). If Access only
   covered the custom domain, that pages.dev URL would be an **unauthenticated
@@ -320,7 +320,7 @@ hostname destinations → policy *Allow* with an Emails or Email domain rule.
 added by later releases), both buckets, all three Workers **and the bindings that
 actually reached them** (including whether `AGENT_SECRET` is installed), every
 black hole's Custom Domain and mail routing, the Pages bindings on both environments, the
-Access application and its policy — then makes live requests:
+Access application and its policy, then makes live requests:
 
 - the black hole answers `404` on an unknown path,
 - Autopilot answers `401` without a secret and `200` with the one in `.env`,
@@ -331,14 +331,14 @@ black hole hostnames and re-applies the Access policy.
 
 Then, in order:
 
-1. **Eyeball it in the Cloudflare dashboard** —
+1. **Eyeball it in the Cloudflare dashboard.**
    [verify-deployment](verify-deployment.md) walks the Workers, the database, both
    buckets and the Access application, screenshot by screenshot.
 2. **Create an endpoint** in the dashboard and `curl` it.
 3. **Send mail** to `anything@<mail-enabled-host>` and watch **Emails**.
 4. **Register Autopilot** with your agent
    ([autopilot](../internals/autopilot.md#registering-with-claude-code)).
-5. **Read [usage](usage.md)** — the engagement playbooks — and
+5. **Read [usage](usage.md)**, the engagement playbooks, and
    [operations](operations.md) once each.
 
 ## Re-running, upgrading, and second deployments
@@ -347,7 +347,7 @@ Then, in order:
 |---|---|
 | Pulled new code | `./a51 deploy all` |
 | Schema changed upstream | `./a51 deploy schema` (or `./a51 doctor --fix`) |
-| Changed a hostname, bucket or worker name in `.env` | `./a51 setup` — but read [operations.md](operations.md#renaming-things) first: renaming a Worker or a bucket creates a *new* one and orphans the old |
+| Changed a hostname, bucket or worker name in `.env` | `./a51 setup`, but read [operations.md](operations.md#renaming-things) first: renaming a Worker or a bucket creates a *new* one and orphans the old |
 | Added a domain | `./a51 domains add <host> http,mail` |
 | Changed who may log in | `./a51 access --add <…>` / `--remove <…>` (or edit `ALLOWED_EMAILS` in `.env` and run `./a51 access`) |
 | Want it gone | `./a51 destroy` |

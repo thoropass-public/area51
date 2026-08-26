@@ -3,8 +3,8 @@
 The day-two runbook: deploying changes, managing black holes, purging, reading
 logs, watching quotas, rotating secrets, and tearing things down.
 
-This page is *when and why*. For the exhaustive per-command surface — every flag,
-every exit code — see [reference/cli](../reference/cli.md).
+This page is *when and why*. For the exhaustive per-command surface, every flag and
+every exit code, see [reference/cli](../reference/cli.md).
 
 ## Deploying
 
@@ -40,7 +40,7 @@ uploads happen from your machine, through the CLI.
 `add` does all three things a black hole needs: binds the hostname to the catcher
 as a Custom Domain, enables Email Routing on the zone with a catch-all to the
 catcher (with the `mail` role), and writes the row the dashboard and Autopilot
-read. No redeploy — the next page load and the next agent call see it.
+read. No redeploy needed: the next page load and the next agent call see it.
 
 The hostname must be on a zone the API token can see. DNS and the certificate take
 a minute or two.
@@ -60,14 +60,14 @@ An interactive menu with three options, each gated by typing `PURGE`:
 | Option | What it does |
 |---|---|
 | **Requests** | Deletes `requests` rows older than N days. Database only. |
-| **Emails** | Deletes non-starred `emails` older than N days — the object **first**, then the row, and only for objects confirmed deleted. |
+| **Emails** | Deletes non-starred `emails` older than N days. The object goes **first**, then the row, and only for objects confirmed deleted. |
 | **Autopilot endpoints** | Deletes every `/-/*` row, plus the uploaded object of any file-backed row among them. |
 
 **Never** run `DELETE FROM emails` in the D1 console. The `.eml` objects would
 stay behind unreachable, and nothing would ever list them again. The whole reason
 this command exists is that the two stores have to move together.
 
-Unattended retention is the cleanup worker's job — see [cleanup.md](../internals/cleanup.md).
+Unattended retention is the cleanup worker's job; see [cleanup.md](../internals/cleanup.md).
 Use `./a51 purge` for one-off clear-downs (end of an engagement) and for the
 things the worker never touches.
 
@@ -118,7 +118,7 @@ pasted somewhere it should not have been, or on a schedule you set.
 The machine that ran `./a51` holds `.env`, which contains the **Cloudflare API
 token** and a copy of the **Autopilot secret** (`AGENT_SECRET`). If a device with
 that file is lost or stolen, assume both are exposed and act immediately, in this
-order — none of these steps need the lost machine:
+order. None of these steps need the lost machine:
 
 1. **Revoke the Cloudflare API token.** Cloudflare dashboard → *My Profile → API
    Tokens* → find the AREA 51 deploy token (named for the deployment, e.g.
@@ -149,12 +149,12 @@ order — none of these steps need the lost machine:
 (`example.com`), normalized to lowercase. Both write the result to the Access
 policy **and** back to `ALLOWED_EMAILS` in `.env`.
 
-There is no positional "replace the whole list" form — it was removed as a
+There is no positional "replace the whole list" form. It was removed as a
 footgun (it silently wiped any entry you forgot to re-type). **To set the list
 wholesale**, edit `ALLOWED_EMAILS` in `.env` and run a bare `./a51 access`, which
 re-applies exactly what the file says. You cannot leave the list empty (that would
-make the dashboard public — use `./a51 setup --no-access` if you truly want that).
-Existing sessions keep working until they expire — revoke them in Zero Trust →
+make the dashboard public; use `./a51 setup --no-access` if you truly want that).
+Existing sessions keep working until they expire. Revoke them in Zero Trust →
 Access → *your app* if that matters.
 
 ## Renaming things
@@ -163,12 +163,12 @@ Access → *your app* if that matters.
 `D1_DATABASE_NAME` and both bucket names are Cloudflare identities. Changing one in
 `.env` does **not** rename anything:
 
-- **A Worker** — the next deploy creates a *new* Worker. The old one keeps running
+- **A Worker.** The next deploy creates a *new* Worker. The old one keeps running
   and keeps its Custom Domains, so both are live and one of them is stale. Rebind
   the domains (`./a51 domains add …`) and delete the old Worker in the dashboard.
-- **The Pages project** — the next deploy creates a new project with a new
+- **The Pages project.** The next deploy creates a new project with a new
   `*.pages.dev` subdomain; the custom domain stays with the old one until moved.
-- **The database or a bucket** — you get a *new empty* one. The old data is still
+- **The database or a bucket.** You get a *new empty* one. The old data is still
   there, still billed, and nothing points at it. Migrate deliberately or not at all.
 
 If you must rename, plan it as: create new → move domains → verify → delete old.
@@ -205,7 +205,7 @@ Notes:
 ```
 
 Two gates. The first (`REMOVE`) deletes the three Workers, the Pages project, the
-dashboard DNS record and the Access application — all rebuildable from this
+dashboard DNS record and the Access application, all rebuildable from this
 repository. The second (`DELETE-DATA`) deletes the database and both buckets,
 which is permanent. Answering no to the second leaves your captures intact and
 lets `./a51 setup` rebuild on top of them.
@@ -214,17 +214,17 @@ lets `./a51 setup` rebuild on top of them.
 to do implicitly, so the whole teardown stays one command:
 
 - **Pages custom domains** are detached before the project is deleted (Cloudflare
-  will not delete a project that still has one — `[8000028]`).
+  will not delete a project that still has one, `[8000028]`).
 - **Non-empty R2 buckets** are emptied before deletion (R2 refuses to delete a
-  bucket with objects — `[10008]`). Emptying happens only inside the `DELETE-DATA`
+  bucket with objects, `[10008]`). Emptying happens only inside the `DELETE-DATA`
   gate. It lists the objects over R2's S3 API using credentials derived from your
-  existing API token — nothing extra to create — and deletes them via the REST
+  existing API token, so there is nothing extra to create, and deletes them via the REST
   object API. See [decisions.md](../decisions.md#destroy-empties-buckets-itself-s3-to-list-v4-to-delete).
 
 `destroy` is also safe to re-run over a half-torn-down deployment: anything
 already gone (a worker, the database, a bucket) is skipped rather than erroring.
 
-Email Routing is left enabled on the zone — it has its own locked DNS records,
+Email Routing is left enabled on the zone, since it has its own locked DNS records,
 and disabling it is a zone-level decision (dashboard → Email → Email Routing).
 
 `.env` is never touched. Delete it yourself when you are done.

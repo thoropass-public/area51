@@ -331,6 +331,26 @@ export class Cloudflare {
     return this.request('POST', `/zones/${zoneId}/email/routing/enable`, {}, { retries: 2 });
   }
 
+  /**
+   * Enable Email Routing for one NAME on the zone — a subdomain such as
+   * `listen.example.com` — adding and locking the MX + SPF records for that name.
+   *
+   * This is a different endpoint from `enableEmailRouting` above: `.../enable`
+   * takes no name and only ever addresses the apex, while `.../dns` accepts the
+   * name and is what the Cloudflare dashboard calls when you add a subdomain
+   * under Email → Email Routing → Settings → Subdomains. Both are authorized by
+   * Zone · Zone Settings:Edit.
+   *
+   * The apex path deliberately still uses `.../enable`: it is the call this tool
+   * has always made and it works, so there is no reason to move a working
+   * install onto a second endpoint. Retried on transient auth failures for the
+   * same token-propagation reason; enabling an already-enabled name reads as
+   * "already exists", which callers treat as success.
+   */
+  enableEmailRoutingForName(zoneId, name) {
+    return this.request('POST', `/zones/${zoneId}/email/routing/dns`, { name }, { retries: 2 });
+  }
+
   getCatchAll(zoneId) {
     return this.get(`/zones/${zoneId}/email/routing/rules/catch_all`);
   }

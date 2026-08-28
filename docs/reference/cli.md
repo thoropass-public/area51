@@ -131,24 +131,59 @@ Then it probes the live hosts from your machine:
 
 Read-only without `--fix`. Exit `1` if anything failed.
 
-## domains
+## black-hole
 
 ```
-./a51 domains list
-./a51 domains add <hostname> [http,mail]
-./a51 domains remove <hostname>
+./a51 black-hole list
+./a51 black-hole add <hostname> [http,mail]
+./a51 black-hole remove <hostname>
 ```
 
-A black hole is three things at once, and this command keeps them in step: a
-hostname bound to the catcher (for `http`), a zone catch-all pointed at the
-catcher (for `mail`), and a row in the `domains` table so the dashboard and
-Autopilot know it exists.
+A black hole is up to three things at once, and this command keeps them in step:
+a hostname bound to the catcher (for `http`), Email Routing enabled for that name
+with the zone catch-all pointed at the catcher (for `mail`), and a row in the
+`domains` table so the dashboard and Autopilot know it exists.
 
-- `add` defaults to `http,mail`. No redeploy needed: the next page load and the next
-  agent call pick it up. DNS and the certificate take a minute.
+The D1 table is still called `domains` — only the command was renamed.
+
+### add
+
+**Roles are asked when omitted.** With no roles argument you get a three-way
+choice: HTTP and email, HTTP only, or email only. Pass them positionally
+(`add host http`) to skip the prompt, which is also what anything scripted should
+do. Under `--yes` the first option (both) is taken, matching the old default.
+
+| Roles | What is provisioned |
+|---|---|
+| `http` | Custom Domain on the catcher. No mail records are touched. |
+| `mail` | Email Routing enabled **for that name** (MX + SPF added and locked), and the zone catch-all confirmed to point at the catcher. |
+| `http,mail` | Both. |
+
+**Mail works on a subdomain.** Email Routing is enabled per name, and the zone's
+catch-all covers the apex plus every enabled subdomain, so
+`<anything>@listen.example.com` is captured with no per-address rules.
+
+**But the subdomain's own zone apex must already be a mail black hole**, because
+the catch-all is zone-scoped and only exists once the apex has it. Adding a
+subdomain first is refused with the two commands to run instead — enabling it
+would lock MX records whose mail has nowhere to go.
+
+Before provisioning, `add` prints what changes and takes consent for the
+destructive part:
+
+- **Apex + mail** always confirms, since Email Routing locks MX for the whole zone.
+- **Subdomain** confirms only when records are already in the way.
+- Either way, records that will actually be replaced are listed by name and the
+  gate becomes a typed `TAKEOVER`, which `--yes` cannot satisfy.
+
+No redeploy needed: the next page load and the next agent call pick the host up.
+DNS and the certificate take a minute.
+
+### remove and list
+
 - `remove` drops the row and detaches the Custom Domain. It deliberately leaves
-  Email Routing alone, since that is zone-wide and another black hole on the same
-  zone may still need it. Captured data is kept.
+  Email Routing alone, since the catch-all is zone-wide and another black hole on
+  the same zone may still need it. Captured data is kept.
 - `list` flags any host that is in the table but not actually bound.
 
 ## access
@@ -268,7 +303,7 @@ cp .env.example .env && ./a51 setup
 ./a51 setup && ./a51 deploy all
 
 # add a second black hole mid-engagement
-./a51 domains add other-domain.example http,mail
+./a51 black-hole add other-domain.example http,mail
 
 # someone joined / left the team
 ./a51 access --add them@example.com

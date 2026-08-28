@@ -1,4 +1,4 @@
-// The provisioning primitives, shared by `setup`, `deploy`, `domains` and
+// The provisioning primitives, shared by `setup`, `deploy`, `black-hole` and
 // `access`. Every function here is idempotent: it inspects the current state
 // first and reports `created: false` when there is nothing to do, so running
 // setup twice is boring rather than destructive.
@@ -78,16 +78,34 @@ const ADDRESS_RECORD_TYPES = ['A', 'AAAA', 'CNAME'];
  * blocking setup on a flaky call. The provisioning steps still surface their
  * own errors later.
  */
-export async function inspectZoneTakeover(cf, zone) {
-  const takeover = { mx: [], apex: [] };
+export async function inspectZoneTakeover(cf, zone, hostname = zone.name) {
+  const takeover = { mx: [], address: [], zoneMx: [] };
   try {
-    takeover.mx = await cf.listDnsRecordsByType(zone.id, 'MX');
+    const atName = await cf.listDnsRecordsByName(zone.id, hostname);
+    takeover.mx = atName.filter((r) => r.type === 'MX');
+    takeover.address = atName.filter((r) => ADDRESS_RECORD_TYPES.includes(r.type));
   } catch { /* best effort */ }
-  try {
-    const atApex = await cf.listDnsRecordsByName(zone.id, zone.name);
-    takeover.apex = atApex.filter((r) => ADDRESS_RECORD_TYPES.includes(r.type));
-  } catch { /* best effort */ }
+
+  // An apex takeover puts the ZONE's mail at stake, not just the apex records:
+  // Email Routing becomes the mail authority for the whole zone. So the apex
+  // case also reports MX anywhere on the zone, which is the broader signal an
+  // operator needs before handing the domain over. A subdomain takeover only
+  // touches records at its own name, so it reports only those.
+  if (hostname === zone.name) {
+    try {
+      takeover.zoneMx = await cf.listDnsRecordsByType(zone.id, 'MX');
+    } catch { /* best effort */ }
+  }
   return takeover;
+}
+
+/** The records a takeover would replace, formatted one per line for display. */
+export function describeTakeover(takeover) {
+  const mx = takeover.zoneMx.length ? takeover.zoneMx : takeover.mx;
+  return [
+    ...mx.map((r) => `MX      ${r.name} → ${r.content}`),
+    ...takeover.address.map((r) => `${r.type.padEnd(7)} ${r.name} → ${r.content}`),
+  ];
 }
 
 /**
@@ -222,7 +240,7 @@ export async function ensureBlackHole(cf, accountId, opts) {
   }
 
   if (roles.includes('mail')) {
-    await ensureEmailRouting(cf, zone, workerName, followUps);
+    await ensureEmailRouting(cf, zone, workerName, followUps, hostname);
   }
 
   if (databaseId) {
@@ -231,8 +249,68 @@ export async function ensureBlackHole(cf, accountId, opts) {
   return true;
 }
 
-/** Enable Email Routing on the zone and point its catch-all at the worker. */
-export async function ensureEmailRouting(cf, zone, workerName, followUps) {
+/**
+ * Enable Email Routing for a black hole that is a SUBDOMAIN of its zone.
+ *
+ * Two facts make this work, and both are load-bearing:
+ *   * Email Routing is enabled per NAME — `POST .../email/routing/dns` with the
+ *     subdomain adds and locks MX + SPF for that name specifically.
+ *   * The zone's catch-all matches the apex AND every subdomain, so once the
+ *     name has MX behind it, `<anything>@<subdomain>` lands in the same worker
+ *     with no per-subdomain rule to create.
+ *
+ * The caller must already have established that the zone apex is a mail black
+ * hole. Without its catch-all pointing at the worker there is nothing for this
+ * subdomain's mail to be delivered to, and `./a51 black-hole add` refuses before
+ * it reaches here rather than enabling a name whose mail goes nowhere.
+ */
+async function ensureSubdomainEmailRouting(cf, zone, workerName, followUps, hostname) {
+  const manual = `Add it by hand: dashboard → ${zone.name} → Email → Email Routing → Settings\n→ Subdomains → enter ${hostname}.`;
+  try {
+    await cf.enableEmailRoutingForName(zone.id, hostname);
+    ok(`Email Routing enabled for ${color.bold(hostname)} (MX + SPF added and locked)`);
+  } catch (err) {
+    if (isAlreadyExists(err)) {
+      skip(`Email Routing already enabled for ${hostname}`);
+    } else {
+      degraded(
+        followUps,
+        `could not enable Email Routing for ${hostname}: ${err.message}`,
+        isAuthError(err)
+          ? authFixHint(`Zone · Zone Settings:Edit on ${zone.name}`, { zone: zone.name, extra: manual })
+          : manual,
+      );
+      return;
+    }
+  }
+
+  // Re-assert the zone catch-all. It should already point at the worker, since
+  // the apex is a mail black hole — but the PUT is idempotent, and doing it here
+  // means a catch-all somebody repointed by hand gets repaired instead of
+  // silently swallowing this subdomain's mail as well.
+  try {
+    await cf.setCatchAllToWorker(zone.id, workerName);
+    skip(`catch-all for *@${zone.name} confirmed → ${workerName} (covers ${hostname})`);
+  } catch (err) {
+    degraded(
+      followUps,
+      `could not confirm the ${zone.name} catch-all: ${err.message}`,
+      isAuthError(err)
+        ? authFixHint(`Zone · Email Routing Rules:Edit on ${zone.name}`, { zone: zone.name })
+        : `Set it by hand: dashboard → ${zone.name} → Email → Email Routing → Routing rules\n→ Catch-all address → Edit → Action "Send to a Worker" → ${workerName} → Save.`,
+    );
+  }
+}
+
+/**
+ * Enable Email Routing for `hostname` and make sure the zone's catch-all points
+ * at the worker. `hostname` defaults to the apex; a subdomain takes the
+ * per-name path above.
+ */
+export async function ensureEmailRouting(cf, zone, workerName, followUps, hostname = zone.name) {
+  if (hostname !== zone.name) {
+    return ensureSubdomainEmailRouting(cf, zone, workerName, followUps, hostname);
+  }
   // NOTE ON PERMISSIONS: the /email/routing settings + enable endpoints are
   // governed by Zone · Zone Settings — NOT by Email Routing Rules (which only
   // covers the catch-all rule set below). A token with Email Routing Rules but
@@ -358,7 +436,7 @@ export async function upsertDomainRow(cf, accountId, databaseId, hostname, roles
     degraded(
       followUps,
       `could not write ${hostname} to the domains table: ${err.message}`,
-      `Run it by hand:\n  ./a51 domains add ${hostname} ${roles.join(',')}`,
+      `Run it by hand:\n  ./a51 black-hole add ${hostname} ${roles.join(',')}`,
     );
   }
 }

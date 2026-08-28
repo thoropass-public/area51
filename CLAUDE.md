@@ -51,10 +51,16 @@ cp .env.example .env        # paste CLOUDFLARE_API_TOKEN, then run setup
 the fallback inbox and the Access allow-list, then writes every answer back to
 `.env`. It does **not** ask about hostnames: the black hole is always the zone
 apex with both roles, and the other two are derived as `area51.<zone>` and
-`autopilot.<zone>` (a subdomain black hole cannot receive mail — see
+`autopilot.<zone>` (the apex is what puts the zone's mail catch-all in place, so
+nothing on the zone captures mail until it is a black hole — see
 [docs/decisions.md](docs/decisions.md#the-black-hole-is-always-the-zone-apex-and-setup-does-not-ask)).
 Re-running it is the normal way to converge after fixing anything — completed
 steps report "already correct."
+
+Additional black holes go through `./a51 black-hole add <host> [http,mail]`, which
+asks for roles when they are omitted. **Mail on a subdomain is supported** — it
+enables Email Routing for that name and reuses the zone catch-all — but it
+refuses unless that subdomain's own zone apex is already a mail black hole.
 
 **The API token is where installs fail.** Create it at **My Profile → API
 Tokens → Create Token → Custom token** with these **thirteen** permissions (the
@@ -156,7 +162,9 @@ schema, Pages bindings, domain bindings and the Access policy.
 
 - **Deploy / operate:** `./a51 setup` (provision, idempotent), `./a51 deploy
   [target]`, `./a51 status`, `./a51 doctor [--fix]` (the real acceptance test —
-  checks bindings and probes live hosts). `./a51 <cmd> --help` for each.
+  checks bindings and probes live hosts), `./a51 black-hole [list|add|remove]`
+  (manage catchers; the D1 table is still named `domains`). `./a51 <cmd> --help`
+  for each.
 - **Syntax-check CLI edits:** `node --check <file>` (the CLI is plain ESM, no
   build). There is no test suite; `./a51 doctor` is how a deployment is verified.
 - **One `package.json` at the root.** Workers have no manifests of their own;

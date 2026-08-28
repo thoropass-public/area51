@@ -30,7 +30,7 @@ the Custom Domains bound to it.
 
 Email Routing is **not** configured in `wrangler.toml`, because Wrangler v4 removed the
 `[triggers] email` key. The worker exports an `email()` handler and the zone's
-catch-all rule delivers to it; `./a51 setup` and `./a51 domains add … mail` set
+catch-all rule delivers to it; `./a51 setup` and `./a51 black-hole add … mail` set
 that rule over the API.
 
 ## HTTP handler

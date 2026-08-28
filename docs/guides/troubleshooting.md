@@ -37,7 +37,7 @@ it. What each check actually asserts is documented in
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Everything returns 404, including configured paths | The hostname is not bound to the catcher | `./a51 doctor` → `./a51 domains add <host> http,mail` |
+| Everything returns 404, including configured paths | The hostname is not bound to the catcher | `./a51 doctor` → `./a51 black-hole add <host> http,mail` |
 | An endpoint exists but still returns 404 | URI mismatch; matching is exact on `url.pathname` (case, trailing slash, no globs) | Compare the stored `uri` against the path you requested |
 | A file endpoint returns 404 with `http_file_missing` in the tail | The row outlived its object (someone emptied the bucket) | Re-upload from the endpoint modal, or delete the endpoint. The modal flags this as *object missing from storage* |
 | A file endpoint returns 404 with `http_file_binding_missing` | The `FILES` binding is not on the **worker** | Confirm `R2_FILES_BUCKET_NAME` in `.env`, then `./a51 deploy black-holes` |
@@ -50,8 +50,10 @@ it. What each check actually asserts is documented in
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Nothing arrives in Emails | Email Routing is off, or its catch-all is not pointed at the catcher | `./a51 doctor` names this; fix with `./a51 domains add <host> http,mail` |
+| Nothing arrives in Emails | Email Routing is off, or its catch-all is not pointed at the catcher | `./a51 doctor` names this; fix with `./a51 black-hole add <host> http,mail` |
 | Nothing arrives, and routing looks right | The zone apex has to be the mail domain, because Email Routing catch-alls are zone-wide | Send to `*@<zone>`, not `*@<subdomain>` |
+| `<host> cannot capture mail until <zone> does` | You asked for `mail` on a subdomain whose zone apex is not a mail black hole. The catch-all that delivers mail is zone-scoped and only exists once the apex has it | Add the apex first: `./a51 black-hole add <zone> http,mail`, then re-run the subdomain |
+| Mail to a subdomain bounces after `black-hole add … mail` reported success | DNS for the newly enabled name can take a minute to propagate | Wait, then retry. `./a51 doctor` confirms the zone catch-all still points at the catcher |
 | Sender gets a bounce saying *Address not accepted* | The `From:` address is on `email_blacklist` | Remove it in Settings; up to 60 minutes to propagate |
 | A row exists but the body will not load | The `EML` binding is missing on Pages, or the object is gone | `./a51 doctor`; check `npx wrangler r2 object get <bucket> emails/<id>.eml` |
 | Messages land in the fallback inbox instead of the dashboard | Capture failed; look for `email_capture_failed` | The tail line carries the real error. Usually a missing R2 binding or an R2 outage |

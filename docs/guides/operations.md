@@ -31,16 +31,40 @@ uploads happen from your machine, through the CLI.
 ## Adding and removing black holes
 
 ```bash
-./a51 domains list
-./a51 domains add other.example http,mail
-./a51 domains add http-only.example http
-./a51 domains remove other.example
+./a51 black-hole list
+./a51 black-hole add other.example                  # asks which roles
+./a51 black-hole add other.example http,mail        # or pass them
+./a51 black-hole add http-only.example http
+./a51 black-hole add listen.example mail            # email capture on a subdomain
+./a51 black-hole remove other.example
 ```
 
-`add` does all three things a black hole needs: binds the hostname to the catcher
-as a Custom Domain, enables Email Routing on the zone with a catch-all to the
-catcher (with the `mail` role), and writes the row the dashboard and Autopilot
-read. No redeploy needed: the next page load and the next agent call see it.
+`add` does everything a black hole needs: binds the hostname to the catcher as a
+Custom Domain (`http`), enables Email Routing **for that name** and confirms the
+zone catch-all points at the catcher (`mail`), and writes the row the dashboard
+and Autopilot read. No redeploy needed: the next page load and the next agent
+call see it.
+
+With no roles argument it asks for HTTP, email, or both.
+
+**Mail on a subdomain** needs no manual step — Email Routing is enabled per name
+and the zone catch-all already covers every enabled subdomain. The one
+prerequisite is that the subdomain's **own zone apex is already a mail black
+hole**; `setup` did that for your primary zone, and for any other zone you add
+its apex first:
+
+```bash
+./a51 black-hole add other.example.net http,mail    # the foundation
+./a51 black-hole add listen.example.net mail        # then the subdomain
+```
+
+Adding the subdomain first is refused: the catch-all that delivers its mail only
+exists once the apex has it, so enabling the name would lock MX records whose
+mail goes nowhere.
+
+An apex `mail` add always asks for confirmation, because Email Routing locks its
+MX for the whole zone. If records are actually going to be replaced they are
+listed and the gate becomes a typed `TAKEOVER`.
 
 The hostname must be on a zone the API token can see. DNS and the certificate take
 a minute or two.
@@ -165,7 +189,7 @@ Access → *your app* if that matters.
 
 - **A Worker.** The next deploy creates a *new* Worker. The old one keeps running
   and keeps its Custom Domains, so both are live and one of them is stale. Rebind
-  the domains (`./a51 domains add …`) and delete the old Worker in the dashboard.
+  the domains (`./a51 black-hole add …`) and delete the old Worker in the dashboard.
 - **The Pages project.** The next deploy creates a new project with a new
   `*.pages.dev` subdomain; the custom domain stays with the old one until moved.
 - **The database or a bucket.** You get a *new empty* one. The old data is still

@@ -131,11 +131,11 @@ The configured black holes, and the single source of truth for them.
 
 Read live by the dashboard (`/api/config/domains`, for the Home host picker) and by
 Autopilot (`/domains`, `list_black_holes`), so an agent can build
-`https://<domain>/-/<path>`. Managed by `./a51 domains`; changes apply on the
+`https://<domain>/-/<path>`. Managed by `./a51 black-hole`; changes apply on the
 next page load or agent call, with no redeploy.
 
 A row here does **not** by itself make a hostname work. The Custom Domain and
-mail routing are the other two thirds. `./a51 domains add` does all three;
+mail routing are the other two thirds. `./a51 black-hole add` does all three;
 `./a51 doctor` flags a row whose hostname is not actually bound.
 
 ---

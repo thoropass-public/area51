@@ -21,7 +21,7 @@ import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
   ensurePagesProject, ensurePagesDomain, ensureAccess, authFixHint,
-  inspectZoneTakeover, findHostnameConflict,
+  inspectZoneTakeover, describeTakeover, findHostnameConflict,
 } from '../lib/provision.mjs';
 import { isAuthError } from '../lib/cloudflare.mjs';
 import { printTokenPermissions } from '../lib/permissions.mjs';
@@ -115,17 +115,20 @@ export async function run(args) {
   // The layout is fixed, and none of it is asked. The black hole is the zone
   // apex with both roles; AREA 51 and Autopilot are fixed subdomains of it.
   //
-  // Why the apex, specifically: Cloudflare's Email Routing catch-all is
-  // zone-wide and has no per-subdomain form, so a subdomain black hole can
-  // serve HTTP but can never receive mail — every email callback address it
-  // advertised would silently bounce, which reads as "the target never called
-  // back" during an engagement. Pinning the black hole to the apex makes the
-  // HTTP host and the mail domain the same string, and that is the only layout
-  // in which every callback URL the tool hands out actually works.
+  // Why the apex, specifically: the catch-all rule that delivers mail to the
+  // catcher is zone-scoped, and it covers the apex plus every subdomain enabled
+  // for Email Routing. Nothing at all can capture mail on the zone until the
+  // apex is a mail black hole, because that is what puts the catch-all there.
+  // Making it the primary black hole establishes that foundation once, and makes
+  // the HTTP host and the mail domain the same string.
   //
-  // .env still wins. A hostname already set there is used as-is, so an operator
-  // who needs a different layout writes it by hand and re-runs — no prompt, and
-  // no way to get there by accident.
+  // Subdomains CAN capture mail — `./a51 black-hole add sub.example.com mail`
+  // enables Email Routing for that name and the zone catch-all picks it up. That
+  // is an additive layer on top of the apex, not an alternative to it.
+  //
+  // .env still wins for the other two hostnames. One already set there is used
+  // as-is, so an operator who needs a different layout writes it by hand and
+  // re-runs — no prompt, and no way to get there by accident.
   env.BLACK_HOLE_HOSTNAME = zoneName;
   env.BLACK_HOLE_ROLES = 'http,mail';
   const roles = parseRoles(env.BLACK_HOLE_ROLES);
@@ -135,13 +138,13 @@ export async function run(args) {
   // A deployment created before the layout was fixed may carry a subdomain black
   // hole in .env. Moving it to the apex is the right migration, but doing it
   // silently would leave the old hostname still bound to the worker and still
-  // listed in the `domains` table — a black hole nobody chose, advertising a mail
-  // role it was never able to serve. Say so, and name the command that clears it.
+  // listed in the `domains` table — a black hole nobody chose. Say so, and name
+  // the command that clears it.
   const previousBlackHole = fromFile.BLACK_HOLE_HOSTNAME;
   if (previousBlackHole && previousBlackHole !== zoneName) {
     warn(`the black hole moves from ${previousBlackHole} to the apex ${color.bold(zoneName)}`);
     plain(color.dim(`      ${previousBlackHole} stays bound to ${env.WORKER_NAME} and stays in the domains table.`));
-    plain(color.dim(`      Drop it with \`./a51 domains remove ${previousBlackHole}\` if you no longer want it.`));
+    plain(color.dim(`      Drop it with \`./a51 black-hole remove ${previousBlackHole}\` if you no longer want it.`));
   }
 
   plain('');
@@ -393,11 +396,7 @@ async function confirmZoneTakeover(cf, zone, env, { dryRun = false } = {}) {
   plain('    · Every path and every address on the domain becomes a public trap.');
   plain('');
 
-  const takeover = await inspectZoneTakeover(cf, zone);
-  const doomed = [
-    ...takeover.mx.map((r) => `MX      ${r.name} → ${r.content}`),
-    ...takeover.apex.map((r) => `${r.type.padEnd(7)} ${r.name} → ${r.content}`),
-  ];
+  const doomed = describeTakeover(await inspectZoneTakeover(cf, zone));
 
   if (doomed.length) {
     warn(`${color.bold(zone.name)} is already in use. These records will be replaced or overridden:`);

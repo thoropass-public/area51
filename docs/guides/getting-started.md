@@ -76,7 +76,7 @@ them by name and makes you type `TAKEOVER`, which `--yes` cannot satisfy. A fres
 throwaway domain with only the default records gets a plain y/N instead.
 
 Mail is not optional here — the primary black hole always carries both roles.
-`./a51 domains add <host> http` still adds an HTTP-only catcher afterwards, on
+`./a51 black-hole add <host> http` still adds an HTTP-only catcher afterwards, on
 any hostname, and leaves that zone's mail records alone.
 
 ### 5. Node.js 20+
@@ -161,31 +161,50 @@ Email callbacks   <anything>@example.com
 
 ### Why the black hole is always the apex
 
-Cloudflare's Email Routing catch-all is **zone-wide**, and there is no
-per-subdomain form of it. So a black hole on `bh.example.com` can serve HTTP
-perfectly well but can never receive mail — the zone's catch-all lives at
-`example.com`, and an address at the subdomain has no MX behind it. Mail sent
-there bounces to the *sender*, which during an engagement is the target, not you.
-All you would see is a callback that never arrived, and the natural reading of
-that is "the vulnerability didn't fire."
+The catch-all rule that delivers mail to the catcher is **zone-scoped**: one per
+zone, and it covers the apex plus every subdomain enabled for Email Routing.
+Nothing anywhere on the zone can capture mail until the apex is a mail black
+hole, because the apex is what puts that catch-all there.
 
-Pinning the black hole to the apex makes the HTTP host and the mail domain the
-same string. It is the only layout in which every callback address the tool
-prints actually works, so it is no longer a choice.
+So making the apex the primary black hole establishes the foundation once, and it
+makes the HTTP host and the mail domain the same string, which means every
+callback address the tool prints works. The alternative — a subdomain black hole
+with no MX behind it — bounces the target's mail back at the target and shows you
+nothing, which reads as "the vulnerability didn't fire."
 
-### If you need a different layout
+This does **not** mean subdomains are HTTP-only. See below.
 
-Roles and subdomains still exist for *additional* black holes:
+### Adding more black holes
 
 ```bash
-./a51 domains add http-only.example.com http     # extra HTTP-only catcher
+./a51 black-hole add http-only.example.com http     # HTTP catcher, no mail records touched
+./a51 black-hole add listen.example.com mail        # email capture on a subdomain
+./a51 black-hole add other.example.net             # asks which roles you want
 ```
 
-`./a51 domains add <host> mail` on a subdomain will warn you that mail still
-arrives at the zone apex, for exactly the reason above.
+With no roles argument it asks: HTTP and email, HTTP only, or email only.
 
-`DASHBOARD_HOSTNAME` and `AUTOPILOT_HOSTNAME` are still ordinary `.env` values.
-Set either by hand before running setup — including to a hostname on a different
+**Mail on a subdomain works**, and needs nothing manual. AREA 51 enables Email
+Routing for that exact name (MX + SPF added and locked for it), and the zone's
+existing catch-all — which already covers every enabled subdomain — delivers to
+the catcher. `<anything>@listen.example.com` is captured like any other address.
+
+The one rule: **the subdomain's own zone apex must already be a mail black hole.**
+For your primary zone `setup` did that. For a *different* zone, add its apex
+first:
+
+```bash
+./a51 black-hole add other.example.net http,mail    # the foundation
+./a51 black-hole add listen.example.net mail        # then the subdomain
+```
+
+Adding the subdomain first is refused, because without the apex's catch-all its
+mail would be accepted and then silently dropped.
+
+### The two private hostnames
+
+`DASHBOARD_HOSTNAME` and `AUTOPILOT_HOSTNAME` are ordinary `.env` values. Set
+either by hand before running setup — including to a hostname on a different
 zone — and setup uses it as-is instead of deriving one.
 
 ---
@@ -295,7 +314,7 @@ nothing else to configure.
 *Manual equivalents:*
 Workers & Pages → *worker* → Settings → Domains & Routes → Add → Custom Domain ·
 zone → Email → Email Routing → Get started · Routing rules → Catch-all → Edit →
-*Send to a Worker* · `./a51 domains add <host> http,mail`.
+*Send to a Worker* · `./a51 black-hole add <host> http,mail`.
 
 ### 9. Autopilot hostname
 
@@ -396,7 +415,7 @@ Then, in order:
 | Pulled new code | `./a51 deploy all` |
 | Schema changed upstream | `./a51 deploy schema` (or `./a51 doctor --fix`) |
 | Changed a hostname, bucket or worker name in `.env` | `./a51 setup`, but read [operations.md](operations.md#renaming-things) first: renaming a Worker or a bucket creates a *new* one and orphans the old |
-| Added a domain | `./a51 domains add <host> http,mail` |
+| Added a domain | `./a51 black-hole add <host> http,mail` |
 | Changed who may log in | `./a51 access --add <…>` / `--remove <…>` (or edit `ALLOWED_EMAILS` in `.env` and run `./a51 access`) |
 | Want it gone | `./a51 destroy` |
 

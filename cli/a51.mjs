@@ -37,10 +37,10 @@ const COMMANDS = {
     summary: 'check every binding, domain and policy; probe the live hosts',
     usage: './a51 doctor [--fix] [--no-probes]',
   },
-  domains: {
-    module: './commands/domains.mjs',
+  'black-hole': {
+    module: './commands/black-hole.mjs',
     summary: 'manage black holes (list, add, remove)',
-    usage: './a51 domains [list | add <host> [http,mail] | remove <host>]',
+    usage: './a51 black-hole [list | add <host> [http,mail] | remove <host>]',
   },
   access: {
     module: './commands/access.mjs',
@@ -106,7 +106,7 @@ async function main() {
   const commandIndex = argv.findIndex((a) => !a.startsWith('-'));
   const command = commandIndex === -1 ? undefined : argv[commandIndex];
   // Remove only the command itself, not a later positional that happens to
-  // repeat it (`./a51 domains remove domains` must keep its argument).
+  // repeat it (`./a51 black-hole remove black-hole` must keep its argument).
   const args = argv.filter((_, i) => i !== commandIndex);
 
   // Version — checked BEFORE the help/no-command fallthrough. `./a51 --version`

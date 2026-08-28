@@ -156,7 +156,7 @@ export async function run(args) {
   let blackHoles = [];
   if (env.D1_DATABASE_ID && tables.includes('domains')) {
     blackHoles = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
-    if (!blackHoles.length) r.warn('the domains table is empty — the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 domains add <host> http,mail`.');
+    if (!blackHoles.length) r.warn('the domains table is empty — the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-hole add <host> http,mail`.');
   }
 
   let workerDomains = [];
@@ -175,7 +175,7 @@ export async function run(args) {
         await ensureBlackHole(cf, accountId, { hostname: row.domain, roles, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps });
         r.ok(`${row.domain}: re-bound to ${env.WORKER_NAME}`);
       } else {
-        r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 domains add ' + row.domain + ' ' + roles.join(',') + '`.');
+        r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 black-hole add ' + row.domain + ' ' + roles.join(',') + '`.');
       }
     }
     if (roles.includes('mail')) {
@@ -187,13 +187,13 @@ export async function run(args) {
       try {
         const settings = await cf.getEmailRouting(zone.id);
         if (!settings || !settings.enabled) {
-          r.fail(`Email Routing is disabled on ${zone.name}`, `Enable it: \`./a51 domains add ${row.domain} ${roles.join(',')}\`.`);
+          r.fail(`Email Routing is disabled on ${zone.name}`, `Enable it: \`./a51 black-hole add ${row.domain} ${roles.join(',')}\`.`);
         } else {
           const catchAll = await cf.getCatchAll(zone.id);
           const action = ((catchAll && catchAll.actions) || [])[0] || {};
           const target = (action.value || [])[0];
           if (action.type === 'worker' && target === env.WORKER_NAME) r.ok(`*@${zone.name} → ${env.WORKER_NAME}`);
-          else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 domains add ${row.domain} ${roles.join(',')}\`.`);
+          else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 black-hole add ${row.domain} ${roles.join(',')}\`.`);
         }
       } catch (err) {
         r.fail(`could not read Email Routing on ${zone.name}: ${err.message}`, 'Reading Email Routing state needs Zone · Zone Settings:Read (NOT Email Routing Rules, which only covers the catch-all rule). Enabling it needs Zone Settings:Edit.');

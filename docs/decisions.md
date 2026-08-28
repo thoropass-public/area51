@@ -293,27 +293,61 @@ hole is that zone's apex with both roles; AREA 51 and Autopilot are derived as
 `area51.<zone>` and `autopilot.<zone>`. Four prompts (three hostnames and the
 roles) were removed.
 
-**Why:** a subdomain black hole is quietly broken for mail. Cloudflare's Email
-Routing catch-all is zone-wide and has no per-subdomain form, so mail addressed
-to `anything@bh.example.com` has no MX behind it. It bounces to the *sender*,
-which during an engagement is the target, not the operator. All the operator sees
-is a callback that never arrived, and the obvious reading of that is "the
-vulnerability did not fire" — a false negative on a finding, which is the most
-expensive mistake this tool can cause. Two CLI lines actively handed out that
-address.
+**Why:** the catch-all rule that delivers mail to the catcher is **zone-scoped** —
+`PUT /zones/{id}/email/routing/rules/catch_all` takes no subdomain, and there is
+one per zone. It covers the apex *and* every subdomain enabled for Email Routing.
+So nothing anywhere on the zone can capture mail until the apex is a mail black
+hole, because the apex is what puts the catch-all there in the first place.
 
-The apex is the only layout where the HTTP host and the mail domain are the same
-string, so every callback address the CLI prints works. That makes it not worth
-offering as a choice: the alternative is a configuration whose failure mode is
-silent and expensive.
+Making the apex the primary black hole establishes that foundation once, as part
+of the install, and as a bonus makes the HTTP host and the mail domain the same
+string so every callback address the CLI prints works. Offering it as a choice
+would mean offering a deployment where the mail half silently does nothing: mail
+to a subdomain with no MX bounces to the *sender*, which during an engagement is
+the target, not the operator. All the operator sees is a callback that never
+arrived, and the obvious reading of that is "the vulnerability did not fire" — a
+false negative on a finding, the most expensive mistake this tool can cause. Two
+CLI lines used to hand out exactly that address.
+
+**This does not mean subdomains cannot capture mail.** They can, and
+`./a51 black-hole add sub.example.com mail` does it — see the next entry. The
+apex is the foundation, not the only option.
 
 What this costs: the black hole can no longer sit on a subdomain while the apex
 serves a decoy site, and mail can no longer be declined for the primary black
-hole. Both remain reachable — `./a51 domains add <host> http` still adds an
-HTTP-only catcher on any hostname, and `DASHBOARD_HOSTNAME` / `AUTOPILOT_HOSTNAME`
-set by hand in `.env` are used as-is (including on another zone) without a
-prompt. The escape hatches are deliberate but unadvertised: reachable when
-someone knows they need them, never hit by accident.
+hole. Escape hatches remain — `./a51 black-hole add <host> http` adds an
+HTTP-only catcher on any hostname, and `DASHBOARD_HOSTNAME` /
+`AUTOPILOT_HOSTNAME` set by hand in `.env` are used as-is (including on another
+zone) without a prompt. Deliberate but unadvertised: reachable when someone knows
+they need them, never hit by accident.
+
+## Mail on a subdomain: enable the name, reuse the zone catch-all
+
+`./a51 black-hole add listen.example.com mail` works, and it refuses unless
+`example.com` is already a mail black hole.
+
+Two Cloudflare facts make it work, and both are load-bearing:
+
+- Email Routing is enabled **per name**. `POST /zones/{id}/email/routing/dns`
+  with `{"name": "listen.example.com"}` adds and locks MX + SPF for that name.
+  This is a different endpoint from `.../email/routing/enable`, which takes no
+  name and only ever addresses the apex — the apex path still uses `enable`,
+  because it works and there is no reason to move a live install onto a second
+  endpoint.
+- The zone's catch-all matches the apex **and** every enabled subdomain. So once
+  the name has MX, `<anything>@listen.example.com` reaches the same worker with
+  no per-subdomain rule to create, and no per-address rules either.
+
+**Why it refuses without the apex:** the catch-all only exists once the apex is a
+mail black hole. Enabling a subdomain first would add and *lock* MX records whose
+mail has nowhere to be delivered — a black hole that accepts every message and
+drops it, which is strictly worse than refusing. The check reads the `domains`
+table for the apex row rather than asking Cloudflare, because that table is what
+the rest of the tool treats as the truth about which hosts are black holes.
+
+This is also why the subdomain path re-asserts the catch-all after enabling the
+name: the `PUT` is idempotent, and it repairs a catch-all somebody repointed by
+hand instead of letting the new subdomain's mail vanish alongside the apex's.
 
 ## Taking a zone over is confirmed, and typed when the zone is in use
 

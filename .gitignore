@@ -1,11 +1,11 @@
-# Internal design docs — not for the public repo
+# Local scratch notes (not part of the repo)
 pre-context.md
 
 # Worker configs are generated artifacts. Source of truth = .env + each
-# directory's wrangler.toml.template. Regenerate via scripts/render-wrangler.sh.
-worker/wrangler.toml
-agent-worker/wrangler.toml
-cleanup-worker/wrangler.toml
+# worker's wrangler.toml.template. Regenerated on every `./a51 deploy`.
+workers/black-holes/wrangler.toml
+workers/autopilot/wrangler.toml
+workers/cleanup/wrangler.toml
 
 # Node
 node_modules/
@@ -18,7 +18,7 @@ yarn-error.log*
 .dev.vars
 .dev.vars.*
 
-# Environment
+# Environment — holds the Cloudflare API token and the Autopilot secret
 .env
 .env.*
 !.env.example
@@ -28,9 +28,13 @@ yarn-error.log*
 Thumbs.db
 .idea/
 .vscode/
+.obsidian/
 *.swp
 *.swo
 *~
 
 # Logs
 *.log
+
+# Media Kit
+media-kit/

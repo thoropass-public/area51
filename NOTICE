@@ -1,0 +1,24 @@
+AREA 51
+© Copyright 2026 Thoropass, Inc.
+
+This product includes software developed at Thoropass, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Third-party components distributed with, or fetched at runtime by, this software:
+
+  postal-mime            MIT      https://github.com/postalsys/postal-mime
+  wrangler               MIT      https://github.com/cloudflare/workers-sdk
+  React, React DOM       MIT      https://github.com/facebook/react
+  Babel (standalone)     MIT      https://github.com/babel/babel
+  Inter (font)           OFL-1.1  https://github.com/rsms/inter
+  JetBrains Mono (font)  OFL-1.1  https://github.com/JetBrains/JetBrainsMono
+
+The AREA 51 name, the alien mark, the Thoropass name and wordmark, and the brand
+assets under .github/assets/brand are trademarks of Thoropass, Inc. The
+Apache-2.0 license granted for the software does not grant rights to use these
+marks. See the "License and attribution" section of README.md.

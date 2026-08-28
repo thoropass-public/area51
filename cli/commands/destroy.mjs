@@ -1,12 +1,14 @@
 // `./a51 destroy` — tear the deployment down again.
 //
 // Split into two gates on purpose. The first removes compute (workers, the Pages
-// project, the Access application) which is fully rebuildable from this repo.
-// The second removes storage (the D1 database and both R2 buckets) which
-// destroys every captured request, email and staged endpoint, permanently.
+// project, the Access application, and Email Routing) which is fully rebuildable
+// from this repo. The second removes storage (the D1 database and both R2
+// buckets) which destroys every captured request, email and staged endpoint,
+// permanently.
 //
 // Neither gate is satisfiable by --yes: destroying data always requires typing
-// the word.
+// the word. Email Routing is asked about separately inside the first gate, since
+// it is the one step that changes the zone rather than just removing AREA 51.
 
 import { loadContext, zoneForHostname } from '../lib/context.mjs';
 import { heading, plain, ok, warn, skip, color, info } from '../lib/log.mjs';
@@ -14,6 +16,83 @@ import { typeToConfirm, confirm, closePrompts } from '../lib/prompt.mjs';
 import { deriveR2Credentials, listR2ObjectKeys } from '../lib/r2s3.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Disable Email Routing on every zone this deployment enabled it for, which also
+ * deletes the MX, SPF and DKIM records Cloudflare added and LOCKED.
+ *
+ * This used to be skipped with a note, on the grounds that Email Routing is a
+ * zone-wide setting. That left the worst possible end state: every other piece
+ * torn down, and the domain still advertising mail service that nothing answers,
+ * with records that cannot be edited while they stay locked. So it is offered
+ * here instead.
+ *
+ * Asked rather than assumed, because it is the one teardown step that changes how
+ * the whole zone behaves rather than just removing AREA 51 from it. It sits in
+ * the first (compute) gate: `./a51 setup` puts all of it back.
+ */
+async function teardownEmailRouting(cf, accountId, env) {
+  const zones = new Map();
+  const consider = async (hostname) => {
+    if (!hostname) return;
+    try {
+      const zone = await zoneForHostname(cf, accountId, hostname);
+      if (zone) zones.set(zone.id, zone);
+    } catch { /* best effort — a zone we cannot resolve is one we cannot disable */ }
+  };
+
+  // Every mail black hole in the table. The table is still intact here: this runs
+  // in the compute gate, before the database can be deleted.
+  try {
+    if (env.D1_DATABASE_ID) {
+      const rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains');
+      for (const row of rows) {
+        let roles = [];
+        try {
+          const parsed = JSON.parse(row.roles);
+          if (Array.isArray(parsed)) roles = parsed;
+        } catch { /* malformed row: treat as no roles */ }
+        if (roles.includes('mail')) await consider(row.domain);
+      }
+    }
+  } catch { /* table gone or unreadable — the .env fallback below covers it */ }
+  if (!zones.size) await consider(env.CLOUDFLARE_ZONE || env.BLACK_HOLE_HOSTNAME);
+
+  // Only offer zones where it is actually on, so a re-run after a partial
+  // destroy is quiet rather than asking about nothing.
+  const enabled = [];
+  for (const zone of zones.values()) {
+    try {
+      const settings = await cf.getEmailRouting(zone.id);
+      if (settings && settings.enabled) enabled.push(zone);
+    } catch { /* unreadable: skip rather than guess */ }
+  }
+
+  if (!enabled.length) {
+    skip('Email Routing is not enabled on any zone this deployment used');
+    return;
+  }
+
+  plain('');
+  plain(`  Email Routing is still enabled on ${color.bold(enabled.map((z) => z.name).join(', '))}.`);
+  plain(color.dim('    Disabling it deletes the MX, SPF and DKIM records Cloudflare added and'));
+  plain(color.dim('    locked, and the zone stops receiving mail entirely. Any subdomain enabled'));
+  plain(color.dim('    for Email Routing under it goes at the same time.'));
+  if (!(await confirm('  Disable Email Routing and delete those records?', true))) {
+    info(color.dim('Email Routing left enabled. Its MX records stay locked until it is disabled.'));
+    return;
+  }
+
+  for (const zone of enabled) {
+    try {
+      await cf.disableEmailRouting(zone.id);
+      ok(`disabled Email Routing on ${zone.name} ${color.dim('(MX / SPF / DKIM removed)')}`);
+    } catch (err) {
+      warn(`could not disable Email Routing on ${zone.name}: ${err.message}`);
+      info(color.dim(`  Do it by hand: dashboard → ${zone.name} → Email → Email Routing → Settings → Disable.`));
+    }
+  }
+}
 
 export async function run() {
   const { env, cf, accountId } = await loadContext();
@@ -113,7 +192,7 @@ export async function run() {
     warn(`could not delete the Access application: ${err.message}`);
   }
 
-  info(color.dim('Email Routing was left enabled — it is a zone-wide setting with its own DNS records.'));
+  await teardownEmailRouting(cf, accountId, env);
 
   // ── data ──────────────────────────────────────────────────────────────────
   plain('');

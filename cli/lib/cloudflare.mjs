@@ -351,6 +351,18 @@ export class Cloudflare {
     return this.request('POST', `/zones/${zoneId}/email/routing/dns`, { name }, { retries: 2 });
   }
 
+  /**
+   * Disable Email Routing on the zone AND delete every routing DNS record it
+   * added and locked — MX, SPF and DKIM. One call does both.
+   *
+   * There is no per-subdomain form, so this clears the apex and every subdomain
+   * enabled under it at once. Authorized by Zone · Zone Settings:Edit, the same
+   * permission that enables it.
+   */
+  disableEmailRouting(zoneId) {
+    return this.delete(`/zones/${zoneId}/email/routing/dns`);
+  }
+
   getCatchAll(zoneId) {
     return this.get(`/zones/${zoneId}/email/routing/rules/catch_all`);
   }

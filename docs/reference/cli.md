@@ -287,9 +287,15 @@ Two gates, neither satisfiable by `--yes`:
 2. Type `DELETE-DATA`. Deletes the D1 database and both R2 buckets, emptying
    them first. Permanent.
 
-Answering no to the second leaves your captures intact, so `./a51 setup` can
-rebuild on top of them. Email Routing is left enabled: it is a zone-wide setting
-with its own locked DNS records. `.env` is never touched.
+Inside the first gate it also **offers to disable Email Routing** on every zone
+this deployment enabled it for, which deletes the MX, SPF and DKIM records
+Cloudflare added and locked. That is a plain y/N rather than a typed gate — it is
+config, and `./a51 setup` puts it back — but it is asked rather than assumed,
+because it is the one step that changes how the whole zone behaves. Declining
+leaves the records in place and locked.
+
+Answering no to the second gate leaves your captures intact, so `./a51 setup` can
+rebuild on top of them. `.env` is never touched.
 
 ---
 

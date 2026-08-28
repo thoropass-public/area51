@@ -248,7 +248,12 @@ to do implicitly, so the whole teardown stays one command:
 `destroy` is also safe to re-run over a half-torn-down deployment: anything
 already gone (a worker, the database, a bucket) is skipped rather than erroring.
 
-Email Routing is left enabled on the zone, since it has its own locked DNS records,
-and disabling it is a zone-level decision (dashboard → Email → Email Routing).
+**Email Routing is offered for teardown** inside the first gate: `destroy` finds
+every zone this deployment enabled it for, and disabling it deletes the MX, SPF
+and DKIM records Cloudflare added and locked. It asks first, because that changes
+how the whole zone handles mail rather than just removing AREA 51 — but leaving
+it behind means the domain still advertises mail service nothing answers, with
+records you cannot edit while they stay locked. Declining is fine; you can
+disable it later at dashboard → Email → Email Routing → Settings.
 
 `.env` is never touched. Delete it yourself when you are done.

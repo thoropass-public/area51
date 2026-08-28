@@ -162,8 +162,16 @@ it lives:
 | Autopilot read window | 60 minutes | `workers/autopilot/src/index.js` (`WINDOW_MINUTES`) |
 | Autopilot URI namespace | `/-/` | `workers/autopilot/src/index.js` (`AUTOPILOT_PREFIX`) |
 | Auth header name | `X-A51-Secret` | Autopilot worker |
-| Compatibility date | `2024-10-11` | the three `wrangler.toml.template` files and `cli/lib/provision.mjs` |
+| Worker compatibility date | `2024-10-11` | the three `wrangler.toml.template` files |
+| Pages compatibility date | `2026-05-20` | `cli/lib/provision.mjs` (`PAGES_COMPATIBILITY_DATE`) |
 
-The last one matters: Pages Functions get their compatibility date from the
-project's deployment config, which the CLI sets, so it is defined in
-`provision.mjs`, not in a config file you can edit.
+The last two matter, and they deliberately differ. Pages Functions get their
+compatibility date from the project's deployment config, which the CLI sets — so
+it lives in `provision.mjs`, not in a file you can edit, and
+`./a51 deploy dashboard` **overwrites** the live value with it every time. The
+Workers get theirs from their own templates.
+
+They are versioned apart because they deploy apart, and each should keep the
+runtime it has actually been running on. Raising either is a runtime change for
+every deployment that redeploys: do it deliberately, and re-verify the affected
+path afterwards (the email handler, for the catcher).

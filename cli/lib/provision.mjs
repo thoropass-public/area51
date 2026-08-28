@@ -16,8 +16,22 @@ import { isAlreadyExists, isAuthError } from './cloudflare.mjs';
 import { splitSqlStatements, describeStatement } from './sql.mjs';
 import { degraded, zoneForHostname } from './context.mjs';
 
-/** Pages Functions run on this compatibility date. Bumping it is a deploy-time change. */
-export const PAGES_COMPATIBILITY_DATE = '2024-10-11';
+/**
+ * Pages Functions run on this compatibility date, and `ensurePagesProject` PATCHes
+ * it onto the project's production AND preview configs on every
+ * `./a51 deploy dashboard`. So this constant does not merely seed a new project —
+ * it OVERWRITES whatever the live one is set to. Changing it is a runtime change
+ * to every deployment that redeploys.
+ *
+ * It deliberately does NOT match the three workers, which sit at 2024-10-11 in
+ * their `wrangler.toml.template` files. The two halves are versioned separately
+ * because they are deployed separately, and each should keep the runtime it has
+ * actually been running on: bumping the workers' date would change the behaviour
+ * of a live catcher, which is not something a docs-and-config pass should do
+ * silently. If you do want them aligned, move the workers deliberately and test
+ * the email path afterwards.
+ */
+export const PAGES_COMPATIBILITY_DATE = '2026-05-20';
 
 export const SCHEMA_PATH = join(repoRoot, 'db', 'schema.sql');
 

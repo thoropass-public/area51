@@ -153,8 +153,12 @@ filter change cannot land late and clobber the filtered view.
 
 - **`App`** holds tab state, keyboard shortcuts (⌘/Ctrl + 1–4), theme, and the
   `ConfirmProvider` + `ToastProvider` wrappers.
-- **`TopBar`** carries the brand mark, tabs, and a refresh button (list tabs only) that
-  bumps a `refreshTick` the active tab consumes as a `refreshKey` dependency.
+- **`TopBar`** carries the brand mark (which returns to Home), the four tabs, and
+  a **light/dark theme toggle**. Refresh is not here — each list owns its own
+  refresh button in `ListView`'s toolbar, which re-runs that tab's `fetchFirst`.
+  The theme is applied to `document.documentElement` as `data-theme` and persisted
+  to `localStorage['area51:theme']`; `index.html` re-applies it synchronously
+  before React paints so there is no flash of the wrong theme.
 - **`Home`** is the landing tab. Its orbit chips double as the **default-host
   picker** for copied endpoint URLs, persisted to
   `localStorage['area51:activeDomain']`. Only hosts with the `http` role are

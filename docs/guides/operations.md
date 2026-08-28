@@ -123,8 +123,6 @@ Find them under Workers & Pages → *project* → Deployments → *deployment* �
 Run `doctor` after any change you did not make through the CLI, after a failed
 setup, and when something is behaving strangely. It is read-only without `--fix`.
 
-`--no-probes` skips the outbound HTTP checks (useful when your network blocks
-them).
 
 ## Rotating the Autopilot secret
 
@@ -177,7 +175,7 @@ There is no positional "replace the whole list" form. It was removed as a
 footgun (it silently wiped any entry you forgot to re-type). **To set the list
 wholesale**, edit `ALLOWED_EMAILS` in `.env` and run `./a51 access apply`, which
 re-applies exactly what the file says. You cannot leave the list empty (that would
-make the dashboard public; use `./a51 setup --no-access` if you truly want that).
+make the dashboard public, and there is no flag that does).
 Existing sessions keep working until they expire. Revoke them in Zero Trust →
 Access → *your app* if that matters.
 

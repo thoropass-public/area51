@@ -20,7 +20,7 @@ const COMMANDS = {
   setup: {
     module: './commands/setup.mjs',
     summary: 'provision the whole deployment on Cloudflare (safe to re-run)',
-    usage: './a51 setup [--dry-run] [--no-access]',
+    usage: './a51 setup [--dry-run]',
   },
   deploy: {
     module: './commands/deploy.mjs',
@@ -35,7 +35,7 @@ const COMMANDS = {
   doctor: {
     module: './commands/doctor.mjs',
     summary: 'check every binding, domain and policy; probe the live hosts',
-    usage: './a51 doctor [--fix] [--no-probes]',
+    usage: './a51 doctor [--fix]',
   },
   'black-holes': {
     module: './commands/black-holes.mjs',

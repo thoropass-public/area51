@@ -68,7 +68,6 @@ async function probe(url, { headers = {}, redirect = 'manual' } = {}) {
 
 export async function run(args) {
   const fix = args.includes('--fix');
-  const skipProbes = args.includes('--no-probes');
   const { env, cf, accountId } = await loadContext();
   const r = new Report();
   const followUps = [];
@@ -379,44 +378,48 @@ export async function run(args) {
   }
 
   // ── live probes ───────────────────────────────────────────────────────────
-  if (!skipProbes) {
-    section('Live probes');
-    for (const row of blackHoles) {
-      const roles = parseRoles(safeRoles(row.roles), { fallback: [] });
-      if (!roles.includes('http')) continue;
-      const res = await probe(`https://${row.domain}/__a51_doctor_probe`);
-      if (!res.ok) r.fail(`https://${row.domain} did not respond: ${res.error}`, 'DNS or the certificate may still be provisioning. Retry in a minute.');
-      else if (res.status === 404) r.ok(`https://${row.domain} answers 404 on an unknown path (correct — and the hit is now in Requests)`);
-      else if (res.status === 403) r.warn(`https://${row.domain} answered 403 — this machine's IP may be on the ip_blacklist`);
-      else r.warn(`https://${row.domain} answered ${res.status} on an unknown path — expected 404`);
-    }
+  //
+  // Always run. These three are the most valuable checks in the report, because
+  // they see what the API cannot: DNS that has not propagated, a certificate
+  // still provisioning, a worker that deployed but is not routed. A probe that
+  // cannot reach the host is reported as a failure with that reason, which is
+  // information — so there is nothing to gain from being able to turn them off.
+  section('Live probes');
+  for (const row of blackHoles) {
+    const roles = parseRoles(safeRoles(row.roles), { fallback: [] });
+    if (!roles.includes('http')) continue;
+    const res = await probe(`https://${row.domain}/__a51_doctor_probe`);
+    if (!res.ok) r.fail(`https://${row.domain} did not respond: ${res.error}`, 'DNS or the certificate may still be provisioning. Retry in a minute.');
+    else if (res.status === 404) r.ok(`https://${row.domain} answers 404 on an unknown path (correct — and the hit is now in Requests)`);
+    else if (res.status === 403) r.warn(`https://${row.domain} answered 403 — this machine's IP may be on the ip_blacklist`);
+    else r.warn(`https://${row.domain} answered ${res.status} on an unknown path — expected 404`);
+  }
 
-    if (env.AUTOPILOT_HOSTNAME) {
-      const unauth = await probe(`https://${env.AUTOPILOT_HOSTNAME}/requests`);
-      if (!unauth.ok) r.fail(`https://${env.AUTOPILOT_HOSTNAME} did not respond: ${unauth.error}`, 'Check the Custom Domain binding on the Autopilot worker.');
-      else if (unauth.status === 401) {
-        r.ok(`Autopilot rejects unauthenticated requests (401)`);
-        if (env.AGENT_SECRET) {
-          const auth = await probe(`https://${env.AUTOPILOT_HOSTNAME}/requests`, { headers: { 'X-A51-Secret': env.AGENT_SECRET } });
-          if (auth.ok && auth.status === 200) r.ok('Autopilot accepts the AGENT_SECRET in .env');
-          else r.fail(`Autopilot rejected the AGENT_SECRET in .env (HTTP ${auth.status || auth.error})`, 'The deployed secret differs from .env. Run `./a51 deploy autopilot`.');
-        }
-      } else if (unauth.status === 530) {
-        r.fail(`https://${env.AUTOPILOT_HOSTNAME} answered 530 — the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy autopilot`, then `./a51 setup` to (re)bind the hostname.');
-      } else {
-        r.fail(`Autopilot answered ${unauth.status} without a secret — expected 401`, 'If the worker is deployed, confirm AGENT_SECRET is installed: `./a51 deploy autopilot`.');
+  if (env.AUTOPILOT_HOSTNAME) {
+    const unauth = await probe(`https://${env.AUTOPILOT_HOSTNAME}/requests`);
+    if (!unauth.ok) r.fail(`https://${env.AUTOPILOT_HOSTNAME} did not respond: ${unauth.error}`, 'Check the Custom Domain binding on the Autopilot worker.');
+    else if (unauth.status === 401) {
+      r.ok(`Autopilot rejects unauthenticated requests (401)`);
+      if (env.AGENT_SECRET) {
+        const auth = await probe(`https://${env.AUTOPILOT_HOSTNAME}/requests`, { headers: { 'X-A51-Secret': env.AGENT_SECRET } });
+        if (auth.ok && auth.status === 200) r.ok('Autopilot accepts the AGENT_SECRET in .env');
+        else r.fail(`Autopilot rejected the AGENT_SECRET in .env (HTTP ${auth.status || auth.error})`, 'The deployed secret differs from .env. Run `./a51 deploy autopilot`.');
       }
+    } else if (unauth.status === 530) {
+      r.fail(`https://${env.AUTOPILOT_HOSTNAME} answered 530 — the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy autopilot`, then `./a51 setup` to (re)bind the hostname.');
+    } else {
+      r.fail(`Autopilot answered ${unauth.status} without a secret — expected 401`, 'If the worker is deployed, confirm AGENT_SECRET is installed: `./a51 deploy autopilot`.');
     }
+  }
 
-    if (env.DASHBOARD_HOSTNAME) {
-      const res = await probe(`https://${env.DASHBOARD_HOSTNAME}/`);
-      if (!res.ok) r.fail(`https://${env.DASHBOARD_HOSTNAME} did not respond: ${res.error}`, 'DNS or the Pages custom domain may still be provisioning.');
-      else if ([301, 302, 303, 307, 308].includes(res.status) && /cloudflareaccess\.com/.test(res.location)) r.ok('the dashboard redirects to the Cloudflare Access login (protected)');
-      else if (res.status === 200 && /cloudflareaccess/.test(res.body)) r.ok('the dashboard is behind Cloudflare Access');
-      else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Set ALLOWED_EMAILS in .env and run `./a51 access apply`.');
-      else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed (Pages project or its custom domain is missing)`, 'Run `./a51 setup` to (re)create the project and attach the custom domain.');
-      else r.warn(`the dashboard answered ${res.status}`);
-    }
+  if (env.DASHBOARD_HOSTNAME) {
+    const res = await probe(`https://${env.DASHBOARD_HOSTNAME}/`);
+    if (!res.ok) r.fail(`https://${env.DASHBOARD_HOSTNAME} did not respond: ${res.error}`, 'DNS or the Pages custom domain may still be provisioning.');
+    else if ([301, 302, 303, 307, 308].includes(res.status) && /cloudflareaccess\.com/.test(res.location)) r.ok('the dashboard redirects to the Cloudflare Access login (protected)');
+    else if (res.status === 200 && /cloudflareaccess/.test(res.body)) r.ok('the dashboard is behind Cloudflare Access');
+    else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Set ALLOWED_EMAILS in .env and run `./a51 access apply`.');
+    else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed (Pages project or its custom domain is missing)`, 'Run `./a51 setup` to (re)create the project and attach the custom domain.');
+    else r.warn(`the dashboard answered ${res.status}`);
   }
 
   summarize(r);

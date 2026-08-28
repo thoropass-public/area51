@@ -430,8 +430,8 @@ Access application with an allow policy in front of the dashboard.
 **Why:** the dashboard has no authentication of its own, and its API can read every
 capture and create endpoints. "Remember to lock this down afterwards" is how an
 open dashboard happens. Making it a step means the default deployment is protected,
-`--no-access` is an explicit choice, and `doctor` can treat "no Access application"
-as a failure with a live probe to back it up.
+there is no flag to skip it, and `doctor` treats "no Access application" as a
+failure with a live probe to back it up.
 
 One-time PIN was chosen over integrating an identity provider because it needs no
 external configuration: Access emails a code to an allow-listed address. Anyone who
@@ -489,8 +489,8 @@ What this costs: `./a51 setup`, `purge`, `destroy`, `rotate-secret` and
 read-and-upload commands never call a prompt, so **`status`, `doctor`, `deploy`
 and `tail` remain fully scriptable**, which is the half worth automating.
 
-If you want a public dashboard, `--no-access` still says so explicitly. Making it
-the outcome of a convenience flag was the mistake.
+`--no-access` went the same way, and for the same reason: a flag whose only effect
+is publishing an archive of client data is not a convenience.
 
 ## `package-lock.json` is gitignored
 

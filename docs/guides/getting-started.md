@@ -25,7 +25,6 @@ Useful flags:
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Resolve and save configuration, print the plan, change nothing on Cloudflare. |
-| `--no-access` | Skip Cloudflare Access. **The dashboard is then readable by anyone who finds the hostname.** |
 
 ---
 
@@ -58,8 +57,10 @@ name, and choose the **Free** plan. You do this exactly once per account.
 
 If you skip it, setup's Access step fails with an auth-shaped error even when the
 token's Access permissions are correct, because there is no Zero Trust
-organization for the API to write into. Setup now names this as a candidate cause;
-`--no-access` skips Access entirely (and leaves the dashboard public).
+organization for the API to write into. Setup names this as a candidate cause, and
+the step degrades into a follow-up rather than stopping the run — so the rest of
+the deployment lands and the summary says plainly that the dashboard is
+unprotected until you activate Zero Trust and run `./a51 access apply`.
 
 ### 4. A clean zone, with no prior mail (MX) records
 

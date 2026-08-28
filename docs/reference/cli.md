@@ -66,7 +66,7 @@ API token, a rejected token, no account, or an unresolvable zone.
 ## setup
 
 ```
-./a51 setup [--dry-run] [--no-access]
+./a51 setup [--dry-run]
 ```
 
 Provisions and deploys everything: D1 database and schema, both R2 buckets, the
@@ -89,7 +89,6 @@ hostname already holds a DNS record belonging to something else.
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Resolve and save configuration, print the plan, change nothing on Cloudflare |
-| `--no-access` | Skip Cloudflare Access. **The dashboard is then readable by anyone who finds the hostname.** |
 
 Safe to re-run at any time. Full step-by-step: [getting-started](../guides/getting-started.md).
 
@@ -128,7 +127,7 @@ No row counts, deliberately, because D1 bills per row read
 ## doctor
 
 ```
-./a51 doctor [--fix] [--no-probes]
+./a51 doctor [--fix]
 ```
 
 The acceptance test. Verifies, in order: `.env` completeness · token validity ·
@@ -148,10 +147,13 @@ Then it probes the live hosts from your machine:
 
 | Flag | Effect |
 |---|---|
-| `--fix` | Re-apply what is safe to re-apply: the schema, Pages bindings, black hole domain bindings, the Access policy and destinations |
-| `--no-probes` | Skip the outbound HTTP checks (useful on a network that blocks them) |
+| `--fix` | Re-apply what is safe to re-apply: the schema, Pages bindings and production branch, the dashboard CNAME, black hole domain bindings, and the Access application, policy and destinations |
 
-Read-only without `--fix`. Exit `1` if anything failed.
+Read-only without `--fix`. Exit `1` if anything failed. The live probes always run:
+they are the only checks that see what the API cannot — DNS that has not
+propagated, a certificate still provisioning, a worker that deployed but is not
+routed — and a probe that cannot reach its host is reported as a failure with that
+reason, which is itself information.
 
 ## black-holes
 
@@ -232,7 +234,8 @@ There is deliberately **no "replace the list" form**. `add` and `remove` express
 every change without the footgun of silently dropping entries you forgot to
 retype. To set the list wholesale, edit `ALLOWED_EMAILS` in `.env` and run
 `./a51 access apply`. Refuses to leave the list empty; use
-`./a51 setup --no-access` if you genuinely want a public dashboard.
+at least one entry instead — Access is the dashboard's only protection, and there
+is no supported way to publish it.
 
 ## purge
 

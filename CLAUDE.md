@@ -35,8 +35,8 @@ full reference with per-step manual fallbacks is [docs/guides/getting-started.md
    whole zone.
 2. **R2 enabled**: dashboard → R2 → *Get started* (may ask for a card).
 3. **Zero Trust activated once**: dashboard → *Zero Trust* → pick a team name →
-   Free plan. Required for the dashboard's Access login; skip only with
-   `--no-access`.
+   Free plan. Required for the dashboard's Access login — there is no way to
+   skip it, so activate it before running setup.
 4. **Node.js 20+**.
 
 **Deploy:**

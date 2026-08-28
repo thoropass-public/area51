@@ -117,7 +117,13 @@ async function applyList({ add, remove }) {
   }
 
   if (!allowed.length) {
-    die('that would leave the allow-list empty — anyone who finds the dashboard could read it.\n  Refusing. To intentionally make it public, run `./a51 setup --no-access`.');
+    die([
+      'that would leave the allow-list empty.',
+      '',
+      '  Cloudflare Access is the dashboard\'s only protection, and its API can read',
+      '  every captured request and email. There is no supported way to publish it:',
+      '  add at least one address or domain instead.',
+    ].join('\n'));
   }
 
   heading(`Cloudflare Access → https://${env.DASHBOARD_HOSTNAME}`);

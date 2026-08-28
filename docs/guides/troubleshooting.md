@@ -107,7 +107,6 @@ it. What each check actually asserts is documented in
 ```bash
 A51_DEBUG=1 ./a51 setup          # stack traces from the CLI
 ./a51 tail black-holes           # live worker logs
-./a51 doctor --no-probes         # skip outbound checks if your network blocks them
 ```
 
 Cloudflare-side: Workers & Pages → *worker* → Logs (persisted), D1 → *database* →

@@ -49,7 +49,6 @@ function teamNameFrom(zoneName) {
 
 export async function run(args) {
   const flags = new Set(args.filter((a) => a.startsWith('--')));
-  const skipAccess = flags.has('--no-access');
   const dryRun = flags.has('--dry-run');
 
   heading('AREA 51 setup');
@@ -177,19 +176,22 @@ export async function run(args) {
 
   // ── 3. access allow-list ──────────────────────────────────────────────────
   step('Dashboard access');
+  // There is no way to opt out of Access. The dashboard has no login of its own,
+  // and its API can read every captured request and every captured email — so a
+  // deployment without Access in front of it is a public archive of client data.
+  // A `--no-access` flag used to exist for that; it was removed, because the only
+  // thing it bought was the ability to publish that archive in one keystroke.
+  //
+  // A blocked prerequisite (Zero Trust not activated yet) does NOT need a flag:
+  // the Access step degrades into a follow-up like any other, so the rest of the
+  // deployment still lands and the summary says plainly that it is unprotected.
   let allowed = parseList(env.ALLOWED_EMAILS);
-  if (skipAccess) {
-    warn('--no-access: skipping Cloudflare Access. Anyone who finds the dashboard hostname can read it.');
-  } else if (!allowed.length) {
+  if (!allowed.length) {
     plain('');
     plain('  The dashboard has no login of its own — Cloudflare Access is the only thing');
     plain('  keeping it private. Entries can be full addresses (you@example.com) or bare');
     plain('  domains (example.com = anyone with that email domain). Comma-separated.');
     plain('');
-    // Required, with no escape. This prompt is the dashboard's only protection,
-    // and it is exactly where the old --yes flag did its damage: it made this
-    // optional, so an unattended install shipped a world-readable console. If you
-    // genuinely want that, `--no-access` says so out loud.
     const answer = await ask('  Who may open the dashboard?', '', { required: true });
     allowed = parseList(answer);
     env.ALLOWED_EMAILS = allowed.join(',');
@@ -237,7 +239,7 @@ export async function run(args) {
     `Worker             ${env.CLEANUP_WORKER_NAME} (cron ${env.CLEANUP_CRON}, no domain)`,
     `Pages project      ${env.PAGES_PROJECT_NAME} → https://${env.DASHBOARD_HOSTNAME}`,
     `Email Routing      *@${zoneName} → ${env.WORKER_NAME}`,
-    allowed.length && !skipAccess ? `Cloudflare Access  ${env.DASHBOARD_HOSTNAME} for ${allowed.join(', ')}` : `Cloudflare Access  ${color.yellow('SKIPPED — dashboard will be public')}`,
+    `Cloudflare Access  ${env.DASHBOARD_HOSTNAME} for ${allowed.join(', ')}`,
   ];
   plain('');
   for (const line of plan) plain(`    ${line}`);
@@ -424,26 +426,28 @@ export async function run(args) {
 
   // ── 10. access ────────────────────────────────────────────────────────────
   step('Cloudflare Access');
-  if (skipAccess) {
-    warn('skipped (--no-access). Add protection later with `./a51 access apply`.');
-  } else {
-    await attempt(
+  // Whether the dashboard ended up protected is measured, not assumed. Both this
+  // `attempt` and `ensureAccess` itself report failures by pushing follow-ups, so
+  // a growth in the list is the one reliable signal that Access did not fully
+  // land — and the summary needs to say so loudly rather than congratulate you.
+  const followUpsBeforeAccess = followUps.length;
+  await attempt(
+    followUps,
+    `could not configure Cloudflare Access on ${env.DASHBOARD_HOSTNAME}`,
+    () => ensureAccess(cf, accountId, {
+      hostname: env.DASHBOARD_HOSTNAME,
+      allowed,
+      sessionDuration: env.ACCESS_SESSION_DURATION,
+      teamName: env.ACCESS_TEAM_NAME,
+      pagesProjectName: env.PAGES_PROJECT_NAME,
       followUps,
-      `could not configure Cloudflare Access on ${env.DASHBOARD_HOSTNAME}`,
-      () => ensureAccess(cf, accountId, {
-        hostname: env.DASHBOARD_HOSTNAME,
-        allowed,
-        sessionDuration: env.ACCESS_SESSION_DURATION,
-        teamName: env.ACCESS_TEAM_NAME,
-        pagesProjectName: env.PAGES_PROJECT_NAME,
-        followUps,
-      }),
-      'Re-run `./a51 access apply` once the cause is fixed. Until it succeeds the dashboard is UNPROTECTED.',
-    );
-  }
+    }),
+    'Re-run `./a51 access apply` once the cause is fixed. Until it succeeds the dashboard is UNPROTECTED.',
+  );
+  const accessProtected = followUps.length === followUpsBeforeAccess;
 
   // ── done ──────────────────────────────────────────────────────────────────
-  printSummary(env, roles, allowed, skipAccess);
+  printSummary(env, roles, allowed, accessProtected);
 
   if (followUps.length) {
     heading(`${color.yellow(`Needs a human (${followUps.length})`)}`);
@@ -583,7 +587,7 @@ async function findDerivedHostnameConflicts(cf, accountId, zone, env) {
   return conflicts;
 }
 
-function printSummary(env, roles, allowed, skipAccess) {
+function printSummary(env, roles, allowed, accessProtected) {
   heading('Deployed');
   plain('');
   plain(`  AREA 51      ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)}`);
@@ -610,8 +614,10 @@ function printSummary(env, roles, allowed, skipAccess) {
   plain(`    ./a51 status                                            ${color.dim('# what is deployed, and what is missing')}`);
   plain(`    ./a51 doctor                                            ${color.dim('# check every binding end to end')}`);
   plain('');
-  if (!allowed.length || skipAccess) {
-    plain(`  ${color.yellow('!')} The dashboard is NOT protected. Set ALLOWED_EMAILS in .env and run ${color.bold('./a51 access')}.`);
+  if (!accessProtected) {
+    plain(`  ${color.red('!')} ${color.bold('The dashboard is NOT protected.')} Anyone who finds`);
+    plain(`    ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)} can read every captured request and email.`);
+    plain(`    Fix the Access follow-up below, then run ${color.bold('./a51 access apply')}.`);
     plain('');
   }
   plain(`  DNS and certificates can take a minute or two to go live. Docs: ${color.dim('docs/README.md')}`);

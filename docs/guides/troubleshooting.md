@@ -52,6 +52,7 @@ it. What each check actually asserts is documented in
 |---|---|---|
 | Nothing arrives in Emails | Email Routing is off, or its catch-all is not pointed at the catcher | `./a51 doctor` names this; fix with `./a51 black-hole add <host> http,mail` |
 | Nothing arrives, and routing looks right | The zone apex has to be the mail domain, because Email Routing catch-alls are zone-wide | Send to `*@<zone>`, not `*@<subdomain>` |
+| A subdomain mail black hole captures nothing, and `doctor` says it has no MX records of its own | Email Routing was never enabled for that name, or was removed from the zone's Subdomains list | `./a51 black-hole add <host> mail` re-enables it |
 | `<host> cannot capture mail until <zone> does` | You asked for `mail` on a subdomain whose zone apex is not a mail black hole. The catch-all that delivers mail is zone-scoped and only exists once the apex has it | Add the apex first: `./a51 black-hole add <zone> http,mail`, then re-run the subdomain |
 | Mail to a subdomain bounces after `black-hole add … mail` reported success | DNS for the newly enabled name can take a minute to propagate | Wait, then retry. `./a51 doctor` confirms the zone catch-all still points at the catcher |
 | Sender gets a bounce saying *Address not accepted* | The `From:` address is on `email_blacklist` | Remove it in Settings; up to 60 minutes to propagate |

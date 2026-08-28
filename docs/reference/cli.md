@@ -114,7 +114,8 @@ The acceptance test. Verifies, in order: `.env` completeness · token validity �
 the database and its six tables and late-added columns · both buckets · all three
 Workers **and the bindings that actually reached them** (including whether
 `AGENT_SECRET` is installed) · every black hole's Custom Domain and mail
-catch-all · the Pages project's bindings on production **and** preview · its
+catch-all, **plus MX records of its own for any subdomain that captures mail** ·
+the Pages project's bindings on production **and** preview · its
 custom domain · the Access application, its allow policy, and that its
 destinations cover the `*.pages.dev` URL.
 
@@ -265,13 +266,20 @@ and queryable in the Cloudflare dashboard.
 ./a51 dev <dashboard | black-holes | autopilot | cleanup> [-- <wrangler flags>]
 ```
 
-Runs one piece locally. **Local runs talk to the remote database and buckets by
-default:** real endpoints, real captures, and real mistakes. Pass `-- --local`
-for isolated local storage.
+Runs one piece locally. **Storage is local by default** — `wrangler dev` sets
+`--remote` to false unless asked, so nothing touches the deployed D1 or R2. A
+local mistake stays local, and the dashboard will look empty because real captures
+are not there.
 
-Two things cannot be exercised locally: inbound email (only Cloudflare Email
-Routing invokes the `email()` handler) and Cloudflare Access (the local server
-has no edge auth).
+```bash
+./a51 dev black-holes -- --remote     # against the real stores; mistakes are real
+```
+
+`dev dashboard` is local-only: `wrangler pages dev` has no `--remote` flag as of
+wrangler 4, so its `--d1` / `--r2` bindings are local stand-ins for the real ones.
+
+Also not exercisable locally: inbound email (only Cloudflare Email Routing invokes
+the `email()` handler) and Cloudflare Access (the local server has no edge auth).
 
 ## destroy
 

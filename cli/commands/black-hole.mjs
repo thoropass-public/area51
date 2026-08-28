@@ -258,11 +258,21 @@ async function remove(cf, accountId, env, hostname) {
     warn(`could not detach the Custom Domain: ${err.message}`);
   }
 
+  // Mail is deliberately left alone, but WHAT is left behind differs, and the
+  // subdomain case has no API to undo it: `DELETE .../email/routing/dns` disables
+  // routing for the whole zone, so there is no way to retract one name's MX
+  // records without taking every other black hole on that zone down with it.
   const zone = await zoneForHostname(cf, accountId, hostname);
-  if (zone) {
+  if (zone && zone.name !== hostname) {
+    warn(`${hostname} keeps its own MX records, still locked by Email Routing.`);
+    plain(color.dim('    Mail sent to it is still accepted and still captured, because the zone'));
+    plain(color.dim(`    catch-all covers it. There is no per-name disable in the API — remove it`));
+    plain(color.dim(`    at: dashboard → ${zone.name} → Email → Email Routing → Settings → Subdomains.`));
+  } else if (zone) {
     warn(`Email Routing on ${zone.name} was left untouched — it is a zone-wide setting.`);
     plain(color.dim(`    Disable it at: dashboard → ${zone.name} → Email → Email Routing, if no other`));
     plain(color.dim('    black hole on that zone still needs mail capture.'));
+    plain(color.dim('    `./a51 destroy` offers to do it as part of a full teardown.'));
   }
 
   plain('');

@@ -195,6 +195,29 @@ export async function run(args) {
           if (action.type === 'worker' && target === env.WORKER_NAME) r.ok(`*@${zone.name} → ${env.WORKER_NAME}`);
           else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 black-hole add ${row.domain} ${roles.join(',')}\`.`);
         }
+
+        // A SUBDOMAIN mail black hole needs one more thing than the zone checks
+        // above: Email Routing enabled for its own name, which is what puts MX
+        // records there. The zone catch-all covers the subdomain, but only once
+        // those records exist. Without this check a subdomain whose per-name
+        // routing was never enabled (or got removed) reports perfectly healthy
+        // while every message to it bounces at the sender — the exact silent
+        // failure the apex rule exists to prevent.
+        if (row.domain !== zone.name) {
+          try {
+            const atName = await cf.listDnsRecordsByName(zone.id, row.domain);
+            if (atName.some((rec) => rec.type === 'MX')) {
+              r.ok(`${row.domain} has its own MX records — mail capture is live`);
+            } else {
+              r.fail(
+                `${row.domain} is a mail black hole with no MX records of its own — mail to it bounces`,
+                `Enable Email Routing for the name: \`./a51 black-hole add ${row.domain} ${roles.join(',')}\`.`,
+              );
+            }
+          } catch (err) {
+            r.warn(`could not read DNS records for ${row.domain}: ${err.message}`);
+          }
+        }
       } catch (err) {
         r.fail(`could not read Email Routing on ${zone.name}: ${err.message}`, 'Reading Email Routing state needs Zone · Zone Settings:Read (NOT Email Routing Rules, which only covers the catch-all rule). Enabling it needs Zone Settings:Edit.');
       }

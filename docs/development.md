@@ -22,15 +22,24 @@ manifests of their own.
 ./a51 dev cleanup -- --test-scheduled
 ```
 
-**Local runs talk to the remote database and buckets by default.** That is usually
-what you want (real endpoints, real captures) and it also means a local mistake is
-a real mistake. Pass `--local` to use wrangler's local storage instead:
+**Local runs use local storage by default.** `wrangler dev` sets `--remote` to
+false unless asked, so nothing here touches the deployed D1 or R2 — which means a
+local mistake stays local, and also that the dashboard looks empty because real
+captures are not there. To work against the actual stores:
 
 ```bash
-./a51 dev dashboard -- --local
+./a51 dev black-holes -- --remote     # real D1 and R2; a mistake here is real
 ```
 
-Two things cannot be exercised locally:
+`./a51 dev dashboard` is the exception: `wrangler pages dev` has no `--remote`
+flag (as of wrangler 4), so the Pages target is local-only and its `--d1`/`--r2`
+bindings are local simulacra of the real ones.
+
+Three things cannot be exercised locally:
+
+- **Remote stores from the dashboard target**, per the note above. Test
+  Functions against a real deployment.
+
 
 - **Inbound email.** The `email()` handler is only invoked by Cloudflare Email
   Routing. Test it by deploying to a black hole and sending a real message.
@@ -47,6 +56,8 @@ Two things cannot be exercised locally:
 | `cli/lib/env.mjs` | `.env` parsing and surgical writes |
 | `cli/lib/wrangler.mjs` | Worker target table, `wrangler.toml` rendering, wrangler invocation |
 | `cli/lib/{log,prompt,context,sql}.mjs` | Output, prompts, per-command bootstrap, SQL splitting |
+| `cli/lib/permissions.mjs` | The API-token permission list, printed by both the help screen and `setup` so the two cannot drift |
+| `cli/lib/r2s3.mjs` | Dependency-free SigV4 signer + R2 object listing. Used only by `destroy`, because the v4 API has no reliable object list |
 | `cli/commands/*.mjs` | One file per command, each exporting `run(args) → exit code` |
 | `db/schema.sql` | The D1 schema, idempotent and commented |
 | `workers/black-holes/src/index.js` | HTTP + email capture ([black-holes.md](internals/black-holes.md)) |

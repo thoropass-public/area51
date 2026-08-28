@@ -105,9 +105,9 @@ Runs are also visible in the Cloudflare dashboard under the worker's Logs.
 curl "http://localhost:8787/__scheduled?cron=0+6+*+*+*"
 ```
 
-`wrangler dev` talks to the **remote** database and buckets by default, so this
-deletes real data. Add `--local` first if you want a dry run against local
-storage.
+`wrangler dev` uses **local** storage unless you ask otherwise, so by default this
+is a dry run against nothing real. Add `-- --remote` to run it against the actual
+database and buckets — which really does delete data.
 
 ## Sizing it
 

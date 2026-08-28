@@ -1,8 +1,13 @@
 // `./a51 dev <target>` — run a piece locally.
 //
-// Local runs talk to the REMOTE D1 and R2 by default, which is what you usually
-// want (real captures, real endpoints) but also means a local mistake is a real
-// mistake. Pass --local for isolated local storage instead.
+// Local runs use LOCAL storage by default: `wrangler dev` has `--remote` set to
+// false unless asked, so nothing here touches the real D1 or R2 until you pass
+// `-- --remote`. That makes a local mistake a local mistake, and it also means the
+// dashboard will look empty — real captures are not there.
+//
+// `wrangler pages dev` has no `--remote` at all (as of wrangler 4), so the
+// dashboard target is local-only: its --d1/--r2 flags name local simulacra of the
+// bindings, not the deployed stores.
 
 import { join } from 'node:path';
 import { loadContext } from '../lib/context.mjs';
@@ -19,7 +24,8 @@ export async function run(args) {
 
   if (target === 'dashboard') {
     heading('Dashboard — local Pages dev server');
-    info(color.dim('Static files are served from dashboard/, Functions run locally against remote D1/R2.'));
+    info(color.dim('Static files from dashboard/, Functions local. Storage is LOCAL: wrangler'));
+    info(color.dim('pages dev has no --remote, so captures made against a deployment are not here.'));
     plain('');
     const { ok } = runWrangler(
       [

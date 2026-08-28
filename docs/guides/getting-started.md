@@ -386,8 +386,9 @@ hostname destinations → policy *Allow* with an Emails or Email domain rule.
 `doctor` is the real acceptance test. It checks the schema (including columns
 added by later releases), both buckets, all three Workers **and the bindings that
 actually reached them** (including whether `AGENT_SECRET` is installed), every
-black hole's Custom Domain and mail routing, the Pages bindings on both environments, the
-Access application and its policy, then makes live requests:
+black hole's Custom Domain and mail routing — including that a subdomain mail
+black hole has MX records of its own — the Pages bindings on both environments,
+the Access application and its policy, then makes live requests:
 
 - the black hole answers `404` on an unknown path,
 - Autopilot answers `401` without a secret and `200` with the one in `.env`,

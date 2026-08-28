@@ -49,9 +49,20 @@ account-level toggle stops *one* step, not the run. Fix the cause and re-run.
 
 Provisions and deploys everything: D1 database and schema, both R2 buckets, the
 three Workers, the black hole's Custom Domain and mail catch-all, the Pages
-project with its bindings, DNS, and the Cloudflare Access application. Prompts
-for the zone, the three hostnames, the black hole's roles, the fallback inbox and
-the Access allow-list, then writes every answer to `.env`.
+project with its bindings, DNS, and the Cloudflare Access application.
+
+It asks for the **zone**, a confirmation that the zone may be taken over, the
+fallback inbox and the Access allow-list, then writes every answer to `.env`.
+There are no hostname questions: the black hole is the zone apex with both roles,
+and the other two hostnames are derived as `area51.<zone>` and
+`autopilot.<zone>` ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)).
+Setting `DASHBOARD_HOSTNAME` or `AUTOPILOT_HOSTNAME` in `.env` overrides the
+derived value without prompting.
+
+The takeover confirmation escalates to a typed `TAKEOVER` when the zone already
+has MX or apex records — which `--yes` cannot satisfy, so an unattended run
+cannot hijack a domain in use. Setup also refuses to start if either derived
+hostname already holds a DNS record belonging to something else.
 
 | Flag | Effect |
 |---|---|

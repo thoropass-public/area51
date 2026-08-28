@@ -135,33 +135,51 @@ run.
 
 ## Hostname layout
 
-Setup provisions three hostnames on the zone you pick. The defaults put the
-black hole on the apex, which gives the shortest callback URLs:
+**You pick the zone. Setup derives everything else.** There are no hostname
+questions:
 
-| Role | Default | Exposure |
+| Role | Hostname | Exposure |
 |---|---|---|
-| Black hole | `example.com` | **Public.** Targets reach it. Serves your endpoints, captures everything. |
-| Dashboard | `area51.example.com` | Behind Cloudflare Access. |
+| Black hole | `example.com` — the zone apex, always | **Public.** Targets reach it. Serves your endpoints, captures every request and every address. |
+| AREA 51 | `area51.example.com` | Behind Cloudflare Access. |
 | Autopilot | `autopilot.example.com` | Public but useless without `AGENT_SECRET`; every route answers 401. |
 
-Any of them can be a subdomain of any zone the token can see, and they do not have
-to share a zone. Common alternatives:
+The black hole always carries **both roles** (`http` and `mail`), which gives you
+two callback surfaces on one domain:
 
-- **Keep the apex free** for a decoy site: use `bh.example.com` as the black hole.
-- **Separate domains entirely**: black hole on a burner domain, dashboard on your
-  own. Run `./a51 setup` for the primary layout, then
-  `./a51 domains add <other-host> http,mail` for the extra black hole.
+```
+HTTP callbacks    https://example.com/<anything>
+Email callbacks   <anything>@example.com
+```
 
-A black hole's **roles** decide what is provisioned for it:
+### Why the black hole is always the apex
 
-| Roles | Provisioned |
-|---|---|
-| `http` | Custom Domain on the catcher worker |
-| `mail` | Email Routing enabled on the zone + catch-all rule → catcher worker |
-| `http,mail` | Both |
+Cloudflare's Email Routing catch-all is **zone-wide**, and there is no
+per-subdomain form of it. So a black hole on `bh.example.com` can serve HTTP
+perfectly well but can never receive mail — the zone's catch-all lives at
+`example.com`, and an address at the subdomain has no MX behind it. Mail sent
+there bounces to the *sender*, which during an engagement is the target, not you.
+All you would see is a callback that never arrived, and the natural reading of
+that is "the vulnerability didn't fire."
 
-Mail is zone-wide: enabling it for `bh.example.com` routes mail for
-`*@example.com` (Cloudflare Email Routing has no per-subdomain catch-all).
+Pinning the black hole to the apex makes the HTTP host and the mail domain the
+same string. It is the only layout in which every callback address the tool
+prints actually works, so it is no longer a choice.
+
+### If you need a different layout
+
+Roles and subdomains still exist for *additional* black holes:
+
+```bash
+./a51 domains add http-only.example.com http     # extra HTTP-only catcher
+```
+
+`./a51 domains add <host> mail` on a subdomain will warn you that mail still
+arrives at the zone apex, for exactly the reason above.
+
+`DASHBOARD_HOSTNAME` and `AUTOPILOT_HOSTNAME` are still ordinary `.env` values.
+Set either by hand before running setup — including to a hostname on a different
+zone — and setup uses it as-is instead of deriving one.
 
 ---
 
@@ -179,11 +197,34 @@ back to `.env`.
 *Manual equivalent:* copy the account id from any Workers & Pages project's right
 sidebar into `.env`.
 
-### 2. Zone and hostnames
+### 2. Zone, and the takeover confirmation
 
-Lists active zones, prompts for the three hostnames and the black hole's roles,
-and (when mail is enabled) for the fallback inbox. All answers are saved to
-`.env`, so a second run just confirms them.
+Lists your active zones and asks which one to use. That is the only layout
+question: the black hole becomes that zone's apex with both roles, and AREA 51
+and Autopilot become `area51.<zone>` and `autopilot.<zone>`.
+
+Setup then prints what taking the zone over means, and asks you to confirm it:
+
+- Email Routing is enabled and **locks** its own MX records, redirecting all
+  mail for `*@<zone>` to the catcher.
+- The apex `@` address record is replaced by a Custom Domain on that worker.
+- Every path and every address on the domain becomes a public trap.
+
+**If the zone already has MX or apex records, setup lists them by name and
+requires you to type `TAKEOVER`.** That typed confirmation can never be
+satisfied by `--yes`, so an unattended run cannot hijack a domain somebody is
+using. On a clean burner zone it is an ordinary y/N.
+
+`--dry-run` prints the same disclaimer and the same list of records that would
+be lost, then stops without asking for consent — which makes it the safe way to
+inspect a zone before committing to it.
+
+Setup also refuses to continue if `area51.<zone>` or `autopilot.<zone>` already
+holds a DNS record that is not part of this deployment, naming the record and
+telling you to delete it or to set the hostname in `.env`. Records this
+deployment created are recognized as its own, so re-running stays a no-op.
+
+Finally it asks for the fallback inbox. All answers are saved to `.env`.
 
 ### 3. Access allow-list
 

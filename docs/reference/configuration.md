@@ -80,10 +80,14 @@ real inbox can serve both fields.
 
 | Key | Default | Notes |
 |---|---|---|
-| `BLACK_HOLE_HOSTNAME` | the zone apex | Where targets send traffic and mail. Bound to the catcher as a Custom Domain. Additional black holes are added with `./a51 domains add`, not here. |
-| `BLACK_HOLE_ROLES` | `http,mail` | Subset of `http,mail`. `mail` enables Email Routing **for the whole zone** and points its catch-all at the catcher. |
-| `DASHBOARD_HOSTNAME` | `area51.<zone>` | The Pages custom domain, protected by Access. Changing it means the old hostname keeps serving until you remove it in Pages, and the Access app follows the new name only after `./a51 setup`. |
-| `AUTOPILOT_HOSTNAME` | `autopilot.<zone>` | The MCP / REST host. Changing it invalidates every agent's registration. |
+| `BLACK_HOLE_HOSTNAME` | the zone apex | **Derived, never prompted.** `./a51 setup` always sets this to `CLOUDFLARE_ZONE` and overwrites what is here, because a subdomain black hole cannot receive mail ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)). Additional black holes are added with `./a51 domains add`, not here. |
+| `BLACK_HOLE_ROLES` | `http,mail` | **Derived, never prompted.** Always both. `mail` enables Email Routing **for the whole zone** and points its catch-all at the catcher. Per-host roles still apply to extra black holes via `./a51 domains add <host> <roles>`. |
+| `DASHBOARD_HOSTNAME` | `area51.<zone>` | The Pages custom domain, protected by Access. Derived from the zone when blank; **set it here to override**, including onto another zone — setup uses an existing value as-is and never prompts. Changing it means the old hostname keeps serving until you remove it in Pages, and the Access app follows the new name only after `./a51 setup`. |
+| `AUTOPILOT_HOSTNAME` | `autopilot.<zone>` | The MCP / REST host. Same derive-or-override rule as above. Changing it invalidates every agent's registration. |
+
+Setup refuses to start if either hostname already holds a DNS record that
+belongs to something other than this deployment, naming the record so you can
+delete it or point the key somewhere free.
 
 ### Cloudflare Access
 

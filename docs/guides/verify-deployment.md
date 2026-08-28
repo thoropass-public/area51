@@ -83,7 +83,7 @@ The important one. The application guards **three** public hostnames:
 ![Access destinations](../../.github/assets/access-destinations.png)
 
 If only the custom domain were listed, anyone with the `*.pages.dev` URL could
-reach the dashboard with **no login**. `./a51 setup` and `./a51 access` add all
+reach the dashboard with **no login**. `./a51 setup` and `./a51 access apply` add all
 three automatically, and `./a51 doctor` fails if the pages.dev destination is
 ever missing.
 

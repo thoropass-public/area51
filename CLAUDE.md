@@ -57,7 +57,7 @@ nothing on the zone captures mail until it is a black hole — see
 Re-running it is the normal way to converge after fixing anything — completed
 steps report "already correct."
 
-Additional black holes go through `./a51 black-hole add <host> [http,mail]`, which
+Additional black holes go through `./a51 black-holes add <host> [http,mail]`, which
 asks for roles when they are omitted. **Mail on a subdomain is supported** — it
 enables Email Routing for that name and reuses the zone catch-all — but it
 refuses unless that subdomain's own zone apex is already a mail black hole.
@@ -164,7 +164,7 @@ schema, Pages bindings, domain bindings and the Access policy.
 
 - **Deploy / operate:** `./a51 setup` (provision, idempotent), `./a51 deploy
   [target]`, `./a51 status`, `./a51 doctor [--fix]` (the real acceptance test —
-  checks bindings and probes live hosts), `./a51 black-hole [list|add|remove]`
+  checks bindings and probes live hosts), `./a51 black-holes [list|add|remove]`
   (manage catchers; the D1 table is still named `domains`). `./a51 <cmd> --help`
   for each.
 - **Syntax-check CLI edits:** `node --check <file>` (the CLI is plain ESM, no

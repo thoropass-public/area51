@@ -20,7 +20,7 @@ change requires:
 | Path | Values | To apply a change |
 |---|---|---|
 | **Rendered into `wrangler.toml`** at deploy time (bindings, `[vars]`, cron) | `WORKER_NAME`, `D1_*`, `R2_*`, `FALLBACK_ADDRESS`, `CLEANUP_*`, `AGENT_WORKER_NAME` | `./a51 deploy <target>` |
-| **Set on Cloudflare via the API** (project settings, DNS, policies) | hostnames, `ALLOWED_EMAILS`, `ACCESS_*`, `BLACK_HOLE_ROLES`, Pages bindings | `./a51 setup`, or the narrower `./a51 black-hole` / `./a51 access` |
+| **Set on Cloudflare via the API** (project settings, DNS, policies) | hostnames, `ALLOWED_EMAILS`, `ACCESS_*`, `BLACK_HOLE_ROLES`, Pages bindings | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 access` |
 | **Used only by the CLI on your machine** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE` | nothing to deploy |
 
 `AGENT_SECRET` is special: it is stored as an encrypted **Worker Secret** on
@@ -31,7 +31,7 @@ Two things are **not** in `.env` on purpose:
 
 - **The list of black holes.** Its source of truth is the D1 `domains` table, so
   the dashboard and Autopilot read the same live list with no redeploy. Manage it
-  with `./a51 black-hole`.
+  with `./a51 black-holes`.
 - **Endpoints, blacklists, captures.** All database state, managed in the UI.
 
 ---
@@ -80,8 +80,8 @@ real inbox can serve both fields.
 
 | Key | Default | Notes |
 |---|---|---|
-| `BLACK_HOLE_HOSTNAME` | the zone apex | **Derived, never prompted.** `./a51 setup` always sets this to `CLOUDFLARE_ZONE` and overwrites what is here: the apex is what puts the zone's mail catch-all in place, so nothing on the zone can capture mail until it is a black hole ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)). Additional black holes — including mail on a subdomain — are added with `./a51 black-hole add`, not here. |
-| `BLACK_HOLE_ROLES` | `http,mail` | **Derived, never prompted.** Always both. `mail` enables Email Routing **for the whole zone** and points its catch-all at the catcher. Per-host roles still apply to extra black holes via `./a51 black-hole add <host> <roles>`. |
+| `BLACK_HOLE_HOSTNAME` | the zone apex | **Derived, never prompted.** `./a51 setup` always sets this to `CLOUDFLARE_ZONE` and overwrites what is here: the apex is what puts the zone's mail catch-all in place, so nothing on the zone can capture mail until it is a black hole ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)). Additional black holes — including mail on a subdomain — are added with `./a51 black-holes add`, not here. |
+| `BLACK_HOLE_ROLES` | `http,mail` | **Derived, never prompted.** Always both. `mail` enables Email Routing **for the whole zone** and points its catch-all at the catcher. Per-host roles still apply to extra black holes via `./a51 black-holes add <host> <roles>`. |
 | `DASHBOARD_HOSTNAME` | `area51.<zone>` | The Pages custom domain, protected by Access. Derived from the zone when blank; **set it here to override**, including onto another zone — setup uses an existing value as-is and never prompts. Changing it means the old hostname keeps serving until you remove it in Pages, and the Access app follows the new name only after `./a51 setup`. |
 | `AUTOPILOT_HOSTNAME` | `autopilot.<zone>` | The MCP / REST host. Same derive-or-override rule as above. Changing it invalidates every agent's registration. |
 
@@ -93,7 +93,7 @@ delete it or point the key somewhere free.
 
 | Key | Default | Notes |
 |---|---|---|
-| `ALLOWED_EMAILS` | — | Comma-separated allow-list. `alice@example.com` (exact) or `example.com` (any address at that domain). Empty means **no protection**, and `doctor` treats that as a failure. Edit it incrementally with `./a51 access --add <…>` / `--remove <…>` (both write back here), or set it wholesale by editing this value and running a bare `./a51 access`. |
+| `ALLOWED_EMAILS` | — | Comma-separated allow-list. `alice@example.com` (exact) or `example.com` (any address at that domain). Empty means **no protection**, and `doctor` treats that as a failure. Edit it incrementally with `./a51 access add <…>` / `./a51 access remove <…>` (both write back here), or set it wholesale by editing this value and running `./a51 access apply`. |
 | `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organization yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers**, so if creation fails, pick another. |
 | `ACCESS_SESSION_DURATION` | `24h` | How long a login lasts. Formats: `30m`, `24h`, `730h`. Shorter means more one-time PINs; longer means a stolen laptop stays logged in. The dashboard auto-reloads when a session expires mid-use ([dashboard.md](../internals/dashboard.md#expired-session-handling)). |
 

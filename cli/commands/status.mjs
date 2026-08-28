@@ -28,7 +28,7 @@ export async function run() {
   if (env.D1_DATABASE_ID) {
     try {
       const rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
-      if (!rows.length) row('', color.yellow('none configured — ./a51 black-hole add <host> http,mail'));
+      if (!rows.length) row('', color.yellow('none configured — ./a51 black-holes add <host> http,mail'));
       for (const r of rows) {
         let roles = [];
         try {

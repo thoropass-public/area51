@@ -1,4 +1,4 @@
-// `./a51 black-hole` — manage black holes.
+// `./a51 black-holes` — manage black holes.
 //
 // A black hole is up to three things at once: a hostname bound to the Black Holes
 // worker (for HTTP), Email Routing enabled for that name with the zone catch-all
@@ -14,7 +14,7 @@ import { step, ok, warn, skip, plain, heading, color, resetSteps, die, info } fr
 import { confirm, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 import { ensureBlackHole, inspectZoneTakeover, describeTakeover } from '../lib/provision.mjs';
 
-const USAGE = './a51 black-hole [list | add <host> [http,mail] | remove <host>]';
+const USAGE = './a51 black-holes [list | add <host> [http,mail] | remove <host>]';
 
 export async function run(args) {
   const positional = args.filter((a) => !a.startsWith('--'));
@@ -36,7 +36,7 @@ async function list(cf, accountId, env) {
   const rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
   if (!rows.length) {
     plain('');
-    warn('none configured. Add one with `./a51 black-hole add <host> http,mail`');
+    warn('none configured. Add one with `./a51 black-holes add <host> http,mail`');
     return 0;
   }
 
@@ -119,8 +119,8 @@ async function assertApexCapturesMail(cf, accountId, env, zone, hostname, roles)
     `  has nowhere to go.`,
     '',
     '  Add the apex first, then this host:',
-    `    ./a51 black-hole add ${zone.name} http,mail`,
-    `    ./a51 black-hole add ${hostname} ${roles.join(',')}`,
+    `    ./a51 black-holes add ${zone.name} http,mail`,
+    `    ./a51 black-holes add ${hostname} ${roles.join(',')}`,
   ].join('\n'));
 }
 
@@ -172,7 +172,7 @@ async function confirmAdd(cf, zone, hostname, roles, isApex) {
 }
 
 async function add(cf, accountId, env, hostname, rolesArg) {
-  if (!hostname) die(`usage: ./a51 black-hole add <hostname> [http,mail]`);
+  if (!hostname) die(`usage: ./a51 black-holes add <hostname> [http,mail]`);
 
   // The zone is resolved up front rather than inside ensureBlackHole, because
   // every check below needs to know whether this hostname is the apex.
@@ -233,7 +233,7 @@ async function add(cf, accountId, env, hostname, rolesArg) {
 }
 
 async function remove(cf, accountId, env, hostname) {
-  if (!hostname) die('usage: ./a51 black-hole remove <hostname>');
+  if (!hostname) die('usage: ./a51 black-holes remove <hostname>');
 
   step(`Remove black hole ${hostname}`);
   if (!(await confirm(`  Detach ${hostname} from ${env.WORKER_NAME} and drop its row?`, false))) {

@@ -156,7 +156,7 @@ export async function run(args) {
   let blackHoles = [];
   if (env.D1_DATABASE_ID && tables.includes('domains')) {
     blackHoles = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
-    if (!blackHoles.length) r.warn('the domains table is empty — the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-hole add <host> http,mail`.');
+    if (!blackHoles.length) r.warn('the domains table is empty — the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <host> http,mail`.');
   }
 
   let workerDomains = [];
@@ -175,7 +175,7 @@ export async function run(args) {
         await ensureBlackHole(cf, accountId, { hostname: row.domain, roles, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps });
         r.ok(`${row.domain}: re-bound to ${env.WORKER_NAME}`);
       } else {
-        r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 black-hole add ' + row.domain + ' ' + roles.join(',') + '`.');
+        r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 black-holes add ' + row.domain + ' ' + roles.join(',') + '`.');
       }
     }
     if (roles.includes('mail')) {
@@ -187,13 +187,13 @@ export async function run(args) {
       try {
         const settings = await cf.getEmailRouting(zone.id);
         if (!settings || !settings.enabled) {
-          r.fail(`Email Routing is disabled on ${zone.name}`, `Enable it: \`./a51 black-hole add ${row.domain} ${roles.join(',')}\`.`);
+          r.fail(`Email Routing is disabled on ${zone.name}`, `Enable it: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`);
         } else {
           const catchAll = await cf.getCatchAll(zone.id);
           const action = ((catchAll && catchAll.actions) || [])[0] || {};
           const target = (action.value || [])[0];
           if (action.type === 'worker' && target === env.WORKER_NAME) r.ok(`*@${zone.name} → ${env.WORKER_NAME}`);
-          else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 black-hole add ${row.domain} ${roles.join(',')}\`.`);
+          else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`);
         }
 
         // A SUBDOMAIN mail black hole needs one more thing than the zone checks
@@ -211,7 +211,7 @@ export async function run(args) {
             } else {
               r.fail(
                 `${row.domain} is a mail black hole with no MX records of its own — mail to it bounces`,
-                `Enable Email Routing for the name: \`./a51 black-hole add ${row.domain} ${roles.join(',')}\`.`,
+                `Enable Email Routing for the name: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`,
               );
             }
           } catch (err) {
@@ -314,7 +314,7 @@ export async function run(args) {
       if (fix && allowed.length) {
         await ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps });
       } else {
-        r.fail(`no Cloudflare Access application protects ${env.DASHBOARD_HOSTNAME} — the dashboard is open to anyone`, allowed.length ? 'Run `./a51 access` (or `./a51 doctor --fix`).' : 'Set ALLOWED_EMAILS in .env, then run `./a51 access`.');
+        r.fail(`no Cloudflare Access application protects ${env.DASHBOARD_HOSTNAME} — the dashboard is open to anyone`, allowed.length ? 'Run `./a51 access` (or `./a51 doctor --fix`).' : 'Set ALLOWED_EMAILS in .env, then run `./a51 access apply`.');
       }
     } else {
       const policies = (await cf.get(`/accounts/${accountId}/access/apps/${app.id}/policies`)) || [];
@@ -334,7 +334,7 @@ export async function run(args) {
           await ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps });
           r.ok(`added the pages.dev URL (${project.subdomain}) to the Access app`);
         } else {
-          r.fail(`the Access app does not cover ${project.subdomain} — the dashboard is reachable UNAUTHENTICATED at its *.pages.dev URL`, 'Run `./a51 doctor --fix` (or `./a51 access`) to add it.');
+          r.fail(`the Access app does not cover ${project.subdomain} — the dashboard is reachable UNAUTHENTICATED at its *.pages.dev URL`, 'Run `./a51 doctor --fix` (or `./a51 access apply`) to add it.');
         }
       }
     }
@@ -377,7 +377,7 @@ export async function run(args) {
       if (!res.ok) r.fail(`https://${env.DASHBOARD_HOSTNAME} did not respond: ${res.error}`, 'DNS or the Pages custom domain may still be provisioning.');
       else if ([301, 302, 303, 307, 308].includes(res.status) && /cloudflareaccess\.com/.test(res.location)) r.ok('the dashboard redirects to the Cloudflare Access login (protected)');
       else if (res.status === 200 && /cloudflareaccess/.test(res.body)) r.ok('the dashboard is behind Cloudflare Access');
-      else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Set ALLOWED_EMAILS in .env and run `./a51 access`.');
+      else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Set ALLOWED_EMAILS in .env and run `./a51 access apply`.');
       else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed (Pages project or its custom domain is missing)`, 'Run `./a51 setup` to (re)create the project and attach the custom domain.');
       else r.warn(`the dashboard answered ${res.status}`);
     }

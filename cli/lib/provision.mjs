@@ -1,4 +1,4 @@
-// The provisioning primitives, shared by `setup`, `deploy`, `black-hole` and
+// The provisioning primitives, shared by `setup`, `deploy`, `black-holes` and
 // `access`. Every function here is idempotent: it inspects the current state
 // first and reports `created: false` when there is nothing to do, so running
 // setup twice is boring rather than destructive.
@@ -261,7 +261,7 @@ export async function ensureBlackHole(cf, accountId, opts) {
  *
  * The caller must already have established that the zone apex is a mail black
  * hole. Without its catch-all pointing at the worker there is nothing for this
- * subdomain's mail to be delivered to, and `./a51 black-hole add` refuses before
+ * subdomain's mail to be delivered to, and `./a51 black-holes add` refuses before
  * it reaches here rather than enabling a name whose mail goes nowhere.
  */
 async function ensureSubdomainEmailRouting(cf, zone, workerName, followUps, hostname) {
@@ -436,7 +436,7 @@ export async function upsertDomainRow(cf, accountId, databaseId, hostname, roles
     degraded(
       followUps,
       `could not write ${hostname} to the domains table: ${err.message}`,
-      `Run it by hand:\n  ./a51 black-hole add ${hostname} ${roles.join(',')}`,
+      `Run it by hand:\n  ./a51 black-holes add ${hostname} ${roles.join(',')}`,
     );
   }
 }
@@ -638,7 +638,7 @@ export async function ensureAccess(cf, accountId, opts) {
   // account to have Zero Trust activated once (pick a team name / subscribe to
   // the free plan) before the org API works — the API cannot do that first
   // activation for you. Referenced from several branches below.
-  const ZT_ACTIVATE = 'If this is a brand-new account, Zero Trust may not be activated yet: open dashboard → Zero Trust once, choose a team name and the Free plan, then re-run `./a51 access`.';
+  const ZT_ACTIVATE = 'If this is a brand-new account, Zero Trust may not be activated yet: open dashboard → Zero Trust once, choose a team name and the Free plan, then re-run `./a51 access apply`.';
 
   // 1. Zero Trust organization. One per account; it owns the login subdomain.
   let org = null;
@@ -670,7 +670,7 @@ export async function ensureAccess(cf, accountId, opts) {
         `could not create a Zero Trust organization (${authDomain}): ${err.message}`,
         [
           'This can fail for a few reasons:',
-          '  • Team names are globally unique — if taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 access`.',
+          '  • Team names are globally unique — if taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 access apply`.',
           `  • ${ZT_ACTIVATE}`,
           '  • The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit (and a just-edited token may need a minute to propagate).',
         ].join('\n'),

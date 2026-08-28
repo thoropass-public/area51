@@ -16,7 +16,7 @@
     "deploy": "node cli/a51.mjs deploy",
     "doctor": "node cli/a51.mjs doctor",
     "status": "node cli/a51.mjs status",
-    "black-hole": "node cli/a51.mjs black-hole",
+    "black-holes": "node cli/a51.mjs black-holes",
     "purge": "node cli/a51.mjs purge",
     "a51": "node cli/a51.mjs",
     "dev:dashboard": "node cli/a51.mjs dev dashboard",

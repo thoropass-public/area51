@@ -138,7 +138,7 @@ cannot widen either. See [autopilot.md](autopilot.md).
 | Captured email metadata | D1 `emails` | catcher (insert), dashboard (read/starred) | dashboard, Autopilot, cleanup |
 | Captured email bodies | R2 email bucket | catcher | dashboard, Autopilot, cleanup (delete) |
 | Blacklists | D1 `ip_blacklist`, `email_blacklist` | dashboard | catcher (60-min edge cache) |
-| Configured black holes | D1 `domains` | `./a51 black-hole` | dashboard, Autopilot |
+| Configured black holes | D1 `domains` | `./a51 black-holes` | dashboard, Autopilot |
 | Deployment configuration | `.env` on the operator's machine | `./a51 setup` | the CLI, wrangler |
 | Autopilot secret | encrypted Worker Secret + `.env` | `./a51 deploy autopilot`, `./a51 rotate-secret` | Autopilot worker |
 

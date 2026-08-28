@@ -122,7 +122,7 @@ export async function run(args) {
   // Making it the primary black hole establishes that foundation once, and makes
   // the HTTP host and the mail domain the same string.
   //
-  // Subdomains CAN capture mail — `./a51 black-hole add sub.example.com mail`
+  // Subdomains CAN capture mail — `./a51 black-holes add sub.example.com mail`
   // enables Email Routing for that name and the zone catch-all picks it up. That
   // is an additive layer on top of the apex, not an alternative to it.
   //
@@ -144,7 +144,7 @@ export async function run(args) {
   if (previousBlackHole && previousBlackHole !== zoneName) {
     warn(`the black hole moves from ${previousBlackHole} to the apex ${color.bold(zoneName)}`);
     plain(color.dim(`      ${previousBlackHole} stays bound to ${env.WORKER_NAME} and stays in the domains table.`));
-    plain(color.dim(`      Drop it with \`./a51 black-hole remove ${previousBlackHole}\` if you no longer want it.`));
+    plain(color.dim(`      Drop it with \`./a51 black-holes remove ${previousBlackHole}\` if you no longer want it.`));
   }
 
   plain('');

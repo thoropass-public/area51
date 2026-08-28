@@ -132,12 +132,12 @@ Then it probes the live hosts from your machine:
 
 Read-only without `--fix`. Exit `1` if anything failed.
 
-## black-hole
+## black-holes
 
 ```
-./a51 black-hole list
-./a51 black-hole add <hostname> [http,mail]
-./a51 black-hole remove <hostname>
+./a51 black-holes list
+./a51 black-holes add <hostname> [http,mail]
+./a51 black-holes remove <hostname>
 ```
 
 A black hole is up to three things at once, and this command keeps them in step:
@@ -190,11 +190,14 @@ DNS and the certificate take a minute.
 ## access
 
 ```
-./a51 access --list                          # show the allow-list (no network)
-./a51 access --add <email|domain>[,...]      # add entries, keep the rest
-./a51 access --remove <email|domain>[,...]   # drop entries, keep the rest
-./a51 access                                 # re-apply ALLOWED_EMAILS from .env
+./a51 access [list]                        # show the allow-list (no network)
+./a51 access add <email|domain>[,...]      # add entries, keep the rest
+./a51 access remove <email|domain>[,...]   # drop entries, keep the rest
+./a51 access apply                         # re-apply ALLOWED_EMAILS from .env
 ```
+
+Subcommands, matching `./a51 black-holes` — both manage a list, so both read the
+same way. With no action it lists, which is read-only.
 
 Manages the Cloudflare Access application in front of the dashboard: the Zero
 Trust organization, the One-time PIN login method, the application itself, its
@@ -204,10 +207,10 @@ URLs, so there is no unauthenticated bypass).
 Entries are full addresses (`you@example.com`) or bare domains (`example.com` =
 anyone with that email domain). Everything is lowercased and de-duplicated.
 
-There is deliberately **no positional "replace the list" form**. `--add` and
-`--remove` express every change without the footgun of silently dropping entries
-you forgot to retype. To set the list wholesale, edit `ALLOWED_EMAILS` in `.env`
-and run the bare command. Refuses to leave the list empty; use
+There is deliberately **no "replace the list" form**. `add` and `remove` express
+every change without the footgun of silently dropping entries you forgot to
+retype. To set the list wholesale, edit `ALLOWED_EMAILS` in `.env` and run
+`./a51 access apply`. Refuses to leave the list empty; use
 `./a51 setup --no-access` if you genuinely want a public dashboard.
 
 ## purge
@@ -317,11 +320,11 @@ cp .env.example .env && ./a51 setup
 ./a51 setup && ./a51 deploy all
 
 # add a second black hole mid-engagement
-./a51 black-hole add other-domain.example http,mail
+./a51 black-holes add other-domain.example http,mail
 
 # someone joined / left the team
-./a51 access --add them@example.com
-./a51 access --remove them@example.com
+./a51 access add them@example.com
+./a51 access remove them@example.com
 
 # something is off
 ./a51 doctor            # diagnose

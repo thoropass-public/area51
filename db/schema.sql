@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS email_blacklist (
 -- live by the dashboard (/api/config/domains, for the Home host picker) and by
 -- the Autopilot worker (so an agent can build https://<domain>/-/<path>).
 --
--- Managed with `./a51 black-hole add|remove|list`; changes take effect on the next
+-- Managed with `./a51 black-holes add|remove|list`; changes take effect on the next
 -- page load or agent call, with no redeploy.
 CREATE TABLE IF NOT EXISTS domains (
   domain TEXT PRIMARY KEY,

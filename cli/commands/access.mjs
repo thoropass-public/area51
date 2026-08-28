@@ -1,15 +1,19 @@
 // `./a51 access` — edit who may open the dashboard (Cloudflare Access).
 //
 // Shapes:
-//   ./a51 access --list                        print the current allow-list (read-only)
-//   ./a51 access --add <email|domain>[,...]    add entries, keep the existing ones
-//   ./a51 access --remove <email|domain>[,...] drop entries, keep the rest
-//   ./a51 access                               re-apply ALLOWED_EMAILS from .env
+//   ./a51 access [list]                        print the current allow-list (read-only)
+//   ./a51 access add <email|domain>[,...]      add entries, keep the existing ones
+//   ./a51 access remove <email|domain>[,...]   drop entries, keep the rest
+//   ./a51 access apply                         re-apply ALLOWED_EMAILS from .env
 //
-// There is deliberately NO positional "replace the whole list" form: --add /
-// --remove express every change without the footgun of silently wiping entries
-// you forgot to re-type. To set the list wholesale, edit ALLOWED_EMAILS in .env
-// and run `./a51 access` (the bare re-apply).
+// Subcommands, not flags, so this reads the same way as `./a51 black-holes`:
+// both manage a list of things, and a reader who learns one should not be
+// surprised by the other.
+//
+// There is deliberately NO "replace the whole list" form: add / remove express
+// every change without the footgun of silently wiping entries you forgot to
+// re-type. To set the list wholesale, edit ALLOWED_EMAILS in .env and run
+// `./a51 access apply`.
 //
 // Entries are full addresses (you@example.com) or bare domains (example.com =
 // anyone with that email domain). Everything is normalized to lowercase, since
@@ -27,36 +31,48 @@ function normList(raw) {
   return [...new Set(parseList(raw).map((s) => s.toLowerCase()))];
 }
 
-// Pull --add / --remove (each takes a value: `--add x,y` or `--add=x,y`) out of
-// the args; whatever is left and isn't a flag is a positional (replace) list.
-function parseArgs(args) {
-  const add = [];
-  const remove = [];
-  const positional = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === '--add' || a === '--remove') {
-      const val = args[i + 1];
-      if (val === undefined || val.startsWith('-')) {
-        die(`${a} needs a value, e.g. ${a} new@gmail.com,example.com`);
-      }
-      (a === '--add' ? add : remove).push(val);
-      i += 1; // consume the value
-    } else if (a.startsWith('--add=')) {
-      add.push(a.slice('--add='.length));
-    } else if (a.startsWith('--remove=')) {
-      remove.push(a.slice('--remove='.length));
-    } else if (!a.startsWith('-')) {
-      positional.push(a);
-    }
-    // any other --flag (e.g. --yes) is ignored here
-  }
-  return { add: normList(add.join(',')), remove: normList(remove.join(',')), positional };
-}
+const USAGE = [
+  './a51 access [list]                        show the allow-list (read-only)',
+  '  ./a51 access add <email|domain>[,...]      add entries, keep the rest',
+  '  ./a51 access remove <email|domain>[,...]   drop entries, keep the rest',
+  '  ./a51 access apply                         re-apply ALLOWED_EMAILS from .env',
+].join('\n');
 
 export async function run(args) {
-  // --list is a pure read of .env — no token, no network, no changes.
-  if (args.includes('--list') || args.includes('-l')) {
+  // Flags (--yes and friends) are handled globally; everything else positional.
+  const positional = args.filter((a) => !a.startsWith('-'));
+  const action = positional[0] || 'list';
+  const values = normList(positional.slice(1).join(','));
+
+  if (action === 'list') return showList();
+  if (action === 'add' || action === 'remove') {
+    if (!values.length) {
+      die(`\`access ${action}\` needs at least one entry.\n  e.g. ./a51 access ${action} new@gmail.com,example.com`);
+    }
+    return applyList({
+      add: action === 'add' ? values : [],
+      remove: action === 'remove' ? values : [],
+    });
+  }
+  if (action === 'apply') {
+    if (values.length) {
+      die([
+        `\`access apply\` takes no arguments (got "${values[0]}").`,
+        'It re-applies ALLOWED_EMAILS from .env as-is. To change the list:',
+        '  ./a51 access add new@gmail.com',
+        '  ./a51 access remove old@gmail.com',
+      ].join('\n'));
+    }
+    return applyList({ add: [], remove: [] });
+  }
+
+  die(`unknown action "${action}".\n  Usage: ${USAGE}`);
+  return 1;
+}
+
+/** `list` is a pure read of .env — no token, no network, no changes. */
+function showList() {
+  {
     const env = loadEnv();
     const list = normList(env.ALLOWED_EMAILS);
     heading('Cloudflare Access — allow-list');
@@ -67,24 +83,13 @@ export async function run(args) {
       for (const e of list) plain(`  • ${e}`);
     }
     plain('');
-    plain(color.dim(`  ${list.length} ${list.length === 1 ? 'entry' : 'entries'} · edit with --add / --remove · guards ${env.DASHBOARD_HOSTNAME || '(DASHBOARD_HOSTNAME unset)'}`));
+    plain(color.dim(`  ${list.length} ${list.length === 1 ? 'entry' : 'entries'} · edit with \`access add\` / \`access remove\` · guards ${env.DASHBOARD_HOSTNAME || '(DASHBOARD_HOSTNAME unset)'}`));
     plain('');
     return 0;
   }
+}
 
-  const { add, remove, positional } = parseArgs(args);
-
-  // No positional "replace" form — steer a stray argument to --add / --remove,
-  // and to the .env escape hatch for setting the whole list at once.
-  if (positional.length) {
-    die([
-      `unexpected argument "${positional[0]}".`,
-      'Edit the allow-list with --add / --remove:',
-      '  ./a51 access --add new@gmail.com,example.com',
-      '  ./a51 access --remove new@gmail.com',
-      'To set the whole list at once, edit ALLOWED_EMAILS in .env, then run `./a51 access`.',
-    ].join('\n'));
-  }
+async function applyList({ add, remove }) {
   const incremental = add.length > 0 || remove.length > 0;
 
   const { env, cf, accountId } = await loadContext();
@@ -138,7 +143,7 @@ export async function run(args) {
     followUps,
   });
 
-  // Persist only when --add/--remove changed the list. A bare re-apply doesn't
+  // Persist only when add/remove changed the list. A bare `apply` doesn't
   // rewrite .env (and saveEnv skips identical values anyway).
   if (incremental) {
     saveEnv({ ALLOWED_EMAILS: allowed.join(',') });

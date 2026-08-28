@@ -310,12 +310,12 @@ false negative on a finding, the most expensive mistake this tool can cause. Two
 CLI lines used to hand out exactly that address.
 
 **This does not mean subdomains cannot capture mail.** They can, and
-`./a51 black-hole add sub.example.com mail` does it — see the next entry. The
+`./a51 black-holes add sub.example.com mail` does it — see the next entry. The
 apex is the foundation, not the only option.
 
 What this costs: the black hole can no longer sit on a subdomain while the apex
 serves a decoy site, and mail can no longer be declined for the primary black
-hole. Escape hatches remain — `./a51 black-hole add <host> http` adds an
+hole. Escape hatches remain — `./a51 black-holes add <host> http` adds an
 HTTP-only catcher on any hostname, and `DASHBOARD_HOSTNAME` /
 `AUTOPILOT_HOSTNAME` set by hand in `.env` are used as-is (including on another
 zone) without a prompt. Deliberate but unadvertised: reachable when someone knows
@@ -323,7 +323,7 @@ they need them, never hit by accident.
 
 ## Mail on a subdomain: enable the name, reuse the zone catch-all
 
-`./a51 black-hole add listen.example.com mail` works, and it refuses unless
+`./a51 black-holes add listen.example.com mail` works, and it refuses unless
 `example.com` is already a mail black hole.
 
 Two Cloudflare facts make it work, and both are load-bearing:

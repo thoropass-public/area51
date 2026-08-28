@@ -31,12 +31,12 @@ uploads happen from your machine, through the CLI.
 ## Adding and removing black holes
 
 ```bash
-./a51 black-hole list
-./a51 black-hole add other.example                  # asks which roles
-./a51 black-hole add other.example http,mail        # or pass them
-./a51 black-hole add http-only.example http
-./a51 black-hole add listen.example mail            # email capture on a subdomain
-./a51 black-hole remove other.example
+./a51 black-holes list
+./a51 black-holes add other.example                  # asks which roles
+./a51 black-holes add other.example http,mail        # or pass them
+./a51 black-holes add http-only.example http
+./a51 black-holes add listen.example mail            # email capture on a subdomain
+./a51 black-holes remove other.example
 ```
 
 `add` does everything a black hole needs: binds the hostname to the catcher as a
@@ -54,8 +54,8 @@ hole**; `setup` did that for your primary zone, and for any other zone you add
 its apex first:
 
 ```bash
-./a51 black-hole add other.example.net http,mail    # the foundation
-./a51 black-hole add listen.example.net mail        # then the subdomain
+./a51 black-holes add other.example.net http,mail    # the foundation
+./a51 black-holes add listen.example.net mail        # then the subdomain
 ```
 
 Adding the subdomain first is refused: the catch-all that delivers its mail only
@@ -162,9 +162,9 @@ order. None of these steps need the lost machine:
 ## Changing who can log in
 
 ```bash
-./a51 access --list                             # show the current allow-list (read-only)
-./a51 access --add new@gmail.com,asca.com       # add entries, keep the existing ones
-./a51 access --remove new@gmail.com             # remove entries, keep the rest
+./a51 access list                             # show the current allow-list (read-only)
+./a51 access add new@gmail.com,asca.com       # add entries, keep the existing ones
+./a51 access remove new@gmail.com             # remove entries, keep the rest
 ./a51 access                                    # re-apply ALLOWED_EMAILS from .env
 ```
 
@@ -175,7 +175,7 @@ policy **and** back to `ALLOWED_EMAILS` in `.env`.
 
 There is no positional "replace the whole list" form. It was removed as a
 footgun (it silently wiped any entry you forgot to re-type). **To set the list
-wholesale**, edit `ALLOWED_EMAILS` in `.env` and run a bare `./a51 access`, which
+wholesale**, edit `ALLOWED_EMAILS` in `.env` and run `./a51 access apply`, which
 re-applies exactly what the file says. You cannot leave the list empty (that would
 make the dashboard public; use `./a51 setup --no-access` if you truly want that).
 Existing sessions keep working until they expire. Revoke them in Zero Trust →
@@ -189,7 +189,7 @@ Access → *your app* if that matters.
 
 - **A Worker.** The next deploy creates a *new* Worker. The old one keeps running
   and keeps its Custom Domains, so both are live and one of them is stale. Rebind
-  the domains (`./a51 black-hole add …`) and delete the old Worker in the dashboard.
+  the domains (`./a51 black-holes add …`) and delete the old Worker in the dashboard.
 - **The Pages project.** The next deploy creates a new project with a new
   `*.pages.dev` subdomain; the custom domain stays with the old one until moved.
 - **The database or a bucket.** You get a *new empty* one. The old data is still

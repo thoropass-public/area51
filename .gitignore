@@ -13,6 +13,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Deliberately not committed. `npm install` regenerates it, and leaving it out
+# keeps the repo to one dependency manifest. The trade is that installs resolve
+# the caret ranges in package.json fresh, so two installs can pick up different
+# patch/minor versions of wrangler and postal-mime — pin a range in package.json
+# if a specific version ever matters. See docs/decisions.md.
+package-lock.json
+
 # Wrangler / Cloudflare local state
 .wrangler/
 .dev.vars

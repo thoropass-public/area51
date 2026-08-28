@@ -130,9 +130,11 @@ schema, Pages bindings, domain bindings and the Access policy.
    uploads.
 
 7. **`.env` is the only state.** No lock file, no state file, nothing in a home
-   dir. The CLI reads and *writes back* to `.env` (surgical per-line edits,
-   preserving comments). Provisioning is **GET-then-act and idempotent** — every
-   `ensure*` helper checks current state and reports `created: false` when
+   dir. ("Lock file" here means a *deployment*-state file, Terraform-style —
+   nothing to do with `package-lock.json`, which is gitignored for its own
+   separate reason.) The CLI reads and *writes back* to `.env` (surgical per-line
+   edits, preserving comments). Provisioning is **GET-then-act and idempotent** —
+   every `ensure*` helper checks current state and reports `created: false` when
    there's nothing to do, so `./a51 setup` is always safe to re-run.
 
 ## Provisioning specifics (the CLI)

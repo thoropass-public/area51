@@ -466,6 +466,26 @@ enabled), and the rest of the deployment is still worth completing. Because ever
 step is idempotent, fixing the cause and re-running converges. The completed steps
 report "already correct" and only the broken one runs again.
 
+## `package-lock.json` is gitignored
+
+The lock file is not committed. `npm install` regenerates it locally.
+
+**Why:** the repo stays at one dependency manifest, and there is no lock file to
+review, merge or keep in sync in a project with exactly two direct dependencies.
+
+**What it costs, stated plainly:** installs are not reproducible. Both
+dependencies are caret-ranged (`postal-mime: ^2.4.3`, `wrangler: ^4.42.0`), so two
+`npm install` runs weeks apart can resolve different minor or patch versions —
+including of `wrangler`, which bundles and uploads the Workers, and
+`postal-mime`, which parses attacker-controlled email inside the catcher. If a
+specific version ever matters, pin the range in `package.json` rather than
+committing the lock file back.
+
+Do not read invariant 7 in [CLAUDE.md](../CLAUDE.md) ("`.env` is the only state.
+No lock file…") as the reason. That sentence is about *deployment* state — no
+Terraform-style state file describing what is provisioned on Cloudflare — and has
+nothing to say about npm.
+
 ## One `package.json` at the root
 
 The Workers have no manifests of their own; `postal-mime` and `wrangler` are

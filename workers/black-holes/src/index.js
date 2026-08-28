@@ -47,7 +47,8 @@ function normalizeEmail(v) {
   return (m ? m[1] : s).toLowerCase();
 }
 
-// Load a blacklist (IPs or emails) from D1 with a 60s edge cache. Returns a
+// Load a blacklist (IPs or emails) from D1 with a 60-minute edge cache
+// (BLACKLIST_CACHE_TTL_SECONDS above is the knob). Returns a
 // JS Set for O(1) membership. The cache key is fixed per list so all worker
 // invocations in the same data center share the same loaded set.
 async function loadBlacklist(env, kind) {

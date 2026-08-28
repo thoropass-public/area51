@@ -433,8 +433,9 @@ function ConfirmProvider({ children }) {
 // source of truth — the frontend just mirrors the lists for snappy
 // "is this blocked?" checks in modals and the Settings panel). On mount,
 // fetches both lists. Mutations update local state optimistically after a
-// successful API call. Worker propagation lag is up to 60s due to the
-// edge cache; the dashboard's view is instant.
+// successful API call. Worker propagation lag is up to 60 MINUTES due to the
+// edge cache (BLACKLIST_CACHE_TTL_SECONDS in the black-holes worker); the
+// dashboard's own view is instant.
 
 const BlacklistCtx = React.createContext(null);
 function useBlacklist() { return React.useContext(BlacklistCtx); }

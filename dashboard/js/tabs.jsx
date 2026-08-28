@@ -815,7 +815,8 @@ function groupEmails(rows) {
       // is ts-DESC) with an ", and more" suffix, rather than a count: a group is
       // always ≥2 messages, so the suffix is true by construction and claims
       // nothing about rows that aren't loaded (an exact total would need a
-      // per-group COUNT(*) — see README §15.1).
+      // per-group COUNT(*) — see docs/decisions.md, "Email grouping is
+      // client-side and exact-pair" and "No row counts anywhere in the UI").
       return { type: "group", key, from_addr: head.from_addr, subject: head.subject, ts: head.ts, to_addr: head.to_addr, read: members.every((m) => m.read) ? 1 : 0, matchText: `${head.from_addr || ""} ${head.subject || ""} ${toAll}` };
     }
     return { type: "single", key: members[0].id, row: members[0] };

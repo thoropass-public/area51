@@ -11,7 +11,7 @@ compatibility_date = "2024-10-11"
 compatibility_flags = ["nodejs_compat"]   # required by postal-mime
 
 # No auto-generated public URLs. The worker is reachable only through the
-# black hole hostnames bound to it as Custom Domains (`./a51 black-hole add`).
+# black hole hostnames bound to it as Custom Domains (`./a51 black-holes add`).
 workers_dev = false
 preview_urls = false
 
@@ -44,4 +44,4 @@ FALLBACK_ADDRESS = "${FALLBACK_ADDRESS}"
 # Email Routing is NOT configured here — Wrangler v4 removed the `[triggers]
 # email` key. This worker exports an `email()` handler, and the zone's Email
 # Routing catch-all rule is what delivers mail to it. `./a51 setup` and
-# `./a51 black-hole add <host> mail` configure that rule over the API.
+# `./a51 black-holes add <host> mail` configure that rule over the API.

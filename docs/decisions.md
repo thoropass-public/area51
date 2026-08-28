@@ -286,6 +286,59 @@ deleted the D1 database may already be gone, so D1 can't be the source of keys.
 
 # Automation decisions
 
+## The black hole is always the zone apex, and setup does not ask
+
+`./a51 setup` asks which zone to use and nothing else about layout. The black
+hole is that zone's apex with both roles; AREA 51 and Autopilot are derived as
+`area51.<zone>` and `autopilot.<zone>`. Four prompts (three hostnames and the
+roles) were removed.
+
+**Why:** a subdomain black hole is quietly broken for mail. Cloudflare's Email
+Routing catch-all is zone-wide and has no per-subdomain form, so mail addressed
+to `anything@bh.example.com` has no MX behind it. It bounces to the *sender*,
+which during an engagement is the target, not the operator. All the operator sees
+is a callback that never arrived, and the obvious reading of that is "the
+vulnerability did not fire" — a false negative on a finding, which is the most
+expensive mistake this tool can cause. Two CLI lines actively handed out that
+address.
+
+The apex is the only layout where the HTTP host and the mail domain are the same
+string, so every callback address the CLI prints works. That makes it not worth
+offering as a choice: the alternative is a configuration whose failure mode is
+silent and expensive.
+
+What this costs: the black hole can no longer sit on a subdomain while the apex
+serves a decoy site, and mail can no longer be declined for the primary black
+hole. Both remain reachable — `./a51 domains add <host> http` still adds an
+HTTP-only catcher on any hostname, and `DASHBOARD_HOSTNAME` / `AUTOPILOT_HOSTNAME`
+set by hand in `.env` are used as-is (including on another zone) without a
+prompt. The escape hatches are deliberate but unadvertised: reachable when
+someone knows they need them, never hit by accident.
+
+## Taking a zone over is confirmed, and typed when the zone is in use
+
+Because mail is no longer opt-in, `setup` states what taking a zone over means
+and asks to confirm before provisioning anything.
+
+**Why it escalates:** Email Routing adds and **locks** its own MX for the whole
+zone, and the apex address record is replaced by the catcher's Custom Domain.
+Neither is undone by walking away. When the zone already has MX or apex records,
+setup lists them by name and requires the operator to type `TAKEOVER` — which
+`--yes` can never satisfy, matching the rule already in `prompt.mjs` that an
+unattended run must not be able to destroy data. An unattended install can no
+longer hijack a domain somebody is using.
+
+A clean burner zone gets a plain y/N. Keeping the loud path rare is the point: a
+warning that fires on every run is a warning nobody reads. `--dry-run` prints the
+disclaimer and the same list of doomed records, then skips the confirmation,
+which makes it the safe way to inspect a zone before committing to it.
+
+Setup also refuses to start when a derived hostname already holds a foreign DNS
+record. Ownership is tested against the Pages and Workers APIs *first*, not
+inferred from DNS, so re-running recognises the records the previous run created
+and stays a no-op — without that test the check would refuse every deployment it
+had ever built.
+
 ## Provisioning goes through the REST API, not wrangler
 
 `./a51 setup` uses the Cloudflare REST API for everything except uploading code:

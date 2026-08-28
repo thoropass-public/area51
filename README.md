@@ -181,11 +181,13 @@ cp .env.example .env        # paste your API token
 ./a51 setup                 # provisions and deploys everything
 ```
 
-`setup` asks which domain to use and what to call the three hostnames, then
-provisions in order: database and schema → storage → the three Workers → your
-first black hole and its mail catch-all → the dashboard with its bindings already
-attached → DNS → the access policy. Every step is idempotent, so it is also the
-command you re-run after changing anything.
+`setup` asks which domain to use, confirms that it may take that domain over,
+then provisions in order: database and schema → storage → the three Workers →
+your black hole and its mail catch-all → the dashboard with its bindings already
+attached → DNS → the access policy. The domain becomes the black hole itself, so
+`https://your-domain/anything` and `anything@your-domain` are both captured, and
+the console and agent server are set up alongside it. Every step is idempotent,
+so it is also the command you re-run after changing anything.
 
 Then confirm it:
 

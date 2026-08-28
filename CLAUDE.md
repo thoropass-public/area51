@@ -47,9 +47,14 @@ cp .env.example .env        # paste CLOUDFLARE_API_TOKEN, then run setup
 ./a51 doctor                # acceptance test: checks every binding, probes live hosts
 ```
 
-`setup` prompts for the zone, the three hostnames, roles, and the Access
-allow-list, and writes every answer back to `.env`. Re-running it is the normal
-way to converge after fixing anything — completed steps report "already correct."
+`setup` prompts for the zone, a confirmation that the zone may be taken over,
+the fallback inbox and the Access allow-list, then writes every answer back to
+`.env`. It does **not** ask about hostnames: the black hole is always the zone
+apex with both roles, and the other two are derived as `area51.<zone>` and
+`autopilot.<zone>` (a subdomain black hole cannot receive mail — see
+[docs/decisions.md](docs/decisions.md#the-black-hole-is-always-the-zone-apex-and-setup-does-not-ask)).
+Re-running it is the normal way to converge after fixing anything — completed
+steps report "already correct."
 
 **The API token is where installs fail.** Create it at **My Profile → API
 Tokens → Create Token → Custom token** with these **thirteen** permissions (the
@@ -61,8 +66,9 @@ full table with per-permission rationale is [docs/guides/getting-started.md#api-
 | **Zone** | Zone:Read · **Zone Settings:Edit** · DNS:Edit · Workers Routes:Edit · Email Routing Rules:Edit |
 
 Then, under **Zone Resources**, *Include* the zone you deploy onto (or *All
-zones*). (An `http`-only black hole needs neither the two Email Routing
-permissions nor Zone Settings.)
+zones*). All thirteen are required: the primary black hole always carries the
+`mail` role, so the Email Routing permissions and Zone Settings are never
+optional at setup time.
 
 Three traps account for almost every "permission is set but still denied":
 - **Enabling Email Routing needs `Zone · Zone Settings:Edit`**, NOT Email Routing

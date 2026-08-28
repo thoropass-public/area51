@@ -132,6 +132,18 @@ export async function run(args) {
   env.DASHBOARD_HOSTNAME = env.DASHBOARD_HOSTNAME || `area51.${zoneName}`;
   env.AUTOPILOT_HOSTNAME = env.AUTOPILOT_HOSTNAME || `autopilot.${zoneName}`;
 
+  // A deployment created before the layout was fixed may carry a subdomain black
+  // hole in .env. Moving it to the apex is the right migration, but doing it
+  // silently would leave the old hostname still bound to the worker and still
+  // listed in the `domains` table — a black hole nobody chose, advertising a mail
+  // role it was never able to serve. Say so, and name the command that clears it.
+  const previousBlackHole = fromFile.BLACK_HOLE_HOSTNAME;
+  if (previousBlackHole && previousBlackHole !== zoneName) {
+    warn(`the black hole moves from ${previousBlackHole} to the apex ${color.bold(zoneName)}`);
+    plain(color.dim(`      ${previousBlackHole} stays bound to ${env.WORKER_NAME} and stays in the domains table.`));
+    plain(color.dim(`      Drop it with \`./a51 domains remove ${previousBlackHole}\` if you no longer want it.`));
+  }
+
   plain('');
   plain(`  ${color.bold(zoneName)} becomes the black hole:`);
   plain('');

@@ -64,13 +64,20 @@ organization for the API to write into. Setup now names this as a candidate caus
 
 ### 4. A clean zone, with no prior mail (MX) records
 
-Use a domain that is **not already receiving mail**. Enabling Email Routing adds
-and **locks** its own MX and SPF records for the whole zone and routes every
-inbound message to the catcher, so any existing mailbox on that domain stops
-receiving mail. Setup checks for pre-existing MX records and warns before it
-enables routing, but it will not stop you. A fresh throwaway domain with only the
-default records is ideal. (This only matters for the `mail` role; an `http`-only
-black hole leaves DNS mail records alone.)
+Use a domain that is **not already receiving mail**, and that you are not using
+for anything else. The zone you pick becomes the black hole itself: Email Routing
+adds and **locks** its own MX and SPF records for the whole zone and routes every
+inbound message to the catcher, and the apex `@` address record is replaced by a
+Custom Domain on that same worker. Any existing mailbox or site on the domain
+stops working.
+
+Setup reads the zone first and **stops** if it finds MX or apex records: it lists
+them by name and makes you type `TAKEOVER`, which `--yes` cannot satisfy. A fresh
+throwaway domain with only the default records gets a plain y/N instead.
+
+Mail is not optional here — the primary black hole always carries both roles.
+`./a51 domains add <host> http` still adds an HTTP-only catcher afterwards, on
+any hostname, and leaves that zone's mail records alone.
 
 ### 5. Node.js 20+
 
@@ -108,9 +115,9 @@ That is **thirteen** permissions: eight Account-scoped, five Zone-scoped.
 > Settings**, not **Email Routing Rules**. Email Routing Rules only covers the
 > catch-all *rule*. A token with Email Routing Rules but no Zone Settings fails
 > with a bare `[10000] Authentication error` on the enable step. Cloudflare does
-> not document which permission that endpoint needs, and the error names none. If
-> you skip mail (`http`-only black hole), you need neither Zone Settings nor
-> Email Routing Rules nor Email Routing Addresses.
+> not document which permission that endpoint needs, and the error names none.
+> All three mail-related permissions are required: the primary black hole always
+> carries the `mail` role, so there is no `http`-only path through setup.
 
 > **Zone Resources scope, the other "permission is set but still denied".**
 > Under *Zone Resources*, you must **Include → the zone you are deploying to**

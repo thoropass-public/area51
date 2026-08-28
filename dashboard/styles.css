@@ -679,7 +679,8 @@ select {
   white-space: nowrap;
 }
 
-/* ----- Email grouping (identical From/To/Subject) ----- */
+/* ----- Email grouping (identical From + Subject; recipient deliberately
+   excluded, so one sender blasting many aliases folds into one row) ----- */
 
 /* Grouped row: read/unread treatment is IDENTICAL to a singleton (see the
    .email-grid.unread / .read rules — background pop/recede + text weight), so

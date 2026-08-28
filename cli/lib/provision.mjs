@@ -94,18 +94,21 @@ export async function attempt(followUps, label, fn, fixHint) {
 const ADDRESS_RECORD_TYPES = ['A', 'AAAA', 'CNAME'];
 
 /**
- * Read what making `zone` a black hole would destroy, so the confirmation can
- * name real records instead of warning in the abstract. Two things get taken
- * over, and neither is reversible in place:
+ * Read what making `hostname` a black hole would destroy, so the confirmation can
+ * name real records instead of warning in the abstract. Returns three lists:
  *
- *   mx    — enabling Email Routing adds and LOCKS its own MX for the whole
- *           zone, so every existing mail route stops.
- *   apex  — binding the catcher as a Custom Domain on the apex replaces the
- *           address record already there.
+ *   mx       — MX records AT `hostname`. Enabling Email Routing for that name
+ *              adds and LOCKS its own, replacing whatever is there.
+ *   address  — A / AAAA / CNAME at `hostname`. Binding the catcher as a Custom
+ *              Domain replaces the address record already there.
+ *   zoneMx   — MX anywhere on the zone, populated ONLY when `hostname` is the
+ *              apex. An apex takeover makes Email Routing the mail authority for
+ *              the whole zone, so the broader list is the honest thing to show;
+ *              a subdomain takeover only touches its own name.
  *
- * Read-only and best effort: a failed lookup reports nothing rather than
- * blocking setup on a flaky call. The provisioning steps still surface their
- * own errors later.
+ * `hostname` defaults to the apex. Read-only and best effort: a failed lookup
+ * reports nothing rather than blocking on a flaky call, and the provisioning
+ * steps still surface their own errors later.
  */
 export async function inspectZoneTakeover(cf, zone, hostname = zone.name) {
   const takeover = { mx: [], address: [], zoneMx: [] };

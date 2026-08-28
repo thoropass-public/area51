@@ -7,6 +7,12 @@
 // Wrangler is always invoked non-interactively: the API token and account id
 // come from the environment (so it never tries a browser OAuth login) and
 // telemetry prompts are disabled.
+//
+// Its output is also captured rather than inherited — see runWrangler. Wrangler
+// is chatty enough that four uploads used to bury the CLI's own report, so each
+// one reports a single line and the full log appears only on failure, or under
+// --verbose. `dev` and `tail` are the exceptions: for them the output IS the
+// product, so they keep the terminal.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

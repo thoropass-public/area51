@@ -6,7 +6,7 @@
 // everything else (comments, blank lines, ordering) is left untouched. Keys
 // that don't exist yet are appended in one clearly marked block at the end.
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, chmodSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -43,10 +43,20 @@ export function loadEnv() {
   return parseEnv(readFileSync(envPath, 'utf8'));
 }
 
-/** Create .env from .env.example if it is missing. Returns true if created. */
+/**
+ * Create .env from .env.example if it is missing. Returns true if created.
+ *
+ * copyFileSync carries the template's permissions across, and .env.example is
+ * world-readable because it holds nothing secret. The copy is about to hold a
+ * Cloudflare API token, so tighten it immediately rather than waiting for the
+ * first saveEnv.
+ */
 export function ensureEnvFile() {
   if (existsSync(envPath)) return false;
   copyFileSync(envExamplePath, envPath);
+  try {
+    chmodSync(envPath, 0o600);
+  } catch { /* see saveEnv */ }
   return true;
 }
 
@@ -91,6 +101,18 @@ export function saveEnv(updates) {
   }
 
   writeFileSync(envPath, lines.join('\n'), { mode: 0o600 });
+  // writeFileSync's `mode` is only honoured when it CREATES the file, and .env
+  // almost always already exists — copied from .env.example, which is 0644
+  // because it holds nothing secret. So the mode above silently did nothing and
+  // the file stayed world-readable while the CLI reported "mode 600". chmod
+  // applies either way. This file holds the Cloudflare API token and a copy of
+  // AGENT_SECRET, so it must not be readable by other users on the machine.
+  try {
+    chmodSync(envPath, 0o600);
+  } catch {
+    // A filesystem that cannot express it (a mounted share) is not worth failing
+    // a deploy over — the write itself already succeeded.
+  }
   return written;
 }
 

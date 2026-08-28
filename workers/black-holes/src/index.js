@@ -1,10 +1,14 @@
 // Black Holes worker.
 //
-// Cloudflare Worker bound (via Custom Domains configured manually in the
-// dashboard) to one or more "black hole" domains. Each black hole is a
-// catch-all entry-point that accepts incoming HTTP requests, incoming email,
-// or both — anything a target sends ends up captured in D1 for the pentester
-// to inspect via the AREA 51 dashboard.
+// Cloudflare Worker bound to one or more "black hole" domains as Custom Domains
+// — attached over the API by `./a51 setup` and `./a51 black-holes add`, not by
+// hand. Each black hole is a catch-all entry-point that accepts incoming HTTP
+// requests, incoming email, or both: anything a target sends ends up captured in
+// D1 for the pentester to inspect via the AREA 51 dashboard.
+//
+// The worker is domain-agnostic. It never checks which black hole a request
+// arrived on, so adding one needs no redeploy — the hostname only matters as
+// data (it is part of the captured URL).
 //
 // Two handlers, one D1 binding, one optional fallback inbox:
 //   fetch(request)  — serve an arbitrary response from `endpoints`; log the
@@ -36,9 +40,10 @@ const logErr = (event, fields = {}) => {
   try { console.error(JSON.stringify({ event, ...fields })); } catch { /* never crash on logging */ }
 };
 
-// Email addresses are stored lowercase in D1; the worker lowercases the
-// incoming envelope sender before comparing. IPs are stored verbatim (no
-// normalization beyond trim).
+// Email addresses are stored lowercase in D1, so the address being tested is
+// lowercased before comparing. The address tested is the From: HEADER (see
+// handleEmail) — never the SMTP envelope sender, which is kept for log lines
+// only. IPs are stored verbatim (no normalization beyond trim).
 function normalizeEmail(v) {
   const s = String(v || '').trim();
   if (!s) return '';

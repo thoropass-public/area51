@@ -72,21 +72,19 @@ export async function run(args) {
 
 /** `list` is a pure read of .env — no token, no network, no changes. */
 function showList() {
-  {
-    const env = loadEnv();
-    const list = normList(env.ALLOWED_EMAILS);
-    heading('Cloudflare Access — allow-list');
-    plain('');
-    if (!list.length) {
-      warn('ALLOWED_EMAILS is empty — no allow-list is configured (the dashboard would be public).');
-    } else {
-      for (const e of list) plain(`  • ${e}`);
-    }
-    plain('');
-    plain(color.dim(`  ${list.length} ${list.length === 1 ? 'entry' : 'entries'} · edit with \`access add\` / \`access remove\` · guards ${env.DASHBOARD_HOSTNAME || '(DASHBOARD_HOSTNAME unset)'}`));
-    plain('');
-    return 0;
+  const env = loadEnv();
+  const list = normList(env.ALLOWED_EMAILS);
+  heading('Cloudflare Access — allow-list');
+  plain('');
+  if (!list.length) {
+    warn('ALLOWED_EMAILS is empty — no allow-list is configured (the dashboard would be public).');
+  } else {
+    for (const e of list) plain(`  • ${e}`);
   }
+  plain('');
+  plain(color.dim(`  ${list.length} ${list.length === 1 ? 'entry' : 'entries'} · edit with \`access add\` / \`access remove\` · guards ${env.DASHBOARD_HOSTNAME || '(DASHBOARD_HOSTNAME unset)'}`));
+  plain('');
+  return 0;
 }
 
 async function applyList({ add, remove }) {

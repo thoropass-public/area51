@@ -1,6 +1,11 @@
 // `./a51 deploy [target]` — push code. Provisioning stays in `setup`; this
 // command only uploads what is already provisioned (plus the two things that
 // must travel with a deploy: the Autopilot secret and the Pages bindings).
+//
+// Targets are independent, and `deploy all` is the common case, so each one runs
+// in its own try/catch: a schema error must not stop the workers from shipping,
+// and a worker that fails to bundle must not stop the dashboard. Failures are
+// collected and reported together with a count of what did succeed.
 
 import { loadContext } from '../lib/context.mjs';
 import { step, ok, warn, heading, plain, color, resetSteps, die } from '../lib/log.mjs';

@@ -69,7 +69,7 @@ How each runtime piece behaves. Read the relevant page before changing one.
 
 | Document | Covers |
 |---|---|
-| [development](development.md) | Running pieces locally, the code map, conventions per layer, testing, and how to add a route, a column, a command or an MCP tool |
+| [development](development.md) | The deploy-and-look loop (there is no local server), the code map, conventions per layer, testing, and how to add a route, a column, a command or an MCP tool |
 | [decisions](decisions.md) | The design decision log: every non-obvious trade-off, and what undoing it costs. Read this before "fixing" something that looks wrong |
 
 ---

@@ -155,7 +155,7 @@ Logs are also persisted and queryable in the Cloudflare dashboard
 
 ```bash
 ./a51 deploy black-holes        # render wrangler.toml from .env, then wrangler deploy
-./a51 dev black-holes           # local dev server, LOCAL storage (add -- --remote for the real stores)
+./a51 tail black-holes          # watch what it does
 ```
 
 Smoke tests:

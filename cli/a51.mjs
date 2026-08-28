@@ -73,11 +73,6 @@ const COMMANDS = {
     summary: 'stream a worker\'s structured logs',
     usage: './a51 tail [black-holes | autopilot | cleanup]',
   },
-  dev: {
-    module: './commands/dev.mjs',
-    summary: 'run one piece locally (local storage; -- --remote for the real stores)',
-    usage: './a51 dev <dashboard | black-holes | autopilot | cleanup>',
-  },
   destroy: {
     module: './commands/destroy.mjs',
     summary: 'tear it all down (two typed confirmations, empties buckets itself)',

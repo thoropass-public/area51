@@ -213,7 +213,6 @@ Known trade-off: the reload discards unsaved modal state. Raising
 
 ```bash
 ./a51 deploy dashboard      # confirms the Pages bindings, then uploads
-./a51 dev dashboard         # local server, Functions against the remote stores
 ```
 
 `deploy dashboard` re-asserts the D1 and R2 bindings on the Pages project before
@@ -221,4 +220,5 @@ uploading, so a project whose bindings were removed in the dashboard repairs
 itself on the next deploy.
 
 Because there is no build step, editing a `.jsx` file and redeploying is the whole
-loop. Hard-refresh to get past the browser cache.
+loop — there is no local server, and a Pages upload takes a few seconds. Hard-refresh
+to get past the browser cache.

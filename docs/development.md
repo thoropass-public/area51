@@ -13,38 +13,41 @@ There is one `package.json`, at the root. The catcher's `postal-mime` import
 resolves upward into the root `node_modules` at bundle time, so the Workers need no
 manifests of their own.
 
-## Running things locally
+## The development loop
+
+There is no local dev server. `wrangler dev` was wired up as `./a51 dev` and
+removed: the two things most worth testing in this project cannot be exercised
+locally at all, and for the rest a deploy is a few seconds.
+
+So the loop is deploy-and-look:
 
 ```bash
-./a51 dev dashboard        # Pages dev server: static files + Functions
-./a51 dev black-holes      # the catcher
-./a51 dev autopilot        # the agent worker
-./a51 dev cleanup -- --test-scheduled
+./a51 deploy dashboard      # after a .jsx / .css / Functions change
+./a51 deploy black-holes    # after a catcher change
+./a51 tail black-holes      # watch what it does
+./a51 doctor                # confirm the deployment is intact
 ```
 
-**Local runs use local storage by default.** `wrangler dev` sets `--remote` to
-false unless asked, so nothing here touches the deployed D1 or R2 — which means a
-local mistake stays local, and also that the dashboard looks empty because real
-captures are not there. To work against the actual stores:
+Use a throwaway zone for this, not the one carrying an engagement.
 
-```bash
-./a51 dev black-holes -- --remote     # real D1 and R2; a mistake here is real
-```
+**What could never be tested locally anyway**
 
-`./a51 dev dashboard` is the exception: `wrangler pages dev` has no `--remote`
-flag (as of wrangler 4), so the Pages target is local-only and its `--d1`/`--r2`
-bindings are local simulacra of the real ones.
-
-Three things cannot be exercised locally:
-
-- **Remote stores from the dashboard target**, per the note above. Test
-  Functions against a real deployment.
-
-
-- **Inbound email.** The `email()` handler is only invoked by Cloudflare Email
-  Routing. Test it by deploying to a black hole and sending a real message.
+- **Inbound email.** The `email()` handler is only ever invoked by Cloudflare
+  Email Routing. Nothing on your machine can trigger it, so every email-capture
+  change has to be deployed and exercised with a real message.
 - **Cloudflare Access.** The local Pages server has no edge auth, so the
-  expired-session path has to be tested against a deployment.
+  expired-session reload path only reproduces against a deployment.
+
+**What a local server did give you,** for the record, in case someone wants to
+bring it back: a reload loop for the dashboard's JSX and Functions, against an
+empty local D1 and R2. Worth knowing that `wrangler pages dev` has no `--remote`
+flag, so that loop could never see real captured data — which is what made it
+weak enough to drop.
+
+**Exercising the cleanup worker.** It has no `fetch` handler, so its only trigger
+is the cron. To act on retention now, use `./a51 purge`, which does the same work
+interactively and age-based for both tables. Watch a real scheduled run with
+`./a51 tail cleanup`.
 
 ## Code map
 
@@ -168,7 +171,7 @@ There is no test suite in the repository. What exists instead:
 - **`./a51 setup --dry-run`** resolves configuration and prints the plan without
   touching Cloudflare.
 - **Smoke tests** per component: [black-holes.md](internals/black-holes.md#deploying-and-testing),
-  [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#running-it-on-demand).
+  [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#acting-on-retention-between-runs).
 
 If you add automated tests, the CLI is the tractable part: `cli/lib/cloudflare.mjs`
 honors `A51_API_BASE`, so the whole provisioning path can run against a local mock

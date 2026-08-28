@@ -18,9 +18,7 @@
     "status": "node cli/a51.mjs status",
     "black-holes": "node cli/a51.mjs black-holes",
     "purge": "node cli/a51.mjs purge",
-    "a51": "node cli/a51.mjs",
-    "dev:dashboard": "node cli/a51.mjs dev dashboard",
-    "dev:black-holes": "node cli/a51.mjs dev black-holes"
+    "a51": "node cli/a51.mjs"
   },
   "dependencies": {
     "postal-mime": "^2.4.3"

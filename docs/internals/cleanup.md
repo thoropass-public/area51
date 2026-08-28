@@ -97,17 +97,25 @@ the trigger landed under **Workers → *cleanup worker* → Settings → Trigger
 
 Runs are also visible in the Cloudflare dashboard under the worker's Logs.
 
-## Running it on demand
+## Acting on retention between runs
+
+The worker has no `fetch` handler, so the cron is its only trigger — there is no
+way to invoke it on demand, and the local dev server that used to fake one has
+been removed.
+
+Use `./a51 purge` instead. It covers the same ground interactively: requests and
+emails by age, with the R2 objects deleted in lockstep, behind a typed
+confirmation. It is not the same code path, but it is the same outcome, and it
+does the coupled email delete correctly.
+
+To confirm the scheduled run itself is happening, watch a real one:
 
 ```bash
-./a51 dev cleanup -- --test-scheduled
-# then, in another terminal:
-curl "http://localhost:8787/__scheduled?cron=0+6+*+*+*"
+./a51 tail cleanup
 ```
 
-`wrangler dev` uses **local** storage unless you ask otherwise, so by default this
-is a dry run against nothing real. Add `-- --remote` to run it against the actual
-database and buckets — which really does delete data.
+`cleanup_started` and `cleanup_finished` bracket every run, and the trigger is
+visible under **Workers → *cleanup worker* → Settings → Triggers**.
 
 ## Sizing it
 

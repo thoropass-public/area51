@@ -287,27 +287,6 @@ Event names are documented per Worker in
 [internals/cleanup](../internals/cleanup.md#watching-it). Logs are also persisted
 and queryable in the Cloudflare dashboard.
 
-## dev
-
-```
-./a51 dev <dashboard | black-holes | autopilot | cleanup> [-- <wrangler flags>]
-```
-
-Runs one piece locally. **Storage is local by default** — `wrangler dev` sets
-`--remote` to false unless asked, so nothing touches the deployed D1 or R2. A
-local mistake stays local, and the dashboard will look empty because real captures
-are not there.
-
-```bash
-./a51 dev black-holes -- --remote     # against the real stores; mistakes are real
-```
-
-`dev dashboard` is local-only: `wrangler pages dev` has no `--remote` flag as of
-wrangler 4, so its `--d1` / `--r2` bindings are local stand-ins for the real ones.
-
-Also not exercisable locally: inbound email (only Cloudflare Email Routing invokes
-the `email()` handler) and Cloudflare Access (the local server has no edge auth).
-
 ## destroy
 
 ```

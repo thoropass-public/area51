@@ -296,6 +296,17 @@ export class Cloudflare {
     return list || [];
   }
 
+  /**
+   * Every DNS record at one exact name, of any type. `findDnsRecord` returns
+   * only the first match, which is not enough to answer "is anything already
+   * sitting here?" — at the apex that first match is often the MX record while
+   * the address record the black hole would replace sits behind it.
+   */
+  async listDnsRecordsByName(zoneId, name) {
+    const list = await this.get(`/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}&per_page=100`);
+    return list || [];
+  }
+
   createDnsRecord(zoneId, record) {
     return this.post(`/zones/${zoneId}/dns_records`, record);
   }

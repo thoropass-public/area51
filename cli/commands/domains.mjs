@@ -84,7 +84,25 @@ async function add(cf, accountId, env, hostname, rolesArg) {
   }
 
   plain('');
-  ok(`https://${hostname} is live${roles.includes('mail') ? `, and any address @${hostname} is a catch-all inbox` : ''}`);
+  ok(`https://${hostname} is live`);
+
+  // The mail domain is the ZONE, never the hostname. Email Routing's catch-all
+  // is zone-wide and Cloudflare has no per-subdomain form of it, so telling an
+  // operator that <anything>@bh.example.com is an inbox hands them an address
+  // with no MX behind it: the target's mail bounces, and the missing callback
+  // reads as "the vulnerability didn't fire".
+  if (roles.includes('mail')) {
+    const zone = await zoneForHostname(cf, accountId, hostname);
+    const mailDomain = zone ? zone.name : hostname;
+    if (mailDomain === hostname) {
+      ok(`any address ${color.bold(`<anything>@${hostname}`)} is a catch-all inbox`);
+    } else {
+      warn(`mail arrives at ${color.bold(`<anything>@${mailDomain}`)} — NOT at @${hostname}`);
+      plain(color.dim(`    Email Routing catch-alls are zone-wide, so an address at ${hostname}`));
+      plain(color.dim('    has no MX behind it and will bounce. Use the zone apex for email callbacks.'));
+    }
+  }
+
   plain(color.dim('  DNS and the certificate can take a minute. No redeploy is needed.'));
   return 0;
 }

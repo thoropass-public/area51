@@ -16,11 +16,12 @@ import { randomBytes } from 'node:crypto';
 import { loadEnv, saveEnv, ensureEnvFile, parseList, envPath } from '../lib/env.mjs';
 import { Cloudflare } from '../lib/cloudflare.mjs';
 import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die } from '../lib/log.mjs';
-import { ask, confirm, select, closePrompts, isAssumeYes } from '../lib/prompt.mjs';
+import { ask, confirm, select, typeToConfirm, closePrompts, isAssumeYes } from '../lib/prompt.mjs';
 import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
   ensurePagesProject, ensurePagesDomain, ensureAccess, authFixHint,
+  inspectZoneTakeover, findHostnameConflict,
 } from '../lib/provision.mjs';
 import { isAuthError } from '../lib/cloudflare.mjs';
 import { printTokenPermissions } from '../lib/permissions.mjs';
@@ -111,25 +112,47 @@ export async function run(args) {
   }
   const zoneName = zone.name;
 
-  plain('');
-  plain(`  Three hostnames are provisioned on ${color.bold(zoneName)}:`);
-  plain(`    ${color.dim('black hole')}  where targets send traffic and mail (public by design)`);
-  plain(`    ${color.dim('dashboard')}   the console you use (locked behind Cloudflare Access)`);
-  plain(`    ${color.dim('autopilot')}   the MCP / REST server for AI agents (shared-secret auth)`);
-  plain('');
-
-  env.BLACK_HOLE_HOSTNAME = await ask('  Black hole hostname', env.BLACK_HOLE_HOSTNAME || zoneName, { required: true });
-  env.DASHBOARD_HOSTNAME = await ask('  Dashboard hostname', env.DASHBOARD_HOSTNAME || `area51.${zoneName}`, { required: true });
-  env.AUTOPILOT_HOSTNAME = await ask('  Autopilot hostname', env.AUTOPILOT_HOSTNAME || `autopilot.${zoneName}`, { required: true });
-  env.BLACK_HOLE_ROLES = await ask('  Black hole roles (http,mail)', env.BLACK_HOLE_ROLES || 'http,mail', { required: true });
+  // The layout is fixed, and none of it is asked. The black hole is the zone
+  // apex with both roles; AREA 51 and Autopilot are fixed subdomains of it.
+  //
+  // Why the apex, specifically: Cloudflare's Email Routing catch-all is
+  // zone-wide and has no per-subdomain form, so a subdomain black hole can
+  // serve HTTP but can never receive mail — every email callback address it
+  // advertised would silently bounce, which reads as "the target never called
+  // back" during an engagement. Pinning the black hole to the apex makes the
+  // HTTP host and the mail domain the same string, and that is the only layout
+  // in which every callback URL the tool hands out actually works.
+  //
+  // .env still wins. A hostname already set there is used as-is, so an operator
+  // who needs a different layout writes it by hand and re-runs — no prompt, and
+  // no way to get there by accident.
+  env.BLACK_HOLE_HOSTNAME = zoneName;
+  env.BLACK_HOLE_ROLES = 'http,mail';
   const roles = parseRoles(env.BLACK_HOLE_ROLES);
+  env.DASHBOARD_HOSTNAME = env.DASHBOARD_HOSTNAME || `area51.${zoneName}`;
+  env.AUTOPILOT_HOSTNAME = env.AUTOPILOT_HOSTNAME || `autopilot.${zoneName}`;
 
-  if (roles.includes('mail')) {
-    env.FALLBACK_ADDRESS = await ask(
-      '  Fallback inbox (only used if an email capture fails; blank to skip)',
-      env.FALLBACK_ADDRESS || '',
-    );
+  plain('');
+  plain(`  ${color.bold(zoneName)} becomes the black hole:`);
+  plain('');
+  plain(`    ${color.dim('HTTP callbacks ')}  https://${color.bold(zoneName)}/<anything>`);
+  plain(`    ${color.dim('Email callbacks')}  <anything>@${color.bold(zoneName)}`);
+  plain(`    ${color.dim('AREA 51        ')}  https://${env.DASHBOARD_HOSTNAME} ${color.dim('— the console, behind Cloudflare Access')}`);
+  plain(`    ${color.dim('Autopilot      ')}  https://${env.AUTOPILOT_HOSTNAME} ${color.dim('— MCP / REST for agents, shared secret')}`);
+  plain('');
+
+  if (!(await confirmZoneTakeover(cf, zone, env, { dryRun }))) {
+    plain('\n  Nothing was changed. Re-run `./a51 setup` and pick another zone.');
+    closePrompts();
+    return 1;
   }
+
+  await assertHostnamesFree(cf, accountId, zone, env);
+
+  env.FALLBACK_ADDRESS = await ask(
+    '  Fallback inbox (only used if an email capture fails; blank to skip)',
+    env.FALLBACK_ADDRESS || '',
+  );
 
   // ── 3. access allow-list ──────────────────────────────────────────────────
   step('Dashboard access');
@@ -188,7 +211,7 @@ export async function run(args) {
     `Worker             ${env.AGENT_WORKER_NAME} → https://${env.AUTOPILOT_HOSTNAME}`,
     `Worker             ${env.CLEANUP_WORKER_NAME} (cron ${env.CLEANUP_CRON}, no domain)`,
     `Pages project      ${env.PAGES_PROJECT_NAME} → https://${env.DASHBOARD_HOSTNAME}`,
-    roles.includes('mail') ? `Email Routing      *@${zoneName} → ${env.WORKER_NAME}` : `Email Routing      ${color.dim('skipped (no mail role)')}`,
+    `Email Routing      *@${zoneName} → ${env.WORKER_NAME}`,
     allowed.length && !skipAccess ? `Cloudflare Access  ${env.DASHBOARD_HOSTNAME} for ${allowed.join(', ')}` : `Cloudflare Access  ${color.yellow('SKIPPED — dashboard will be public')}`,
   ];
   plain('');
@@ -333,13 +356,130 @@ export async function run(args) {
   return 0;
 }
 
+/**
+ * The one genuinely destructive thing setup does: it takes a whole zone over.
+ * Email Routing locks its own MX across the zone, and the apex address record
+ * is replaced by the catcher's Custom Domain — so any site or mailbox on that
+ * domain stops working, and neither change is undone by walking away.
+ *
+ * The disclaimer always prints. When the zone actually has something to lose it
+ * names the exact records and escalates to a typed confirmation, which `--yes`
+ * can never satisfy: an unattended run must not be able to hijack a domain
+ * somebody is using. A clean burner zone gets a plain y/N, which keeps the loud
+ * path rare enough to still mean something when it fires.
+ *
+ * Returns false if the operator backs out.
+ */
+async function confirmZoneTakeover(cf, zone, env, { dryRun = false } = {}) {
+  plain(`  ${color.yellow('Use a domain you do not use for anything else.')}`);
+  plain('');
+  plain('  Setup takes over the entire zone:');
+  plain(`    · Email Routing is enabled and ${color.bold('LOCKS')} its own MX records, redirecting`);
+  plain(`      all mail for *@${zone.name} to ${env.WORKER_NAME}.`);
+  plain(`    · The apex (@) address record is replaced by a Custom Domain on that`);
+  plain(`      same worker, so ${zone.name} stops serving whatever it serves today.`);
+  plain('    · Every path and every address on the domain becomes a public trap.');
+  plain('');
+
+  const takeover = await inspectZoneTakeover(cf, zone);
+  const doomed = [
+    ...takeover.mx.map((r) => `MX      ${r.name} → ${r.content}`),
+    ...takeover.apex.map((r) => `${r.type.padEnd(7)} ${r.name} → ${r.content}`),
+  ];
+
+  if (doomed.length) {
+    warn(`${color.bold(zone.name)} is already in use. These records will be replaced or overridden:`);
+    plain('');
+    for (const line of doomed) plain(`      ${color.red(line)}`);
+    plain('');
+  }
+
+  // --dry-run changes nothing, so there is nothing to consent to. It still
+  // prints everything above, which makes it the safe way to find out what a
+  // zone would lose before committing to it.
+  if (dryRun) {
+    skip('--dry-run: no confirmation needed, nothing will be taken over');
+    return true;
+  }
+
+  if (!doomed.length) {
+    return confirm(`  Make ${color.bold(zone.name)} a black hole?`, true);
+  }
+
+  return typeToConfirm(
+    'TAKEOVER',
+    `${zone.name} already serves traffic or mail. Continuing breaks it, and the\nMX records Email Routing writes are locked afterwards.`,
+  );
+}
+
+/**
+ * Both private hostnames are derived rather than asked, so a name that is
+ * already taken has to be caught here — otherwise it surfaces much later as an
+ * opaque Cloudflare error part-way through provisioning, with half a deployment
+ * already built.
+ *
+ * Ownership is tested FIRST, and against the Workers / Pages APIs rather than
+ * DNS, so re-running against a live deployment stays a no-op: the record found
+ * at area51.<zone> on the second run is the one the first run created. Without
+ * that test this check would refuse every deployment it had ever built.
+ *
+ * The apex is deliberately not checked. Replacing the record there is the
+ * documented intent of the takeover confirmed above, not a collision.
+ */
+async function assertHostnamesFree(cf, accountId, zone, env) {
+  const checks = [
+    {
+      key: 'DASHBOARD_HOSTNAME',
+      hostname: env.DASHBOARD_HOSTNAME,
+      isOurs: async () => {
+        const domains = (await cf.listPagesDomains(accountId, env.PAGES_PROJECT_NAME)) || [];
+        return domains.some((d) => d.name === env.DASHBOARD_HOSTNAME);
+      },
+    },
+    {
+      key: 'AUTOPILOT_HOSTNAME',
+      hostname: env.AUTOPILOT_HOSTNAME,
+      isOurs: async () => {
+        const bound = (await cf.listWorkerDomains(accountId, env.AGENT_WORKER_NAME)) || [];
+        return bound.some((d) => d.hostname === env.AUTOPILOT_HOSTNAME);
+      },
+    },
+  ];
+
+  for (const check of checks) {
+    // Only names inside the selected zone are checked here. A hostname an
+    // operator deliberately pointed at another zone in .env is theirs to own,
+    // and its provisioning step resolves its own zone anyway.
+    if (check.hostname !== zone.name && !check.hostname.endsWith(`.${zone.name}`)) {
+      skip(`${check.hostname} is outside ${zone.name} — left to its provisioning step`);
+      continue;
+    }
+    const conflict = await findHostnameConflict(cf, zone, check.hostname, check.isOurs);
+    if (!conflict) continue;
+    const shown = conflict.records.map((r) => `${r.type} ${r.name} → ${r.content}`).join('\n      ');
+    die(
+      `${check.hostname} already has a DNS record that is not part of this deployment:\n      ${shown}\n\n` +
+      `  Delete it (dashboard → ${zone.name} → DNS), or set ${check.key} in .env to a\n` +
+      `  hostname that is free, then re-run \`./a51 setup\`.`,
+    );
+  }
+}
+
 function printSummary(env, roles, allowed, skipAccess) {
   heading('Deployed');
   plain('');
-  plain(`  Dashboard    ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)}`);
-  plain(`  Black hole   ${color.cyan(`https://${env.BLACK_HOLE_HOSTNAME}`)}   ${color.dim(`roles: ${roles.join(', ')}`)}`);
-  if (roles.includes('mail')) plain(`               ${color.dim(`any address @${env.BLACK_HOLE_HOSTNAME} is a catch-all inbox`)}`);
+  plain(`  AREA 51      ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)}`);
   plain(`  Autopilot    ${color.cyan(`https://${env.AUTOPILOT_HOSTNAME}/mcp`)}`);
+  plain('');
+  // The two callback surfaces are listed separately and spelled out in full.
+  // Merging them into one "any address @<host>" line is what used to hand out
+  // a mail domain that did not exist whenever the black hole was a subdomain.
+  plain(`  ${color.bold('Black hole')} ${color.dim('— point targets at these:')}`);
+  plain('');
+  plain(`    HTTP callbacks   ${color.cyan(`https://${env.BLACK_HOLE_HOSTNAME}/<anything>`)}`);
+  if (roles.includes('mail')) {
+    plain(`    Email callbacks  ${color.cyan(`<anything>@${env.BLACK_HOLE_HOSTNAME}`)}`);
+  }
   plain('');
   plain(`  ${color.bold('Register Autopilot with Claude Code:')}`);
   plain('');

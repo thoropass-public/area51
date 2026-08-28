@@ -56,6 +56,71 @@ export function authFixHint(permission, { zone = null, extra = null } = {}) {
   return lines.join('\n');
 }
 
+// ─── zone takeover preflight ────────────────────────────────────────────────
+
+// DNS record types that occupy a hostname. A CNAME cannot coexist with any
+// other record at the same name, so anything in this set is a genuine clash;
+// TXT/CAA and friends are left alone because they never conflict with what we
+// create.
+const ADDRESS_RECORD_TYPES = ['A', 'AAAA', 'CNAME'];
+
+/**
+ * Read what making `zone` a black hole would destroy, so the confirmation can
+ * name real records instead of warning in the abstract. Two things get taken
+ * over, and neither is reversible in place:
+ *
+ *   mx    — enabling Email Routing adds and LOCKS its own MX for the whole
+ *           zone, so every existing mail route stops.
+ *   apex  — binding the catcher as a Custom Domain on the apex replaces the
+ *           address record already there.
+ *
+ * Read-only and best effort: a failed lookup reports nothing rather than
+ * blocking setup on a flaky call. The provisioning steps still surface their
+ * own errors later.
+ */
+export async function inspectZoneTakeover(cf, zone) {
+  const takeover = { mx: [], apex: [] };
+  try {
+    takeover.mx = await cf.listDnsRecordsByType(zone.id, 'MX');
+  } catch { /* best effort */ }
+  try {
+    const atApex = await cf.listDnsRecordsByName(zone.id, zone.name);
+    takeover.apex = atApex.filter((r) => ADDRESS_RECORD_TYPES.includes(r.type));
+  } catch { /* best effort */ }
+  return takeover;
+}
+
+/**
+ * Report a hostname that is already occupied by something that is NOT this
+ * deployment. Returns null when the name is free (or already ours), otherwise
+ * `{ hostname, records }` for the caller to refuse on.
+ *
+ * `isOurs` is what makes this safe to run on an existing deployment. Setup
+ * derives both hostnames from the zone and never prompts, so without an
+ * ownership test the check would refuse every re-run: the second run always
+ * finds the record the first one created. Ownership is asked of the Workers /
+ * Pages APIs rather than inferred from DNS, because those are authoritative
+ * about what this deployment owns.
+ */
+export async function findHostnameConflict(cf, zone, hostname, isOurs) {
+  try {
+    if (await isOurs()) return null;
+  } catch {
+    // Can't establish ownership (a permission gap, a transient error). Fall
+    // through to the DNS check rather than claiming the name is free.
+  }
+
+  let records = [];
+  try {
+    records = await cf.listDnsRecordsByName(zone.id, hostname);
+  } catch {
+    return null;   // can't read DNS: let the provisioning step surface it
+  }
+
+  const clash = records.filter((r) => ADDRESS_RECORD_TYPES.includes(r.type));
+  return clash.length ? { hostname, records: clash } : null;
+}
+
 // ─── storage ────────────────────────────────────────────────────────────────
 
 /** Create the D1 database if absent. Returns { id, created }. */

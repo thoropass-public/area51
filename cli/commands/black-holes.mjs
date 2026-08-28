@@ -101,9 +101,8 @@ async function list(cf, accountId, env) {
 
 /**
  * What should this host capture? Asked only when the roles argument is omitted,
- * so anything already scripted against `add <host> http,mail` keeps working. Both
- * roles is the first choice, which is also what `--yes` picks — so unattended
- * behavior matches the old default.
+ * so `add <host> http,mail` still works without a prompt for anyone who already
+ * knows what they want. Both roles is listed first, since it is the usual answer.
  */
 async function askRoles(hostname) {
   const choice = await select(`What should ${hostname} capture?`, [
@@ -166,7 +165,8 @@ async function assertApexCapturesMail(cf, accountId, env, zone, hostname, roles)
  * name, so it asks only when something is actually in the way.
  *
  * Either way, when records will really be lost they are named and the gate
- * becomes a typed confirmation, which `--yes` can never satisfy.
+ * becomes a typed confirmation rather than a y/N, so it cannot be cleared by a
+ * reflexive Enter.
  */
 async function confirmAdd(cf, zone, hostname, roles, isApex) {
   const doomed = describeTakeover(await inspectZoneTakeover(cf, zone, hostname));

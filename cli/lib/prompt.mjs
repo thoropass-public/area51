@@ -1,25 +1,40 @@
 // Interactive prompts, built on node:readline/promises.
 //
-// Every prompt honors --yes / A51_YES=1 (non-interactive mode): ask() returns
-// the default, confirm() returns true, and select() takes the first choice. A
-// prompt with no usable default in non-interactive mode is a fatal error, so an
-// unattended run never silently guesses something important.
+// There is deliberately NO unattended mode. There used to be a --yes / A51_YES=1
+// flag that made ask() return its default, confirm() return true and select()
+// take the first choice — and it was a liability. Every one of these prompts sits
+// in front of something that provisions or destroys live infrastructure, and the
+// worst case was concrete: on a fresh install --yes skipped the Access allow-list
+// prompt and shipped a world-readable dashboard, because "no default" quietly
+// became "no protection".
+//
+// So the answers are always typed by a person. The commands that only read or
+// upload (`status`, `doctor`, `deploy`, `tail`) never call anything in this file,
+// so those stay scriptable; the ones that change infrastructure need a terminal,
+// and say so rather than hanging when they do not have one.
 
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import { die, color } from './log.mjs';
 
-let assumeYes = false;
-export function setAssumeYes(value) {
-  assumeYes = Boolean(value);
-}
-export function isAssumeYes() {
-  return assumeYes;
-}
-
 let rl = null;
 function iface() {
-  if (!rl) rl = createInterface({ input: stdin, output: stdout });
+  if (!rl) {
+    // Without a TTY there is nobody to answer, and a `required` prompt would
+    // otherwise spin forever on end-of-input. Fail with the reason instead.
+    if (!stdin.isTTY) {
+      die([
+        'this command needs an interactive terminal.',
+        '',
+        '  AREA 51 has no unattended mode. Every prompt here guards something that',
+        '  provisions or destroys live infrastructure, so the answers are always',
+        '  typed by a person. Run it from a terminal you are sitting at.',
+        '',
+        '  Scriptable without a terminal: status, doctor, deploy, tail.',
+      ].join('\n'));
+    }
+    rl = createInterface({ input: stdin, output: stdout });
+  }
   return rl;
 }
 export function closePrompts() {
@@ -31,10 +46,6 @@ export function closePrompts() {
 
 /** Free-text question. `def` is used as-is when the answer is empty. */
 export async function ask(question, def = '', { required = false } = {}) {
-  if (assumeYes) {
-    if (!def && required) die(`--yes was passed but "${question}" has no default value.`);
-    return def;
-  }
   const suffix = def ? ` ${color.dim(`[${def}]`)}` : '';
   for (;;) {
     const answer = (await iface().question(`${question}${suffix}: `)).trim();
@@ -44,9 +55,8 @@ export async function ask(question, def = '', { required = false } = {}) {
   }
 }
 
-/** Yes/no. `def` is the answer used for a bare Enter and for --yes. */
+/** Yes/no. `def` is the answer used for a bare Enter. */
 export async function confirm(question, def = true) {
-  if (assumeYes) return true;
   const hint = def ? 'Y/n' : 'y/N';
   for (;;) {
     const answer = (await iface().question(`${question} ${color.dim(`(${hint})`)} `)).trim().toLowerCase();
@@ -66,7 +76,6 @@ export async function select(question, choices, { auto = true } = {}) {
     console.log(`  ${question}: ${color.bold(choices[0].label)} ${color.dim('(only option)')}`);
     return choices[0].value;
   }
-  if (assumeYes) return choices[0].value;
 
   console.log(`\n  ${question}`);
   choices.forEach((c, i) => {
@@ -82,8 +91,8 @@ export async function select(question, choices, { auto = true } = {}) {
 }
 
 /**
- * Destructive-action gate: the user must type the exact word. Never satisfied
- * by --yes — an unattended run must not be able to delete data.
+ * Destructive-action gate: the operator must type the exact word. A bare Enter,
+ * a wrong word, or anything pasted by accident all decline.
  */
 export async function typeToConfirm(word, warning) {
   console.log(`\n${color.red(warning)}`);

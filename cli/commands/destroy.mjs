@@ -6,9 +6,10 @@
 // buckets) which destroys every captured request, email and staged endpoint,
 // permanently.
 //
-// Neither gate is satisfiable by --yes: destroying data always requires typing
-// the word. Email Routing is asked about separately inside the first gate, since
-// it is the one step that changes the zone rather than just removing AREA 51.
+// Both gates require typing a word rather than a y/N: a yes/no can be cleared by
+// a reflexive Enter, and neither of these should be. Email Routing is asked about
+// separately inside the first gate, since it is the one step that changes the zone
+// rather than just removing AREA 51.
 
 import { loadContext, zoneForHostname } from '../lib/context.mjs';
 import { heading, plain, ok, warn, skip, color, info } from '../lib/log.mjs';

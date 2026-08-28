@@ -39,7 +39,7 @@ const USAGE = [
 ].join('\n');
 
 export async function run(args) {
-  // Flags (--yes and friends) are handled globally; everything else positional.
+  // Global flags (--verbose and friends) are stripped; everything else positional.
   const positional = args.filter((a) => !a.startsWith('-'));
   const action = positional[0] || 'list';
   const values = normList(positional.slice(1).join(','));

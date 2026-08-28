@@ -25,7 +25,6 @@ Useful flags:
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Resolve and save configuration, print the plan, change nothing on Cloudflare. |
-| `--yes` | Non-interactive: accept every default, never prompt. Fails rather than guessing a value that has no default. |
 | `--no-access` | Skip Cloudflare Access. **The dashboard is then readable by anyone who finds the hostname.** |
 
 ---
@@ -72,7 +71,7 @@ Custom Domain on that same worker. Any existing mailbox or site on the domain
 stops working.
 
 Setup reads the zone first and **stops** if it finds MX or apex records: it lists
-them by name and makes you type `TAKEOVER`, which `--yes` cannot satisfy. A fresh
+them by name and makes you type `TAKEOVER`. A fresh
 throwaway domain with only the default records gets a plain y/N instead.
 
 Mail is not optional here — the primary black hole always carries both roles.
@@ -245,8 +244,8 @@ Setup then prints what taking the zone over means, and asks you to confirm it:
 
 **If the zone already has MX or apex records, setup lists them by name and
 requires you to type `TAKEOVER`.** That typed confirmation can never be
-satisfied by `--yes`, so an unattended run cannot hijack a domain somebody is
-using. On a clean burner zone it is an ordinary y/N.
+cleared by a reflexive Enter, so hijacking a domain somebody is using takes
+deliberate typing. On a clean burner zone it is an ordinary y/N.
 
 `--dry-run` prints the same disclaimer and the same list of records that would
 be lost, then stops without asking for consent — which makes it the safe way to

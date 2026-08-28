@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { loadEnv, saveEnv, ensureEnvFile, parseList, envPath } from '../lib/env.mjs';
 import { Cloudflare } from '../lib/cloudflare.mjs';
 import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die, setStepTotal, section, hint, detail, summary } from '../lib/log.mjs';
-import { ask, confirm, select, typeToConfirm, closePrompts, isAssumeYes } from '../lib/prompt.mjs';
+import { ask, confirm, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
@@ -186,7 +186,11 @@ export async function run(args) {
     plain('  keeping it private. Entries can be full addresses (you@example.com) or bare');
     plain('  domains (example.com = anyone with that email domain). Comma-separated.');
     plain('');
-    const answer = await ask('  Who may open the dashboard?', '', { required: !isAssumeYes() });
+    // Required, with no escape. This prompt is the dashboard's only protection,
+    // and it is exactly where the old --yes flag did its damage: it made this
+    // optional, so an unattended install shipped a world-readable console. If you
+    // genuinely want that, `--no-access` says so out loud.
+    const answer = await ask('  Who may open the dashboard?', '', { required: true });
     allowed = parseList(answer);
     env.ALLOWED_EMAILS = allowed.join(',');
   } else {
@@ -421,7 +425,7 @@ export async function run(args) {
   // ── 10. access ────────────────────────────────────────────────────────────
   step('Cloudflare Access');
   if (skipAccess) {
-    warn('skipped (--no-access). Add protection later with `./a51 access`.');
+    warn('skipped (--no-access). Add protection later with `./a51 access apply`.');
   } else {
     await attempt(
       followUps,
@@ -466,10 +470,10 @@ export async function run(args) {
  * domain stops working, and neither change is undone by walking away.
  *
  * The disclaimer always prints. When the zone actually has something to lose it
- * names the exact records and escalates to a typed confirmation, which `--yes`
- * can never satisfy: an unattended run must not be able to hijack a domain
- * somebody is using. A clean burner zone gets a plain y/N, which keeps the loud
- * path rare enough to still mean something when it fires.
+ * names the exact records and escalates to a typed confirmation, so hijacking a
+ * domain somebody is using cannot happen on a reflexive Enter. A clean burner
+ * zone gets a plain y/N, which keeps the loud path rare enough to still mean
+ * something when it fires.
  *
  * Returns false if the operator backs out.
  */

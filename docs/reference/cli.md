@@ -35,7 +35,6 @@ an upload **fails**, or when you pass `--verbose`.
 | Flag / variable | Effect |
 |---|---|
 | `--help`, `-h` | Usage for the command, then exit |
-| `--yes`, `-y`, `A51_YES=1` | Non-interactive: take every default, never prompt. Fails rather than guessing a value with no default. **Never** satisfies a destructive typed confirmation. |
 | `--verbose`, `A51_VERBOSE=1` | Show every wrangler invocation and its full output. Off by default: wrangler is chatty enough to bury the CLI's own report |
 | `--version` | Print the version from `package.json` |
 | `A51_DEBUG=1` | Print a stack trace on an unhandled error |
@@ -67,7 +66,7 @@ API token, a rejected token, no account, or an unresolvable zone.
 ## setup
 
 ```
-./a51 setup [--yes] [--dry-run] [--no-access]
+./a51 setup [--dry-run] [--no-access]
 ```
 
 Provisions and deploys everything: D1 database and schema, both R2 buckets, the
@@ -83,14 +82,13 @@ Setting `DASHBOARD_HOSTNAME` or `AUTOPILOT_HOSTNAME` in `.env` overrides the
 derived value without prompting.
 
 The takeover confirmation escalates to a typed `TAKEOVER` when the zone already
-has MX or apex records — which `--yes` cannot satisfy, so an unattended run
-cannot hijack a domain in use. Setup also refuses to start if either derived
+has MX or apex records, so hijacking a domain in use cannot happen on a reflexive
+Enter. Setup also refuses to start if either derived
 hostname already holds a DNS record belonging to something else.
 
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Resolve and save configuration, print the plan, change nothing on Cloudflare |
-| `--yes` | Accept defaults, no prompts |
 | `--no-access` | Skip Cloudflare Access. **The dashboard is then readable by anyone who finds the hostname.** |
 
 Safe to re-run at any time. Full step-by-step: [getting-started](../guides/getting-started.md).
@@ -175,7 +173,7 @@ The D1 table is still called `domains` — only the command was renamed.
 **Roles are asked when omitted.** With no roles argument you get a three-way
 choice: HTTP and email, HTTP only, or email only. Pass them positionally
 (`add host http`) to skip the prompt, which is also what anything scripted should
-do. Under `--yes` the first option (both) is taken, matching the old default.
+do.
 
 | Roles | What is provisioned |
 |---|---|
@@ -198,7 +196,7 @@ destructive part:
 - **Apex + mail** always confirms, since Email Routing locks MX for the whole zone.
 - **Subdomain** confirms only when records are already in the way.
 - Either way, records that will actually be replaced are listed by name and the
-  gate becomes a typed `TAKEOVER`, which `--yes` cannot satisfy.
+  gate becomes a typed `TAKEOVER` rather than a y/N.
 
 No redeploy needed: the next page load and the next agent call pick the host up.
 DNS and the certificate take a minute.
@@ -313,7 +311,7 @@ the `email()` handler) and Cloudflare Access (the local server has no edge auth)
 ./a51 destroy
 ```
 
-Two gates, neither satisfiable by `--yes`:
+Two gates, each needing a typed word rather than a y/N:
 
 1. Type `REMOVE`. Deletes the three Workers, the Pages project, the dashboard
    DNS record and the Access application. All rebuildable from this repository;

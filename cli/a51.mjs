@@ -11,7 +11,7 @@
 //     so it can be inspected and made idempotent; only code uploads use wrangler.
 //   * .env is the only state. Nothing is cached anywhere else.
 
-import { setAssumeYes, closePrompts } from './lib/prompt.mjs';
+import { closePrompts } from './lib/prompt.mjs';
 import { color, plain, die, setVerbose } from './lib/log.mjs';
 import { CloudflareError } from './lib/cloudflare.mjs';
 import { printTokenPermissions } from './lib/permissions.mjs';
@@ -20,7 +20,7 @@ const COMMANDS = {
   setup: {
     module: './commands/setup.mjs',
     summary: 'provision the whole deployment on Cloudflare (safe to re-run)',
-    usage: './a51 setup [--yes] [--dry-run] [--no-access]',
+    usage: './a51 setup [--dry-run] [--no-access]',
   },
   deploy: {
     module: './commands/deploy.mjs',
@@ -99,7 +99,6 @@ function usage() {
   plain(`  ${color.bold('Global flags')}`);
   plain('');
   plain(`    ${color.dim('--help, -h')}   usage for one command`);
-  plain(`    ${color.dim('--yes, -y')}    non-interactive; never satisfies a typed confirmation`);
   plain(`    ${color.dim('--verbose')}    show every wrangler call and its full output`);
   plain(`    ${color.dim('--version')}    print the version`);
   plain('');
@@ -148,7 +147,6 @@ async function main() {
     die(`unknown command "${command}"`);
   }
 
-  if (args.includes('--yes') || args.includes('-y') || process.env.A51_YES === '1') setAssumeYes(true);
   if (args.includes('--verbose') || process.env.A51_VERBOSE === '1') setVerbose(true);
 
   const mod = await import(spec.module);

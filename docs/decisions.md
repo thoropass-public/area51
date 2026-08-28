@@ -358,9 +358,8 @@ and asks to confirm before provisioning anything.
 zone, and the apex address record is replaced by the catcher's Custom Domain.
 Neither is undone by walking away. When the zone already has MX or apex records,
 setup lists them by name and requires the operator to type `TAKEOVER` — which
-`--yes` can never satisfy, matching the rule already in `prompt.mjs` that an
-unattended run must not be able to destroy data. An unattended install can no
-longer hijack a domain somebody is using.
+a reflexive Enter cannot clear. Hijacking a domain somebody is using now takes
+deliberate typing.
 
 A clean burner zone gets a plain y/N. Keeping the loud path rare is the point: a
 warning that fires on every run is a warning nobody reads. `--dry-run` prints the
@@ -465,6 +464,33 @@ failures here are one missing token permission or an account-level toggle (R2 no
 enabled), and the rest of the deployment is still worth completing. Because every
 step is idempotent, fixing the cause and re-running converges. The completed steps
 report "already correct" and only the broken one runs again.
+
+## There is no unattended mode
+
+`--yes` / `A51_YES=1` was removed. Every prompt is answered by a person, and the
+commands that prompt refuse to run without a TTY rather than hanging on
+end-of-input.
+
+**Why:** the flag's whole job was to supply answers nobody had given, and the
+worst case was concrete rather than theoretical. On a fresh install `--yes` made
+the Access allow-list prompt optional (`required: !isAssumeYes()`), so an
+unattended `./a51 setup` skipped Cloudflare Access entirely and published a
+world-readable dashboard — one that can read every captured request and email.
+The plan block flagged it in yellow, and `--yes` auto-accepted the plan.
+
+Every prompt in this CLI sits in front of something that provisions or destroys
+live infrastructure: taking over a zone's mail, replacing an apex record, deleting
+a database. "Take the default" is not a safe answer to any of those, and a flag
+that says "assume the safe thing" cannot exist when the safe thing is what the
+question was asking about.
+
+What this costs: `./a51 setup`, `purge`, `destroy`, `rotate-secret` and
+`black-holes add` cannot run from CI. That is intended — none of them should. The
+read-and-upload commands never call a prompt, so **`status`, `doctor`, `deploy`
+and `tail` remain fully scriptable**, which is the half worth automating.
+
+If you want a public dashboard, `--no-access` still says so explicitly. Making it
+the outcome of a convenience flag was the mistake.
 
 ## `package-lock.json` is gitignored
 

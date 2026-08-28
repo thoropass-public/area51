@@ -12,7 +12,7 @@
 //   * .env is the only state. Nothing is cached anywhere else.
 
 import { setAssumeYes, closePrompts } from './lib/prompt.mjs';
-import { color, plain, die } from './lib/log.mjs';
+import { color, plain, die, setVerbose } from './lib/log.mjs';
 import { CloudflareError } from './lib/cloudflare.mjs';
 import { printTokenPermissions } from './lib/permissions.mjs';
 
@@ -29,7 +29,7 @@ const COMMANDS = {
   },
   status: {
     module: './commands/status.mjs',
-    summary: 'show what is deployed and where',
+    summary: 'one screen: what is deployed and where (cheap; see doctor to verify)',
     usage: './a51 status',
   },
   doctor: {
@@ -75,12 +75,12 @@ const COMMANDS = {
   },
   dev: {
     module: './commands/dev.mjs',
-    summary: 'run a piece locally against the remote stores',
+    summary: 'run one piece locally (local storage; -- --remote for the real stores)',
     usage: './a51 dev <dashboard | black-holes | autopilot | cleanup>',
   },
   destroy: {
     module: './commands/destroy.mjs',
-    summary: 'tear the deployment down — empties buckets, no manual steps (two typed confirmations)',
+    summary: 'tear it all down (two typed confirmations, empties buckets itself)',
     usage: './a51 destroy',
   },
 };
@@ -95,6 +95,13 @@ function usage() {
   for (const [name, spec] of Object.entries(COMMANDS)) {
     plain(`  ${color.bold(name.padEnd(width))}  ${spec.summary}`);
   }
+  plain('');
+  plain(`  ${color.bold('Global flags')}`);
+  plain('');
+  plain(`    ${color.dim('--help, -h')}   usage for one command`);
+  plain(`    ${color.dim('--yes, -y')}    non-interactive; never satisfies a typed confirmation`);
+  plain(`    ${color.dim('--verbose')}    show every wrangler call and its full output`);
+  plain(`    ${color.dim('--version')}    print the version`);
   plain('');
   printTokenPermissions();
   plain(`  ${color.dim('first run:')}  cp .env.example .env  &&  ./a51 setup`);
@@ -142,6 +149,7 @@ async function main() {
   }
 
   if (args.includes('--yes') || args.includes('-y') || process.env.A51_YES === '1') setAssumeYes(true);
+  if (args.includes('--verbose') || process.env.A51_VERBOSE === '1') setVerbose(true);
 
   const mod = await import(spec.module);
   const code = await mod.run(args);

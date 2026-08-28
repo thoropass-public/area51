@@ -7,7 +7,7 @@
 // API cannot see.
 
 import { loadContext, parseRoles, zoneForHostname } from '../lib/context.mjs';
-import { heading, plain, color, info } from '../lib/log.mjs';
+import { heading, section, plain, color, info, hint, summary, sym } from '../lib/log.mjs';
 import { applySchema, ensurePagesProject, ensurePagesDomain, ensureBlackHole, ensureAccess, pagesBindings } from '../lib/provision.mjs';
 import { parseList } from '../lib/env.mjs';
 
@@ -22,19 +22,19 @@ class Report {
 
   ok(msg) {
     this.pass += 1;
-    plain(`  ${color.green('✓')} ${msg}`);
+    plain(`  ${sym.ok} ${msg}`);
   }
 
   warn(msg, fix) {
     this.warns.push(msg);
-    plain(`  ${color.yellow('!')} ${msg}`);
-    if (fix) plain(`      ${color.dim(fix)}`);
+    plain(`  ${sym.warn} ${msg}`);
+    if (fix) hint(fix);
   }
 
   fail(msg, fix) {
     this.fails.push(msg);
-    plain(`  ${color.red('✗')} ${msg}`);
-    if (fix) plain(`      ${color.dim(fix)}`);
+    plain(`  ${sym.fail} ${msg}`);
+    if (fix) hint(fix);
   }
 }
 
@@ -76,7 +76,7 @@ export async function run(args) {
   heading(`AREA 51 doctor${fix ? color.yellow('  (--fix: will repair what it can)') : ''}`);
 
   // ── configuration ─────────────────────────────────────────────────────────
-  plain(`\n${color.bold('Configuration')}`);
+  section('Configuration');
   const required = ['CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'D1_DATABASE_NAME', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'WORKER_NAME', 'AGENT_WORKER_NAME', 'CLEANUP_WORKER_NAME', 'PAGES_PROJECT_NAME', 'DASHBOARD_HOSTNAME', 'AUTOPILOT_HOSTNAME'];
   const missing = required.filter((k) => !env[k]);
   if (missing.length) r.fail(`.env is missing ${missing.join(', ')}`, 'Run `./a51 setup` — it fills these in as it provisions.');
@@ -94,7 +94,7 @@ export async function run(args) {
   }
 
   // ── storage ───────────────────────────────────────────────────────────────
-  plain(`\n${color.bold('Storage')}`);
+  section('Storage');
   let tables = [];
   if (env.D1_DATABASE_ID) {
     try {
@@ -144,7 +144,7 @@ export async function run(args) {
   }
 
   // ── workers ───────────────────────────────────────────────────────────────
-  plain(`\n${color.bold('Workers')}`);
+  section('Workers');
   const WORKER_CHECKS = [
     { target: 'black-holes', label: 'Black Holes', name: env.WORKER_NAME, bindings: ['DB', 'EML', 'FILES'] },
     { target: 'autopilot', label: 'Autopilot', name: env.AGENT_WORKER_NAME, bindings: ['DB', 'EML', 'AGENT_SECRET'] },
@@ -178,7 +178,7 @@ export async function run(args) {
   }
 
   // ── black holes ───────────────────────────────────────────────────────────
-  plain(`\n${color.bold('Black holes')}`);
+  section('Black holes');
   let blackHoles = [];
   if (env.D1_DATABASE_ID && tables.includes('domains')) {
     try {
@@ -268,7 +268,7 @@ export async function run(args) {
   }
 
   // ── dashboard ─────────────────────────────────────────────────────────────
-  plain(`\n${color.bold('Dashboard')}`);
+  section('Dashboard');
   const project = await cf.getPagesProject(accountId, env.PAGES_PROJECT_NAME);
   if (!project) {
     r.fail(`Pages project "${env.PAGES_PROJECT_NAME}" does not exist`, 'Run `./a51 setup`.');
@@ -339,7 +339,7 @@ export async function run(args) {
   }
 
   // ── access ────────────────────────────────────────────────────────────────
-  plain(`\n${color.bold('Access control')}`);
+  section('Access control');
   const allowed = parseList(env.ALLOWED_EMAILS);
   try {
     const apps = (await cf.listAccessApps(accountId)) || [];
@@ -380,7 +380,7 @@ export async function run(args) {
 
   // ── live probes ───────────────────────────────────────────────────────────
   if (!skipProbes) {
-    plain(`\n${color.bold('Live probes')}`);
+    section('Live probes');
     for (const row of blackHoles) {
       const roles = parseRoles(safeRoles(row.roles), { fallback: [] });
       if (!roles.includes('http')) continue;
@@ -434,12 +434,16 @@ function safeRoles(raw) {
 
 function summarize(r) {
   plain('');
-  const parts = [
-    color.green(`${r.pass} ok`),
-    r.warns.length ? color.yellow(`${r.warns.length} warning${r.warns.length === 1 ? '' : 's'}`) : null,
-    r.fails.length ? color.red(`${r.fails.length} problem${r.fails.length === 1 ? '' : 's'}`) : null,
-  ].filter(Boolean);
-  heading(parts.join(' · '));
-  if (!r.fails.length && !r.warns.length) info(color.dim('Everything checks out.'));
+  summary([
+    { count: r.pass, one: 'ok', many: 'ok', color: 'green' },
+    { count: r.warns.length, one: 'warning', many: 'warnings', color: 'yellow' },
+    { count: r.fails.length, one: 'problem', many: 'problems', color: 'red' },
+  ]);
+  if (!r.fails.length && !r.warns.length) {
+    info(color.dim('Everything checks out.'));
+  } else if (r.fails.length) {
+    info(color.dim('`./a51 doctor --fix` repairs the schema, Pages bindings, black hole'));
+    info(color.dim('bindings and the Access policy. The rest need the fix printed above.'));
+  }
   plain('');
 }

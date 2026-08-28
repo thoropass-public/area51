@@ -100,6 +100,13 @@ Three things cannot be exercised locally:
 
 **CLI**
 
+- **All output goes through `cli/lib/log.mjs`.** It defines the whole visual
+  vocabulary — symbols, indentation, `kv`, `table`, `section`, `summary`. If you
+  need a shape that is not there, add it there rather than hand-rolling spacing
+  in a command, or the columns stop lining up between commands.
+- Default verbosity is a summary: what changed, what did not, what needs a human.
+  Anything only useful while debugging goes through `trace()`, which prints under
+  `--verbose` and is silent otherwise.
 - Provisioning uses the REST API, not wrangler, so it can inspect state and be
   idempotent. Wrangler is only for uploading code and installing secrets.
 - Every provisioning helper is **GET-then-act** and reports `created: false` when

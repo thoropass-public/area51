@@ -10,7 +10,7 @@
 // Functions and the dashboard, for nothing an operator can see.
 
 import { loadContext, parseRoles, zoneForHostname } from '../lib/context.mjs';
-import { step, ok, warn, skip, plain, heading, color, resetSteps, die, info } from '../lib/log.mjs';
+import { step, ok, warn, skip, plain, heading, color, resetSteps, die, info, table, sym, hint } from '../lib/log.mjs';
 import { confirm, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 import { ensureBlackHole, inspectZoneTakeover, describeTakeover } from '../lib/provision.mjs';
 
@@ -32,23 +32,29 @@ export async function run(args) {
 }
 
 async function list(cf, accountId, env) {
-  heading('Black holes');
+  heading(`Black holes ${color.dim(`— worker ${env.WORKER_NAME}`)}`);
   const rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
   if (!rows.length) {
     plain('');
-    warn('none configured. Add one with `./a51 black-holes add <host> http,mail`');
+    warn('none configured');
+    hint('Add one with `./a51 black-holes add <host>`');
+    plain('');
     return 0;
   }
 
+  // The Custom Domain list is a nice-to-have: the table is the source of truth,
+  // so a failure here costs the BOUND column, not the listing.
   let bound = [];
+  let boundKnown = true;
   try {
     bound = (await cf.listWorkerDomains(accountId, env.WORKER_NAME)) || [];
   } catch {
-    // Listing custom domains is a nice-to-have here; the table is the source of truth.
+    boundKnown = false;
   }
   const boundHosts = new Set(bound.map((d) => d.hostname));
 
-  plain('');
+  const out = [[color.dim('HOST'), color.dim('ROLES'), color.dim('CAPTURES'), color.dim('BOUND')]];
+  let unbound = 0;
   for (const row of rows) {
     let roles = [];
     try {
@@ -56,13 +62,40 @@ async function list(cf, accountId, env) {
     } catch {
       roles = [];
     }
-    const http = roles.includes('http');
+    if (!Array.isArray(roles)) roles = [];
+    const wantsHttp = roles.includes('http');
     const attached = boundHosts.has(row.domain);
-    const flag = http && !attached ? color.yellow('  ← not bound to the worker') : '';
-    plain(`  ${color.bold(row.domain.padEnd(34))} ${roles.join(', ').padEnd(12)}${flag}`);
+
+    const surfaces = [];
+    if (wantsHttp) surfaces.push(`https://${row.domain}/*`);
+    if (roles.includes('mail')) surfaces.push(`*@${row.domain}`);
+
+    let state;
+    if (!wantsHttp) state = color.dim('n/a');
+    else if (!boundKnown) state = color.dim('?');
+    else if (attached) state = sym.ok;
+    else { state = sym.fail; unbound += 1; }
+
+    out.push([
+      color.cyan(row.domain),
+      roles.length ? roles.join(', ') : color.yellow('none'),
+      color.dim(surfaces.join('  ') || '—'),
+      state,
+    ]);
   }
+
   plain('');
-  info(color.dim(`worker: ${env.WORKER_NAME} · database: ${env.D1_DATABASE_NAME}`));
+  table(out);
+  plain('');
+
+  if (unbound) {
+    warn(`${unbound} host${unbound === 1 ? '' : 's'} with the http role ${unbound === 1 ? 'is' : 'are'} not bound to ${env.WORKER_NAME}`);
+    hint('Fix with `./a51 doctor --fix`, or re-add the host.');
+  } else if (!boundKnown) {
+    skip('could not read the worker\'s Custom Domains — BOUND is unknown (needs Zone · Workers Routes:Edit)');
+  }
+  info(color.dim(`${rows.length} black hole${rows.length === 1 ? '' : 's'} · database ${env.D1_DATABASE_NAME}`));
+  plain('');
   return 0;
 }
 

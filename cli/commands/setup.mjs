@@ -15,7 +15,7 @@
 import { randomBytes } from 'node:crypto';
 import { loadEnv, saveEnv, ensureEnvFile, parseList, envPath } from '../lib/env.mjs';
 import { Cloudflare } from '../lib/cloudflare.mjs';
-import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die } from '../lib/log.mjs';
+import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die, setStepTotal, section, hint, detail, summary } from '../lib/log.mjs';
 import { ask, confirm, select, typeToConfirm, closePrompts, isAssumeYes } from '../lib/prompt.mjs';
 import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import {
@@ -67,6 +67,9 @@ export async function run(args) {
 
   // ── 1. credentials ────────────────────────────────────────────────────────
   resetSteps();
+  // Twelve numbered steps, so each header can say [3/12] and a reader can tell
+  // how much is left. Keep this in step with the step() calls below.
+  setStepTotal(12);
   step('Cloudflare credentials');
 
   if (!env.CLOUDFLARE_API_TOKEN) {
@@ -439,13 +442,15 @@ export async function run(args) {
   printSummary(env, roles, allowed, skipAccess);
 
   if (followUps.length) {
-    heading(`${color.yellow('Manual follow-ups')} (${followUps.length})`);
-    followUps.forEach((f, i) => {
-      plain(`  ${i + 1}. ${f.label}`);
-      for (const line of String(f.detail).split('\n')) plain(`     ${color.dim(line)}`);
-    });
+    heading(`${color.yellow(`Needs a human (${followUps.length})`)}`);
     plain('');
-    plain(`  Re-run ${color.bold('./a51 setup')} after fixing these — it only changes what is still wrong.`);
+    followUps.forEach((f, i) => {
+      plain(`  ${color.yellow(String(i + 1) + '.')} ${f.label}`);
+      hint(f.detail);
+      plain('');
+    });
+    plain(`  Everything else is provisioned. Re-run ${color.bold('./a51 setup')} after fixing these —`);
+    plain('  it only changes what is still wrong.');
     closePrompts();
     return 2;
   }

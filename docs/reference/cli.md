@@ -14,8 +14,21 @@ inspects, repairs and tears down.
 - **`.env` is the only state.** Commands read it, and `setup` / `access` /
   `rotate-secret` write back into it. There is no lock file and nothing cached in
   a home directory.
-- **Everything is idempotent.** `·` means "already correct", `✓` means "changed
-  it". Re-running is the normal way to converge a deployment.
+- **Everything is idempotent.** Re-running is the normal way to converge a
+  deployment.
+
+**Reading the output.** One symbol per outcome, the same in every command:
+
+| | Means |
+|---|---|
+| `✓` | created or changed |
+| `·` | already correct — dimmed, because nothing happened |
+| `!` | worth reading, not a failure |
+| `✗` | this step did not work; the fix is printed underneath |
+
+Numbered phases show progress as `[3/12]`. Wrangler's own output is captured and
+replaced by one line per upload with its duration; the full log appears only when
+an upload **fails**, or when you pass `--verbose`.
 
 ## Global behavior
 
@@ -23,6 +36,7 @@ inspects, repairs and tears down.
 |---|---|
 | `--help`, `-h` | Usage for the command, then exit |
 | `--yes`, `-y`, `A51_YES=1` | Non-interactive: take every default, never prompt. Fails rather than guessing a value with no default. **Never** satisfies a destructive typed confirmation. |
+| `--verbose`, `A51_VERBOSE=1` | Show every wrangler invocation and its full output. Off by default: wrangler is chatty enough to bury the CLI's own report |
 | `--version` | Print the version from `package.json` |
 | `A51_DEBUG=1` | Print a stack trace on an unhandled error |
 | `A51_API_BASE` | Point the API client at another base URL (used to run the CLI against a mock server in tests) |

@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from './env.mjs';
-import { die, color, info } from './log.mjs';
+import { die, color, plain, trace, isVerbose, sym } from './log.mjs';
 
 /** Worker targets: CLI name → directory + the .env keys its template needs. */
 export const WORKER_TARGETS = {
@@ -97,39 +97,95 @@ function wranglerEnv(env) {
 
 /**
  * Run wrangler with stdio inherited (so its progress output is the user's
- * progress output). Returns { ok, status }. `input` is piped to stdin, which is
- * how secrets are installed without ever touching argv.
+ * progress output). Returns { ok, status }.
+ *
+ * Output handling is the point of this wrapper. Wrangler is chatty — three
+ * worker deploys plus a Pages upload used to bury `setup`'s own report under
+ * several screens of build logs, which is how an operator misses the one line
+ * that mattered. So:
+ *
+ *   * `stream: true` hands the terminal over, for commands that ARE the output
+ *     (`dev`, `tail`). Those must never be captured.
+ *   * otherwise output is captured, and a single line reports the result with
+ *     how long it took. The full log is replayed only when the command FAILS,
+ *     which is exactly when you want it, or when --verbose asks for it up front.
+ *
+ * `input` is piped to stdin, which is how secrets are installed without ever
+ * touching argv.
  */
-export function runWrangler(args, { cwd = repoRoot, env = {}, input } = {}) {
+export function runWrangler(args, { cwd = repoRoot, env = {}, input, stream = false, label } = {}) {
   const bin = requireWrangler();
-  info(color.dim(`$ wrangler ${args.join(' ')}`));
+  trace(`$ wrangler ${args.join(' ')}`);
+
+  // --verbose falls back to inheriting, so the raw output arrives live rather
+  // than after the fact.
+  const inherit = stream || isVerbose();
+  const interactive = process.stdout.isTTY && !inherit && Boolean(label);
+  const started = Date.now();
+
+  if (interactive) process.stdout.write(`  ${color.dim('·')} ${label}…`);
+
   const res = spawnSync(bin, args, {
     cwd,
     env: wranglerEnv(env),
-    stdio: input === undefined ? 'inherit' : ['pipe', 'inherit', 'inherit'],
+    stdio: inherit
+      ? (input === undefined ? 'inherit' : ['pipe', 'inherit', 'inherit'])
+      : ['pipe', 'pipe', 'pipe'],
     input,
+    encoding: inherit ? undefined : 'utf8',
   });
+
   if (res.error) die(`failed to run wrangler: ${res.error.message}`);
-  return { ok: res.status === 0, status: res.status };
+  const succeeded = res.status === 0;
+  const secs = ((Date.now() - started) / 1000).toFixed(1);
+
+  if (label && !inherit) {
+    const line = `  ${succeeded ? sym.ok : sym.fail} ${label} ${color.dim(`(${secs}s)`)}`;
+    // Overwrite the "working" line in place on a TTY; print a fresh one otherwise
+    // (a \r in a log file is just noise).
+    if (interactive) process.stdout.write(`\r\x1b[K${line}\n`);
+    else console.log(line);
+  }
+
+  // A failure is the one time the full log earns its space.
+  if (!succeeded && !inherit) {
+    const out = `${res.stdout || ''}\n${res.stderr || ''}`.trim();
+    if (out) {
+      plain('');
+      for (const l of out.split('\n')) console.log(`      ${color.dim(l)}`);
+      plain('');
+    }
+  }
+
+  return { ok: succeeded, status: res.status };
 }
 
 /** Render the target's config, then `wrangler deploy` from its directory. */
 export function deployWorker(target, env, extraArgs = []) {
   renderWranglerConfig(target, env);
   const spec = WORKER_TARGETS[target];
-  return runWrangler(['deploy', ...extraArgs], { cwd: join(repoRoot, spec.dir), env });
+  return runWrangler(['deploy', ...extraArgs], {
+    cwd: join(repoRoot, spec.dir),
+    env,
+    label: `uploaded ${env[spec.serviceKey] || target}`,
+  });
 }
 
 /** Install (or overwrite) a Worker secret, piping the value through stdin. */
 export function putWorkerSecret(target, env, name, value) {
   const spec = WORKER_TARGETS[target];
-  return runWrangler(['secret', 'put', name], { cwd: join(repoRoot, spec.dir), env, input: value });
+  return runWrangler(['secret', 'put', name], {
+    cwd: join(repoRoot, spec.dir),
+    env,
+    input: value,
+    label: `installed ${name} on ${env[spec.serviceKey] || target}`,
+  });
 }
 
 /** Upload dashboard/ to the Pages project. */
 export function deployPages(env, extraArgs = []) {
   return runWrangler(
     ['pages', 'deploy', '.', '--project-name', env.PAGES_PROJECT_NAME, '--branch', 'main', '--commit-dirty=true', ...extraArgs],
-    { cwd: join(repoRoot, 'dashboard'), env },
+    { cwd: join(repoRoot, 'dashboard'), env, label: `uploaded the dashboard to ${env.PAGES_PROJECT_NAME}` },
   );
 }

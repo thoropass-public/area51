@@ -36,7 +36,7 @@ export async function run(args) {
         '--compatibility-date=2024-10-11',
         ...passthrough,
       ],
-      { cwd: join(repoRoot, 'dashboard'), env },
+      { cwd: join(repoRoot, 'dashboard'), env, stream: true },
     );
     return ok ? 0 : 1;
   }
@@ -48,7 +48,7 @@ export async function run(args) {
       info(color.dim('  http://localhost:8787/__scheduled?cron=' + encodeURIComponent(env.CLEANUP_CRON || '0 6 * * *')));
     }
     plain('');
-    const { ok } = runWrangler(['dev', ...passthrough], { cwd: join(repoRoot, WORKER_TARGETS[target].dir), env });
+    const { ok } = runWrangler(['dev', ...passthrough], { cwd: join(repoRoot, WORKER_TARGETS[target].dir), env, stream: true });
     return ok ? 0 : 1;
   }
 

@@ -24,6 +24,6 @@ export async function run(args) {
   heading(`Tailing ${service}`);
   info(color.dim('Ctrl-C to stop. Logs are also queryable in the dashboard (Workers → Logs).'));
   plain('');
-  const { ok } = runWrangler(['tail', service, ...passthrough], { env });
+  const { ok } = runWrangler(['tail', service, ...passthrough], { env, stream: true });
   return ok ? 0 : 1;
 }

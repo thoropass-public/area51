@@ -160,13 +160,14 @@ order. None of these steps need the lost machine:
 ## Changing who can log in
 
 ```bash
-./a51 access list                             # show the current allow-list (read-only)
+./a51 access                                  # same as `list` — read-only
+./a51 access list                             # show the current allow-list
 ./a51 access add new@gmail.com,asca.com       # add entries, keep the existing ones
 ./a51 access remove new@gmail.com             # remove entries, keep the rest
-./a51 access                                    # re-apply ALLOWED_EMAILS from .env
+./a51 access apply                            # re-apply ALLOWED_EMAILS from .env
 ```
 
-`--add` / `--remove` edit the allow-list incrementally against what is already in
+`add` / `remove` edit the allow-list incrementally against what is already in
 `ALLOWED_EMAILS`. Entries are full addresses (`you@example.com`) or bare domains
 (`example.com`), normalized to lowercase. Both write the result to the Access
 policy **and** back to `ALLOWED_EMAILS` in `.env`.
@@ -176,6 +177,7 @@ footgun (it silently wiped any entry you forgot to re-type). **To set the list
 wholesale**, edit `ALLOWED_EMAILS` in `.env` and run `./a51 access apply`, which
 re-applies exactly what the file says. You cannot leave the list empty (that would
 make the dashboard public, and there is no flag that does).
+
 Existing sessions keep working until they expire. Revoke them in Zero Trust →
 Access → *your app* if that matters.
 

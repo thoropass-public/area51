@@ -465,6 +465,69 @@ enabled), and the rest of the deployment is still worth completing. Because ever
 step is idempotent, fixing the cause and re-running converges. The completed steps
 report "already correct" and only the broken one runs again.
 
+**That now covers unexpected failures too, not just anticipated ones.** The
+`followUps` pattern only caught what a helper had been written to expect; anything
+else — a Cloudflare error on a call with no specific handler, a network blip, a bug
+— unwound to the top-level catch and abandoned the run. Every step is now wrapped
+in `attempt()` (`cli/lib/provision.mjs`), which converts a throw into a follow-up
+and reports whether the step worked.
+
+**Dependent steps skip rather than fail again.** `attempt()` returns `{ok, value}`
+so a caller can tell the difference between "this failed" and "this cannot be
+attempted": no worker is uploaded without a database id to bind, and a hostname
+blocked by a foreign DNS record is not provisioned. Four identical errors for one
+root cause is worse than one error and three honest skips.
+
+`deploy all` follows the same rule — every target runs even if one fails, and the
+report says how many succeeded — and so does `doctor --fix`, because a tool whose
+job is listing everything wrong must not hide every check after the first repair
+that throws.
+
+The only fatal errors left are the ones that make everything downstream
+meaningless: no API token, a rejected token, no account, an unresolvable zone.
+
+## There is no local dev server
+
+`./a51 dev` wrapped `wrangler dev` for the workers and `wrangler pages dev` for the
+dashboard. It was removed, and the npm `dev:*` scripts with it.
+
+**Why:** the two things most worth testing before a deploy cannot be exercised
+locally at all. The `email()` handler is only ever invoked by Cloudflare Email
+Routing, so email capture always needed a real deployment; and the local Pages
+server has no edge auth, so the expired-session path did too. What remained was a
+reload loop for the dashboard against an empty local D1 and R2 — and since
+`wrangler pages dev` has no `--remote` flag, that loop could never see real
+captured data. Against a three-second `./a51 deploy`, it did not earn a command, a
+flag surface, and four docs pages explaining what it could not reach.
+
+The loop is now deploy-and-look ([development.md](development.md)), on a throwaway
+zone rather than one carrying an engagement.
+
+What went with it, and what replaced it: the cleanup worker's `--test-scheduled`
+trigger, which was a local simulation of a cron it has no other entry point for —
+use `./a51 purge` for the same outcome and `./a51 tail cleanup` to watch a real
+run.
+
+## Wrangler's output is captured, not inherited
+
+Worker and Pages uploads run with piped stdio. Each reports one line with a
+duration; the full log appears only when the command fails, or under `--verbose`.
+
+**Why:** wrangler is chatty. Three worker deploys plus a Pages upload used to bury
+`setup`'s own report — the plan, the follow-ups, the summary — under several
+screens of build output. An operator who has to scroll to find the one line that
+mattered will eventually stop looking, and the lines that matter here are things
+like "the dashboard is NOT protected".
+
+Failure is the one time the full log earns its space, so that is exactly when it is
+replayed. `--verbose` restores the raw stream up front for when a step is
+misbehaving and the calls themselves are what you need to see.
+
+**`tail` and `dev`-style streaming commands are the exception** — for them the
+output *is* the product, so `runWrangler` takes `stream: true` and hands the
+terminal over. That distinction is the whole reason the option exists; capturing a
+log stream would be absurd.
+
 ## There is no unattended mode
 
 `--yes` / `A51_YES=1` was removed. Every prompt is answered by a person, and the

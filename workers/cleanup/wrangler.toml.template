@@ -6,7 +6,7 @@
 
 name = "${CLEANUP_WORKER_NAME}"
 main = "src/index.js"
-compatibility_date = "2024-10-11"
+compatibility_date = "2026-05-20"
 
 # No public surface at all: this worker has only a scheduled() handler and is
 # never bound to a domain. The disabled URLs are belt-and-suspenders.

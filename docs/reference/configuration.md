@@ -162,8 +162,7 @@ it lives:
 | Autopilot read window | 60 minutes | `workers/autopilot/src/index.js` (`WINDOW_MINUTES`) |
 | Autopilot URI namespace | `/-/` | `workers/autopilot/src/index.js` (`AUTOPILOT_PREFIX`) |
 | Auth header name | `X-A51-Secret` | Autopilot worker |
-| Worker compatibility date | `2024-10-11` | the three `wrangler.toml.template` files |
-| Pages compatibility date | `2026-05-20` | `cli/lib/provision.mjs` (`PAGES_COMPATIBILITY_DATE`) |
+| Compatibility date | `2026-05-20` | the three `wrangler.toml.template` files **and** `cli/lib/provision.mjs` (`PAGES_COMPATIBILITY_DATE`) — keep all four in step |
 
 The last two matter, and they deliberately differ. Pages Functions get their
 compatibility date from the project's deployment config, which the CLI sets — so
@@ -171,20 +170,19 @@ it lives in `provision.mjs`, not in a file you can edit, and
 `./a51 deploy dashboard` **overwrites** the live value with it every time. The
 Workers get theirs from their own templates.
 
-**They differ by drift, not by design, and that is a known gap.** The Pages value
-was raised in the Cloudflare dashboard; the workers were never touched. The
-intended end state is one current date in all four places, raised deliberately —
-Cloudflare's guidance is to keep it current, and some runtime features are gated
-behind a recent date.
+**All four must stay in step.** Pages Functions get their date from the project's
+deployment config, which the CLI sets — so it lives in `provision.mjs`, and
+`./a51 deploy dashboard` **overwrites** the live value with it every time. The
+Workers get theirs from their own templates. They were out of sync once (Pages
+raised in the dashboard, workers untouched) and a `deploy dashboard` would have
+silently rolled Pages back nineteen months.
 
 A compatibility date does **not** gate security patches: Cloudflare patches the
 runtime regardless and supports old dates indefinitely. It gates behavioural flags
-and **bug fixes**, which is the real cost of staleness. Two fixes in the current
-gap touch this codebase directly — cross-request promise resolution (2024-10-14),
-which is the `ctx.waitUntil` request-logging pattern, and TextDecoder
-lone-surrogate handling (2026-02-24), which runs over attacker-controlled email
-headers.
+and **bug fixes**, which is the real cost of letting it rot. Two examples that
+touch this codebase — cross-request promise resolution (2024-10-14), which is the
+`ctx.waitUntil` request-logging pattern, and TextDecoder lone-surrogate handling
+(2026-02-24), which runs over attacker-controlled email headers.
 
-Raising the workers is therefore worth doing, and is a real behaviour change on a
-live catcher: give it its own commit and re-verify the email path afterwards,
-since `nodejs_compat` + `postal-mime` is where the risk concentrates.
+Raise it deliberately, all four together, and re-verify the email path afterwards:
+`nodejs_compat` + `postal-mime` is where the risk concentrates.

@@ -6,7 +6,7 @@
 
 name = "${AGENT_WORKER_NAME}"
 main = "src/index.js"
-compatibility_date = "2024-10-11"
+compatibility_date = "2026-05-20"
 
 # No auto-generated public URLs. Reachable only via the Custom Domain bound to
 # it by `./a51 setup` (AUTOPILOT_HOSTNAME).

@@ -23,13 +23,20 @@ import { degraded, zoneForHostname } from './context.mjs';
  * it OVERWRITES whatever the live one is set to. Changing it is a runtime change
  * to every deployment that redeploys.
  *
- * It deliberately does NOT match the three workers, which sit at 2024-10-11 in
- * their `wrangler.toml.template` files. The two halves are versioned separately
- * because they are deployed separately, and each should keep the runtime it has
- * actually been running on: bumping the workers' date would change the behaviour
- * of a live catcher, which is not something a docs-and-config pass should do
- * silently. If you do want them aligned, move the workers deliberately and test
- * the email path afterwards.
+ * It does NOT currently match the three workers, which sit at 2024-10-11 in their
+ * `wrangler.toml.template` files. That divergence is DRIFT, not design: this value
+ * was raised in the Cloudflare dashboard at some point and the workers were never
+ * touched. The target is a single current date across all four places, raised
+ * deliberately — Cloudflare's guidance is to keep it current, and new runtime
+ * features are gated behind a recent date.
+ *
+ * Raising the workers is the outstanding half of that. It is a real behaviour
+ * change on a live catcher, so it wants its own commit and a re-verified email
+ * path afterwards (`nodejs_compat` + postal-mime is where the risk concentrates).
+ * Two fixes in the gap touch this codebase directly: cross-request promise
+ * resolution (2024-10-14), which is exactly the `ctx.waitUntil` logging pattern,
+ * and TextDecoder lone-surrogate handling (2026-02-24), which runs over
+ * attacker-controlled email headers. Being behind on those is not free.
  */
 export const PAGES_COMPATIBILITY_DATE = '2026-05-20';
 

@@ -171,7 +171,20 @@ it lives in `provision.mjs`, not in a file you can edit, and
 `./a51 deploy dashboard` **overwrites** the live value with it every time. The
 Workers get theirs from their own templates.
 
-They are versioned apart because they deploy apart, and each should keep the
-runtime it has actually been running on. Raising either is a runtime change for
-every deployment that redeploys: do it deliberately, and re-verify the affected
-path afterwards (the email handler, for the catcher).
+**They differ by drift, not by design, and that is a known gap.** The Pages value
+was raised in the Cloudflare dashboard; the workers were never touched. The
+intended end state is one current date in all four places, raised deliberately —
+Cloudflare's guidance is to keep it current, and some runtime features are gated
+behind a recent date.
+
+A compatibility date does **not** gate security patches: Cloudflare patches the
+runtime regardless and supports old dates indefinitely. It gates behavioural flags
+and **bug fixes**, which is the real cost of staleness. Two fixes in the current
+gap touch this codebase directly — cross-request promise resolution (2024-10-14),
+which is the `ctx.waitUntil` request-logging pattern, and TextDecoder
+lone-surrogate handling (2026-02-24), which runs over attacker-controlled email
+headers.
+
+Raising the workers is therefore worth doing, and is a real behaviour change on a
+live catcher: give it its own commit and re-verify the email path afterwards,
+since `nodejs_compat` + `postal-mime` is where the risk concentrates.

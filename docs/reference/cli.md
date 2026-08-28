@@ -39,6 +39,15 @@ inspects, repairs and tears down.
 Exit `2` is the interesting one: a missing token permission or an
 account-level toggle stops *one* step, not the run. Fix the cause and re-run.
 
+**No single step can abandon a run.** `setup` provisions as much as it can and
+lists what it could not; `deploy all` runs every target even if one fails, and
+reports how many succeeded; `doctor --fix` keeps checking after a repair throws.
+Steps that genuinely depend on a failed one are skipped with a reason rather than
+being attempted and failing again — a worker is not uploaded without a database id
+to bind, and a hostname blocked by a foreign DNS record is not provisioned. The
+only fatal errors are the ones that make everything downstream meaningless: no
+API token, a rejected token, no account, or an unresolvable zone.
+
 ---
 
 ## setup

@@ -56,6 +56,35 @@ export function authFixHint(permission, { zone = null, extra = null } = {}) {
   return lines.join('\n');
 }
 
+/**
+ * Run one provisioning step and never let it abort the command.
+ *
+ * Every `ensure*` helper below already converts the failures it *expects* into
+ * `followUps`. This wraps the ones it does not: a Cloudflare error on a call with
+ * no specific handler, a network blip, a bug. Without it a single unexpected
+ * throw unwinds to the top-level catch and abandons a half-provisioned
+ * deployment — which is the opposite of what an idempotent, re-runnable setup is
+ * for. The remaining steps are usually independent and worth doing.
+ *
+ * Returns `{ ok, value }` so a caller can skip the steps that genuinely depend on
+ * this one (a worker cannot deploy without a database id) while still running the
+ * ones that do not.
+ */
+export async function attempt(followUps, label, fn, fixHint) {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    const hint = fixHint || 'Fix the cause above, then re-run — completed steps report "already correct".';
+    degraded(
+      followUps,
+      `${label}: ${message}`,
+      isAuthError(err) ? `${hint}\n${authFixHint('the permission this step needs')}` : hint,
+    );
+    return { ok: false, value: undefined };
+  }
+}
+
 // ─── zone takeover preflight ────────────────────────────────────────────────
 
 // DNS record types that occupy a hostname. A CNAME cannot coexist with any

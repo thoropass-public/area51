@@ -131,12 +131,19 @@ The token is stored in `.env`, which is gitignored and written with mode `600`.
 It is passed to wrangler through the environment, never on a command line.
 
 A token missing one permission does not break the whole run: the step that needs
-it fails, prints the exact dashboard click-path (now listing every candidate
-cause: propagation, the precise permission, Zone Resources scope, Zero Trust
+it fails, prints the exact dashboard click-path (listing every candidate cause —
+propagation, the precise permission, Zone Resources scope, Zero Trust
 activation), and setup carries on and lists the follow-up at the end (exit code
 `2`). Setup also retries auth-shaped failures a few times to ride out token
 propagation, so a brand-new token is less likely to fail spuriously on the first
 run.
+
+That applies to **any** step failure, not just permissions. Setup provisions
+everything it can and reports the rest; steps that truly depend on a failed one
+(a worker needs a database id; a hostname needs to be free) are skipped with the
+reason rather than attempted and failed. Because every step is idempotent, fixing
+the cause and re-running converges — the parts that already worked report
+"already correct".
 
 ---
 

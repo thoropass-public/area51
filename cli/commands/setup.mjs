@@ -21,11 +21,11 @@ import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
   ensurePagesProject, ensurePagesDomain, ensureAccess, authFixHint,
-  inspectZoneTakeover, describeTakeover, findHostnameConflict,
+  inspectZoneTakeover, describeTakeover, findHostnameConflict, attempt,
 } from '../lib/provision.mjs';
 import { isAuthError } from '../lib/cloudflare.mjs';
 import { printTokenPermissions } from '../lib/permissions.mjs';
-import { deployWorker, deployPages, putWorkerSecret, requireWrangler, WORKER_TARGETS } from '../lib/wrangler.mjs';
+import { deployWorker, deployPages, putWorkerSecret, wranglerBin, WORKER_TARGETS } from '../lib/wrangler.mjs';
 
 const DEFAULTS = {
   D1_DATABASE_NAME: 'area51',
@@ -162,7 +162,10 @@ export async function run(args) {
     return 1;
   }
 
-  await assertHostnamesFree(cf, accountId, zone, env);
+  // Preflight, before the plan, so a name that is already taken is visible early.
+  // It reports rather than exits: the rest of the deployment is still worth
+  // provisioning, and the conflicting hostname's own steps are skipped below.
+  const hostConflicts = await findDerivedHostnameConflicts(cf, accountId, zone, env);
 
   env.FALLBACK_ADDRESS = await ask(
     '  Fallback inbox (only used if an email capture fails; blank to skip)',
@@ -245,35 +248,79 @@ export async function run(args) {
     return 1;
   }
 
-  requireWrangler();
-  const followUps = [];
+  const followUps = [...hostConflicts.map((c) => ({ label: c.label, detail: c.detail }))];
+  const taken = new Set(hostConflicts.map((c) => c.key));
+  const dashboardHostFree = !taken.has('DASHBOARD_HOSTNAME');
+  const autopilotHostFree = !taken.has('AUTOPILOT_HOSTNAME');
+
+  // Wrangler only uploads code. If it is missing, everything provisioned over the
+  // REST API (storage, DNS, Email Routing, Access) is still worth doing, so this
+  // records a follow-up and skips the four upload steps instead of aborting.
+  let canUpload = true;
+  if (!wranglerBin()) {
+    canUpload = false;
+    warn('wrangler is not installed — provisioning will continue, but no code can be uploaded');
+    followUps.push({
+      label: 'no code was uploaded (wrangler is not installed)',
+      detail: 'Run `npm install` in the repository root, then `./a51 deploy all`.',
+    });
+  }
 
   // ── 6. storage ────────────────────────────────────────────────────────────
   step('Storage (D1 + R2)');
-  const db = await ensureDatabase(cf, accountId, env.D1_DATABASE_NAME, env.D1_DATABASE_ID);
-  env.D1_DATABASE_ID = db.id;
-  saveEnv({ D1_DATABASE_ID: db.id });
-  await applySchema(cf, accountId, db.id);
-  await ensureBuckets(cf, accountId, { emails: env.R2_BUCKET_NAME, files: env.R2_FILES_BUCKET_NAME }, followUps);
+  const dbStep = await attempt(
+    followUps,
+    `could not create or read the D1 database ${env.D1_DATABASE_NAME}`,
+    () => ensureDatabase(cf, accountId, env.D1_DATABASE_NAME, env.D1_DATABASE_ID),
+    'Create it by hand: `npx wrangler d1 create ' + env.D1_DATABASE_NAME + '`, put the id in D1_DATABASE_ID in .env, then re-run `./a51 setup`.',
+  );
+  const db = dbStep.value || { id: env.D1_DATABASE_ID || '' };
+  if (db.id) {
+    env.D1_DATABASE_ID = db.id;
+    saveEnv({ D1_DATABASE_ID: db.id });
+    await attempt(
+      followUps,
+      'could not apply db/schema.sql',
+      () => applySchema(cf, accountId, db.id),
+      'Apply it by hand: `npx wrangler d1 execute ' + env.D1_DATABASE_NAME + ' --remote --file=db/schema.sql`, or re-run `./a51 doctor --fix`.',
+    );
+  } else {
+    // Everything downstream binds to this id. Say so once, here, rather than
+    // letting four later steps fail for the same reason.
+    warn('no database id — the workers and the dashboard cannot be bound to storage');
+  }
+  await attempt(
+    followUps,
+    'could not create the R2 buckets',
+    () => ensureBuckets(cf, accountId, { emails: env.R2_BUCKET_NAME, files: env.R2_FILES_BUCKET_NAME }, followUps),
+  );
 
   // ── 7. workers ────────────────────────────────────────────────────────────
+  const skipUploads = !canUpload || !db.id;
+
   step(`Deploy ${WORKER_TARGETS['black-holes'].label}`);
-  if (!deployWorker('black-holes', env).ok) {
+  if (skipUploads) {
+    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+  } else if (!deployWorker('black-holes', env).ok) {
     followUps.push({ label: `${env.WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy black-holes`.' });
   }
 
   step(`Deploy ${WORKER_TARGETS.autopilot.label}`);
-  if (putWorkerSecret('autopilot', env, 'AGENT_SECRET', env.AGENT_SECRET).ok) {
+  if (skipUploads) {
+    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+  } else if (putWorkerSecret('autopilot', env, 'AGENT_SECRET', env.AGENT_SECRET).ok) {
     ok('installed AGENT_SECRET as an encrypted Worker Secret');
   } else {
     followUps.push({ label: 'AGENT_SECRET was not installed on the Autopilot worker', detail: 'Run `./a51 deploy autopilot` again — without the secret every agent call returns 401.' });
   }
-  if (!deployWorker('autopilot', env).ok) {
+  if (!skipUploads && !deployWorker('autopilot', env).ok) {
     followUps.push({ label: `${env.AGENT_WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy autopilot`.' });
   }
 
   step(`Deploy ${WORKER_TARGETS.cleanup.label}`);
-  if (deployWorker('cleanup', env).ok) {
+  if (skipUploads) {
+    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+  } else if (deployWorker('cleanup', env).ok) {
     ok(`retention cron registered: ${env.CLEANUP_CRON} (UTC)`);
   } else {
     followUps.push({ label: `${env.CLEANUP_WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy cleanup`. Without it, nothing trims old data.' });
@@ -281,20 +328,31 @@ export async function run(args) {
 
   // ── 8. hostnames ──────────────────────────────────────────────────────────
   step('Black hole hostname');
-  await ensureBlackHole(cf, accountId, {
-    hostname: env.BLACK_HOLE_HOSTNAME,
-    roles,
-    workerName: env.WORKER_NAME,
-    databaseId: db.id,
+  await attempt(
     followUps,
-  });
+    `could not finish setting up the black hole ${env.BLACK_HOLE_HOSTNAME}`,
+    () => ensureBlackHole(cf, accountId, {
+      hostname: env.BLACK_HOLE_HOSTNAME,
+      roles,
+      workerName: env.WORKER_NAME,
+      databaseId: db.id,
+      followUps,
+    }),
+    `Re-run \`./a51 black-holes add ${env.BLACK_HOLE_HOSTNAME} ${roles.join(',')}\` once the cause is fixed.`,
+  );
   if (roles.includes('mail')) {
-    await ensureDestinationAddress(cf, accountId, env.FALLBACK_ADDRESS, followUps);
+    await attempt(
+      followUps,
+      `could not register the fallback inbox ${env.FALLBACK_ADDRESS || '(unset)'}`,
+      () => ensureDestinationAddress(cf, accountId, env.FALLBACK_ADDRESS, followUps),
+    );
   }
 
   step('Autopilot hostname');
-  const autopilotZone = await zoneForHostname(cf, accountId, env.AUTOPILOT_HOSTNAME);
-  if (!autopilotZone) {
+  const autopilotZone = autopilotHostFree ? await zoneForHostname(cf, accountId, env.AUTOPILOT_HOSTNAME) : null;
+  if (!autopilotHostFree) {
+    skip(`${env.AUTOPILOT_HOSTNAME} skipped — a foreign DNS record is in the way (see follow-ups)`);
+  } else if (!autopilotZone) {
     followUps.push({ label: `no zone found for ${env.AUTOPILOT_HOSTNAME}`, detail: 'Add the domain to this Cloudflare account, then re-run `./a51 setup`.' });
   } else {
     try {
@@ -317,9 +375,15 @@ export async function run(args) {
 
   // ── 9. dashboard ──────────────────────────────────────────────────────────
   step('Dashboard (Cloudflare Pages)');
-  let project = await ensurePagesProject(cf, accountId, env, followUps);
+  let project = (await attempt(
+    followUps,
+    `could not create or configure the Pages project ${env.PAGES_PROJECT_NAME}`,
+    () => ensurePagesProject(cf, accountId, env, followUps),
+  )).value || null;
   const bindingsReady = !!project;   // API create + bindings PATCH succeeded
-  if (!deployPages(env).ok) {
+  if (skipUploads) {
+    skip(canUpload ? 'upload skipped — no database id to bind' : 'upload skipped — wrangler is not installed');
+  } else if (!deployPages(env).ok) {
     followUps.push({ label: 'the dashboard failed to upload', detail: 'Fix the error above, then run `./a51 deploy dashboard`.' });
   }
   if (!bindingsReady) {
@@ -328,28 +392,47 @@ export async function run(args) {
     // local git branch. Attach the bindings + pin the branch now that the project
     // exists, then redeploy so THIS deployment actually carries them; otherwise
     // every /api/* call 500s for a missing DB binding.
-    const repaired = await ensurePagesProject(cf, accountId, env, followUps);
+    const repaired = (await attempt(
+      followUps,
+      `could not attach bindings to ${env.PAGES_PROJECT_NAME} on the second attempt`,
+      () => ensurePagesProject(cf, accountId, env, followUps),
+    )).value || null;
     if (repaired) {
       project = repaired;
-      info('re-deploying the dashboard now that its D1/R2 bindings are attached…');
-      deployPages(env);
+      if (!skipUploads) {
+        info('re-deploying the dashboard now that its D1/R2 bindings are attached…');
+        deployPages(env);
+      }
     }
   }
-  await ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps);
+  if (dashboardHostFree) {
+    await attempt(
+      followUps,
+      `could not attach ${env.DASHBOARD_HOSTNAME} to the Pages project`,
+      () => ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps),
+    );
+  } else {
+    skip(`${env.DASHBOARD_HOSTNAME} skipped — a foreign DNS record is in the way (see follow-ups)`);
+  }
 
   // ── 10. access ────────────────────────────────────────────────────────────
   step('Cloudflare Access');
   if (skipAccess) {
     warn('skipped (--no-access). Add protection later with `./a51 access`.');
   } else {
-    await ensureAccess(cf, accountId, {
-      hostname: env.DASHBOARD_HOSTNAME,
-      allowed,
-      sessionDuration: env.ACCESS_SESSION_DURATION,
-      teamName: env.ACCESS_TEAM_NAME,
-      pagesProjectName: env.PAGES_PROJECT_NAME,
+    await attempt(
       followUps,
-    });
+      `could not configure Cloudflare Access on ${env.DASHBOARD_HOSTNAME}`,
+      () => ensureAccess(cf, accountId, {
+        hostname: env.DASHBOARD_HOSTNAME,
+        allowed,
+        sessionDuration: env.ACCESS_SESSION_DURATION,
+        teamName: env.ACCESS_TEAM_NAME,
+        pagesProjectName: env.PAGES_PROJECT_NAME,
+        followUps,
+      }),
+      'Re-run `./a51 access apply` once the cause is fixed. Until it succeeds the dashboard is UNPROTECTED.',
+    );
   }
 
   // ── done ──────────────────────────────────────────────────────────────────
@@ -437,7 +520,7 @@ async function confirmZoneTakeover(cf, zone, env, { dryRun = false } = {}) {
  * The apex is deliberately not checked. Replacing the record there is the
  * documented intent of the takeover confirmed above, not a collision.
  */
-async function assertHostnamesFree(cf, accountId, zone, env) {
+async function findDerivedHostnameConflicts(cf, accountId, zone, env) {
   const checks = [
     {
       key: 'DASHBOARD_HOSTNAME',
@@ -457,6 +540,7 @@ async function assertHostnamesFree(cf, accountId, zone, env) {
     },
   ];
 
+  const conflicts = [];
   for (const check of checks) {
     // Only names inside the selected zone are checked here. A hostname an
     // operator deliberately pointed at another zone in .env is theirs to own,
@@ -465,15 +549,29 @@ async function assertHostnamesFree(cf, accountId, zone, env) {
       skip(`${check.hostname} is outside ${zone.name} — left to its provisioning step`);
       continue;
     }
-    const conflict = await findHostnameConflict(cf, zone, check.hostname, check.isOurs);
+    let conflict = null;
+    try {
+      conflict = await findHostnameConflict(cf, zone, check.hostname, check.isOurs);
+    } catch {
+      // The check itself failing is not a reason to stop; the provisioning step
+      // will surface a real problem with its own message.
+      continue;
+    }
     if (!conflict) continue;
     const shown = conflict.records.map((r) => `${r.type} ${r.name} → ${r.content}`).join('\n      ');
-    die(
-      `${check.hostname} already has a DNS record that is not part of this deployment:\n      ${shown}\n\n` +
-      `  Delete it (dashboard → ${zone.name} → DNS), or set ${check.key} in .env to a\n` +
-      `  hostname that is free, then re-run \`./a51 setup\`.`,
-    );
+    warn(`${check.hostname} already has a DNS record that is not part of this deployment:`);
+    plain(`      ${color.red(shown)}`);
+    conflicts.push({
+      key: check.key,
+      hostname: check.hostname,
+      label: `${check.hostname} is taken by a DNS record that is not this deployment's`,
+      detail:
+        `      ${shown}\n` +
+        `Delete it (dashboard → ${zone.name} → DNS), or set ${check.key} in .env to a\n` +
+        `hostname that is free, then re-run \`./a51 setup\`.`,
+    });
   }
+  return conflicts;
 }
 
 function printSummary(env, roles, allowed, skipAccess) {

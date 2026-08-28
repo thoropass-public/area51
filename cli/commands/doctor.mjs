@@ -38,6 +38,25 @@ class Report {
   }
 }
 
+/**
+ * Run one `--fix` repair without letting it abort the report.
+ *
+ * A repair is a provisioning call, so it can fail for all the usual reasons — a
+ * missing permission, a transient error. `doctor` exists to tell an operator
+ * everything that is wrong; throwing out of the middle of the report would hide
+ * every check after the one that failed, which is the opposite of the point.
+ */
+async function repair(r, label, fn, okMsg) {
+  try {
+    await fn();
+    if (okMsg) r.ok(okMsg);
+    return true;
+  } catch (err) {
+    r.fail(`${label}: ${err && err.message ? err.message : err}`, 'Fix the cause, then re-run `./a51 doctor --fix`.');
+    return false;
+  }
+}
+
 async function probe(url, { headers = {}, redirect = 'manual' } = {}) {
   try {
     const res = await fetch(url, { headers, redirect, signal: AbortSignal.timeout(10000) });
@@ -85,8 +104,9 @@ export async function run(args) {
       const missingTables = REQUIRED_TABLES.filter((t) => !tables.includes(t));
       if (missingTables.length) {
         if (fix) {
-          await applySchema(cf, accountId, env.D1_DATABASE_ID);
-          r.ok(`re-applied db/schema.sql (was missing: ${missingTables.join(', ')})`);
+          await repair(r, 'could not re-apply db/schema.sql',
+            () => applySchema(cf, accountId, env.D1_DATABASE_ID),
+            `re-applied db/schema.sql (was missing: ${missingTables.join(', ')})`);
         } else {
           r.fail(`missing tables: ${missingTables.join(', ')}`, 'Run `./a51 doctor --fix` (or `./a51 deploy schema`) to apply db/schema.sql.');
         }
@@ -132,7 +152,13 @@ export async function run(args) {
   ];
   for (const check of WORKER_CHECKS) {
     if (!check.name) continue;
-    const settings = await cf.getWorkerSettings(accountId, check.name);
+    let settings = null;
+    try {
+      settings = await cf.getWorkerSettings(accountId, check.name);
+    } catch (err) {
+      r.warn(`could not read ${check.name}: ${err.message}`, 'The token needs Account · Workers Scripts:Edit to read a worker\'s bindings.');
+      continue;
+    }
     if (!settings) {
       r.fail(`${check.label} worker "${check.name}" is not deployed`, `Run \`./a51 deploy ${check.target}\`.`);
       continue;
@@ -155,7 +181,11 @@ export async function run(args) {
   plain(`\n${color.bold('Black holes')}`);
   let blackHoles = [];
   if (env.D1_DATABASE_ID && tables.includes('domains')) {
-    blackHoles = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
+    try {
+      blackHoles = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
+    } catch (err) {
+      r.fail(`could not read the domains table: ${err.message}`, 'Check the D1 binding and the token\'s D1:Edit permission.');
+    }
     if (!blackHoles.length) r.warn('the domains table is empty — the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <host> http,mail`.');
   }
 
@@ -172,8 +202,9 @@ export async function run(args) {
     if (roles.includes('http')) {
       if (boundHosts.has(row.domain)) r.ok(`${row.domain}: bound to ${env.WORKER_NAME}`);
       else if (fix) {
-        await ensureBlackHole(cf, accountId, { hostname: row.domain, roles, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps });
-        r.ok(`${row.domain}: re-bound to ${env.WORKER_NAME}`);
+        await repair(r, `could not re-bind ${row.domain}`,
+          () => ensureBlackHole(cf, accountId, { hostname: row.domain, roles, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps }),
+          `${row.domain}: re-bound to ${env.WORKER_NAME}`);
       } else {
         r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 black-holes add ' + row.domain + ' ' + roles.join(',') + '`.');
       }
@@ -254,8 +285,9 @@ export async function run(args) {
       }
       if (problems.length) {
         if (fix) {
-          await ensurePagesProject(cf, accountId, env, followUps);
-          r.ok(`${target} bindings repaired — redeploy with \`./a51 deploy dashboard\``);
+          await repair(r, `could not repair ${target} bindings`,
+            () => ensurePagesProject(cf, accountId, env, followUps),
+            `${target} bindings repaired — redeploy with \`./a51 deploy dashboard\``);
         } else {
           r.fail(`${target} bindings missing or wrong: ${problems.join(', ')}`, 'Run `./a51 doctor --fix` then `./a51 deploy dashboard`. Without these, /api/* returns 500.');
         }
@@ -276,8 +308,9 @@ export async function run(args) {
     // is NOT the one the custom domain serves, so the dashboard renders empty.
     if (project.production_branch && project.production_branch !== 'main') {
       if (fix) {
-        await ensurePagesProject(cf, accountId, env, followUps);
-        r.ok(`production branch was "${project.production_branch}" — reset to main; redeploy with \`./a51 deploy dashboard\``);
+        await repair(r, 'could not reset the production branch',
+          () => ensurePagesProject(cf, accountId, env, followUps),
+          `production branch was "${project.production_branch}" — reset to main; redeploy with \`./a51 deploy dashboard\``);
       } else {
         r.fail(`Pages production branch is "${project.production_branch}", not main — the custom domain serves an empty production`, 'Run `./a51 doctor --fix`, then `./a51 deploy dashboard`.');
       }
@@ -291,8 +324,9 @@ export async function run(args) {
       const record = zone && (await cf.findDnsRecord(zone.id, env.DASHBOARD_HOSTNAME));
       if (record && record.type === 'CNAME' && project.subdomain && record.content !== project.subdomain) {
         if (fix) {
-          await ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps);
-          r.ok(`DNS repointed to ${project.subdomain} (was ${record.content})`);
+          await repair(r, 'could not repoint the dashboard CNAME',
+            () => ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps),
+            `DNS repointed to ${project.subdomain} (was ${record.content})`);
         } else {
           r.fail(`dashboard DNS points at ${record.content}, but the Pages subdomain is ${project.subdomain}`, 'Run `./a51 doctor --fix` — it repoints the CNAME.');
         }
@@ -312,7 +346,8 @@ export async function run(args) {
     const app = apps.find((a) => (a.domain || '').replace(/\/$/, '') === env.DASHBOARD_HOSTNAME);
     if (!app) {
       if (fix && allowed.length) {
-        await ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps });
+        await repair(r, `could not create the Access application on ${env.DASHBOARD_HOSTNAME}`,
+          () => ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps }));
       } else {
         r.fail(`no Cloudflare Access application protects ${env.DASHBOARD_HOSTNAME} — the dashboard is open to anyone`, allowed.length ? 'Run `./a51 access` (or `./a51 doctor --fix`).' : 'Set ALLOWED_EMAILS in .env, then run `./a51 access apply`.');
       }
@@ -331,8 +366,9 @@ export async function run(args) {
         if (guarded) {
           r.ok(`Access also guards the pages.dev URL (${project.subdomain}) — no bypass`);
         } else if (fix && allowed.length) {
-          await ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps });
-          r.ok(`added the pages.dev URL (${project.subdomain}) to the Access app`);
+          await repair(r, 'could not add the pages.dev URL to the Access app',
+            () => ensureAccess(cf, accountId, { hostname: env.DASHBOARD_HOSTNAME, allowed, sessionDuration: env.ACCESS_SESSION_DURATION || '24h', teamName: env.ACCESS_TEAM_NAME, pagesProjectName: env.PAGES_PROJECT_NAME, followUps }),
+            `added the pages.dev URL (${project.subdomain}) to the Access app`);
         } else {
           r.fail(`the Access app does not cover ${project.subdomain} — the dashboard is reachable UNAUTHENTICATED at its *.pages.dev URL`, 'Run `./a51 doctor --fix` (or `./a51 access apply`) to add it.');
         }

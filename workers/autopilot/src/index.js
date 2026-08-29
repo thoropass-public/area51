@@ -92,6 +92,9 @@ async function authenticate(request, env) {
   const bearer = /^Bearer\s+(\S+)$/i.exec(header.trim());
   if (!bearer) return { ok: false, status: 401, reason: 'no_bearer' };
 
+  // The key shape, and the counterpart to mintKey() in cli/lib/users.mjs, which
+  // builds it. Nothing links the two at build time — the CLI cannot be imported
+  // here — so changing one means changing the other in the same commit.
   const key = bearer[1];
   const parts = /^([0-9a-f]{8})_([0-9a-f]{64})$/.exec(key);
   if (!parts) return { ok: false, status: 401, reason: 'malformed_key' };

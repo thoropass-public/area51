@@ -30,6 +30,12 @@ export function hashKey(key) {
  * Mint a fresh key. Returns the plaintext once — it is never stored anywhere in
  * recoverable form, so a caller that does not show it to a human has thrown it
  * away.
+ *
+ * This BUILDS the key shape; the Autopilot worker VALIDATES it, with its own
+ * regex in workers/autopilot/src/index.js. The two cannot share code — the CLI
+ * hashes with node:crypto and the worker with WebCrypto — so changing the shape
+ * here means changing that regex in the same commit. Miss it and this mints
+ * keys the worker rejects. (The format itself is documented in db/schema.sql.)
  */
 export function mintKey() {
   const keyId = randomBytes(4).toString('hex');

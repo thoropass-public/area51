@@ -1,5 +1,5 @@
 // The provisioning primitives, shared by `setup`, `deploy`, `black-holes` and
-// `access`. Every function here is idempotent: it inspects the current state
+// `users`. Every function here is idempotent: it inspects the current state
 // first and reports `created: false` when there is nothing to do, so running
 // setup twice is boring rather than destructive.
 //

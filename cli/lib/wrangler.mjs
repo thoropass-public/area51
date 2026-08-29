@@ -1,8 +1,11 @@
-// Wrangler is used for exactly three things — uploading Worker code, installing
-// Worker secrets, and uploading the dashboard to Pages. Everything else
-// (provisioning, DNS, domains, Email Routing, Access, SQL) goes through the
-// REST API in cloudflare.mjs, because those calls need to be inspectable and
-// idempotent rather than interactive.
+// Wrangler is used for exactly two things — uploading Worker code and uploading
+// the dashboard to Pages. Everything else (provisioning, DNS, domains, Email
+// Routing, Access, SQL) goes through the REST API in cloudflare.mjs, because
+// those calls need to be inspectable and idempotent rather than interactive.
+//
+// It used to install Worker secrets too. Nothing does any more: Autopilot
+// authenticates against the D1 `users` table, so there is no secret to install
+// and a deploy is a pure code upload.
 //
 // Wrangler is always invoked non-interactively: the API token and account id
 // come from the environment (so it never tries a browser OAuth login) and
@@ -11,8 +14,8 @@
 // Its output is also captured rather than inherited — see runWrangler. Wrangler
 // is chatty enough that four uploads used to bury the CLI's own report, so each
 // one reports a single line and the full log appears only on failure, or under
-// --verbose. `dev` and `tail` are the exceptions: for them the output IS the
-// product, so they keep the terminal.
+// --verbose. `tail` is the exception: for it the output IS the product, so it
+// keeps the terminal.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -111,7 +114,7 @@ function wranglerEnv(env) {
  * that mattered. So:
  *
  *   * `stream: true` hands the terminal over, for commands that ARE the output
- *     (`dev`, `tail`). Those must never be captured.
+ *     (`tail`). Those must never be captured.
  *   * otherwise output is captured, and a single line reports the result with
  *     how long it took. The full log is replayed only when the command FAILS,
  *     which is exactly when you want it, or when --verbose asks for it up front.
@@ -177,16 +180,6 @@ export function deployWorker(target, env, extraArgs = []) {
   });
 }
 
-/** Install (or overwrite) a Worker secret, piping the value through stdin. */
-export function putWorkerSecret(target, env, name, value) {
-  const spec = WORKER_TARGETS[target];
-  return runWrangler(['secret', 'put', name], {
-    cwd: join(repoRoot, spec.dir),
-    env,
-    input: value,
-    label: `installed ${name} on ${env[spec.serviceKey] || target}`,
-  });
-}
 
 /** Upload dashboard/ to the Pages project. */
 export function deployPages(env, extraArgs = []) {

@@ -15,7 +15,7 @@ long-lived process.
 | **Black Holes** (catcher) | one Worker (`WORKER_NAME`), bound by Custom Domain to every black hole | Serves endpoint responses; logs every request; captures every inbound email. Domain-agnostic: it does not know or care which black hole a request arrived on. |
 | **Autopilot** (agent interface) | a second Worker (`AGENT_WORKER_NAME`) on its own Custom Domain | Secret-authenticated REST + MCP server. Recent-capture reads and CRUD confined to the `/-/*` endpoint namespace. |
 | **Cleanup** (retention) | a third Worker (`CLEANUP_WORKER_NAME`), cron trigger only, no domain | Daily: trims `requests` to the newest N rows, deletes non-starred `emails` older than M days along with their `.eml` objects. |
-| **D1 database** | binding `DB` on all three Workers and on Pages | Six tables. Metadata only, so no message bodies and no uploaded bytes. |
+| **D1 database** | binding `DB` on all three Workers and on Pages | Seven tables. Metadata only, so no message bodies and no uploaded bytes. |
 | **R2: captured email** | binding `EML` (worker, autopilot, cleanup, Pages) | One verbatim `.eml` per captured message at `emails/<id>.eml`. |
 | **R2: endpoint files** | binding `FILES` (worker + Pages only) | One object per file-backed endpoint, keyed by a random UUID. |
 | **Email Routing** | per mail-enabled zone | A catch-all rule that hands every inbound message to the catcher's `email()` handler. |

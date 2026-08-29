@@ -661,31 +661,72 @@ async function waitForAccessOrg(cf, accountId, { attempts = 4, delayMs = 1500 } 
   return null;
 }
 
-/** Turn an allow-list entry into an Access include rule. */
-function accessRule(entry) {
-  return entry.includes('@')
-    ? { email: { email: entry.toLowerCase() } }
-    : { email_domain: { domain: entry.toLowerCase().replace(/^@/, '') } };
+/** The name setup gives the operator list, and how it finds one it did not create. */
+export const ACCESS_LIST_NAME = 'AREA 51 operators';
+
+/**
+ * Find or create the Zero Trust list the Access policy points at, and return
+ * its id.
+ *
+ * Resolution order matters. An id in .env wins, because that is the list this
+ * deployment has already adopted; a rename in the Cloudflare dashboard must not
+ * silently strand it and start a second list. Only when there is no id does it
+ * fall back to matching on name, and only then does it create one.
+ *
+ * `adopt` is the id of a list that already exists and should be taken over
+ * rather than replaced — the migration path for a deployment whose Access
+ * policy was pointed at a hand-made list before `./a51 users` existed.
+ */
+export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' } = {}) {
+  const wanted = adopt || listId;
+  if (wanted) {
+    try {
+      const list = await cf.getZeroTrustList(accountId, wanted);
+      if (list && list.id) {
+        skip(`operator list ${color.bold(list.name || ACCESS_LIST_NAME)} already exists`);
+        return { id: list.id, name: list.name || ACCESS_LIST_NAME, created: false };
+      }
+    } catch {
+      // A stale id in .env is not fatal: fall through to name lookup, then to
+      // creating a fresh list. Saying so matters, because the old list is left
+      // behind on the account rather than cleaned up.
+      warn(`ACCESS_LIST_ID ${wanted} no longer resolves — looking for "${ACCESS_LIST_NAME}" instead`);
+    }
+  }
+
+  const lists = (await cf.listZeroTrustLists(accountId)) || [];
+  const byName = lists.find((l) => l.name === ACCESS_LIST_NAME && (l.type || '').toUpperCase() === 'EMAIL');
+  if (byName) {
+    skip(`operator list ${color.bold(ACCESS_LIST_NAME)} already exists`);
+    return { id: byName.id, name: byName.name, created: false };
+  }
+
+  const created = await cf.createZeroTrustList(accountId, {
+    name: ACCESS_LIST_NAME,
+    description: 'Operators who may open the AREA 51 dashboard. Managed by `./a51 users` — edits here are overwritten.',
+    items: [],
+  });
+  ok(`created the operator list ${color.bold(ACCESS_LIST_NAME)}`);
+  return { id: created.id, name: created.name || ACCESS_LIST_NAME, created: true };
 }
 
 /**
- * Put an Access application in front of the dashboard hostname, allowing only
- * the given identities, authenticating with One-time PIN (an emailed code — no
+ * Put an Access application in front of the dashboard hostname, gated on the
+ * operator list, authenticating with One-time PIN (an emailed code — no
  * identity provider to configure).
+ *
+ * The policy holds ONE include rule pointing at the list by id, so adding or
+ * removing an operator never touches this application — `./a51 users` rewrites
+ * the list instead. The single exception is the empty case, below.
  */
 export async function ensureAccess(cf, accountId, opts) {
-  const { hostname, allowed, sessionDuration, teamName, followUps, pagesProjectName } = opts;
-
-  if (!allowed.length) {
-    warn('ALLOWED_EMAILS is empty — skipping Cloudflare Access. The dashboard will be readable by anyone who finds it.');
-    return;
-  }
+  const { hostname, listId, operatorCount = 0, sessionDuration, teamName, followUps, pagesProjectName } = opts;
 
   // Manual click-path for turning Zero Trust on. Cloudflare Access requires the
   // account to have Zero Trust activated once (pick a team name / subscribe to
   // the free plan) before the org API works — the API cannot do that first
   // activation for you. Referenced from several branches below.
-  const ZT_ACTIVATE = 'If this is a brand-new account, Zero Trust may not be activated yet: open dashboard → Zero Trust once, choose a team name and the Free plan, then re-run `./a51 access apply`.';
+  const ZT_ACTIVATE = 'If this is a brand-new account, Zero Trust may not be activated yet: open dashboard → Zero Trust once, choose a team name and the Free plan, then re-run `./a51 users sync`.';
 
   // 1. Zero Trust organization. One per account; it owns the login subdomain.
   let org = null;
@@ -717,7 +758,7 @@ export async function ensureAccess(cf, accountId, opts) {
         `could not create a Zero Trust organization (${authDomain}): ${err.message}`,
         [
           'This can fail for a few reasons:',
-          '  • Team names are globally unique — if taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 access apply`.',
+          '  • Team names are globally unique — if taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 users sync`.',
           `  • ${ZT_ACTIVATE}`,
           '  • The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit (and a just-edited token may need a minute to propagate).',
         ].join('\n'),
@@ -763,9 +804,40 @@ export async function ensureAccess(cf, accountId, opts) {
     } catch { /* if the project can't be read, guard the custom host only */ }
   }
 
-  // 4. The application itself, with its allow policy attached inline. `domain`
-  // (legacy, single) is kept alongside `destinations` (the current multi-host
-  // model — self_hosted_domains was deprecated in 2025).
+  // 4. The policy.
+  //
+  // Normally there is exactly ONE include rule, pointing at the operator list by
+  // id. Adding or removing an operator rewrites the LIST, never this
+  // application — which is what keeps `./a51 users` cheap and keeps the blast
+  // radius of a routine change off the thing that actually guards the dashboard.
+  //
+  // The empty case is the exception, and it is deliberate. Cloudflare does not
+  // document how an include rule behaves when the list it names has no entries,
+  // and "probably nobody matches" is not a safe thing to infer for the only
+  // control protecting every captured request and email. So when there are no
+  // operators, the policy becomes an explicit deny-everyone: no inference, no
+  // reliance on emergent behaviour, and the dashboard is shut whatever Cloudflare
+  // would have done with an empty list. Adding an operator restores the allow.
+  const policies = operatorCount > 0
+    ? [{
+        name: 'AREA 51 operators',
+        decision: 'allow',
+        include: [{ email_list: { id: listId } }],
+      }]
+    : [{
+        name: 'AREA 51 — no operators',
+        decision: 'deny',
+        include: [{ everyone: {} }],
+      }];
+
+  // `app_launcher_visible` is a presentation preference, not a control: it only
+  // decides whether the dashboard appears as a tile in the Zero Trust App
+  // Launcher. New apps are created hidden, because a pentest console does not
+  // belong in a directory everyone browses — but an existing app whose owner
+  // turned it ON keeps that choice. Updating an Access app is a full PUT, so
+  // anything not carried across here is silently reset; that is worth being
+  // careful about on the one object standing between the internet and every
+  // captured request.
   const body = {
     name: 'AREA 51 dashboard',
     type: 'self_hosted',
@@ -774,33 +846,34 @@ export async function ensureAccess(cf, accountId, opts) {
     session_duration: sessionDuration,
     app_launcher_visible: false,
     ...(otpId ? { allowed_idps: [otpId], auto_redirect_to_identity: true } : {}),
-    policies: [
-      {
-        name: 'AREA 51 operators',
-        decision: 'allow',
-        include: allowed.map(accessRule),
-      },
-    ],
+    policies,
   };
+
+  const gate = operatorCount > 0
+    ? `${operatorCount} operator${operatorCount === 1 ? '' : 's'} via the list`
+    : color.yellow('DENY ALL — no operators');
 
   try {
     const apps = (await cf.listAccessApps(accountId)) || [];
     const existing = apps.find((a) => (a.domain || '').replace(/\/$/, '') === hostname);
     if (existing) {
+      if (existing.app_launcher_visible) body.app_launcher_visible = true;
       await cf.updateAccessApp(accountId, existing.id, body);
-      ok(`updated the Access application on ${color.bold(hostname)} (${allowed.length} identity rule${allowed.length === 1 ? '' : 's'})`);
+      ok(`updated the Access application on ${color.bold(hostname)} (${gate})`);
     } else {
       await cf.createAccessApp(accountId, body);
-      ok(`Access application protects ${color.bold(hostname)} (${allowed.length} identity rule${allowed.length === 1 ? '' : 's'})`);
+      ok(`Access application protects ${color.bold(hostname)} (${gate})`);
     }
-    info(color.dim(`allowed: ${allowed.join(', ')}`));
+    info(color.dim(operatorCount > 0
+      ? `allow-list: the "${ACCESS_LIST_NAME}" list (${listId})`
+      : 'no operators — the dashboard is closed to everyone until one is added'));
     if (destinations.length > 1) {
       info(color.dim(`also guards the pages.dev URL (no Access bypass): ${destinations.slice(1).map((d) => d.uri).join(', ')}`));
     } else if (pagesProjectName) {
       warn('could not read the Pages subdomain — the app guards only the custom domain. Re-run once the Pages project exists so the *.pages.dev URL is covered too.');
     }
   } catch (err) {
-    const manual = `Configure it by hand: dashboard → Zero Trust → Access → Applications → Add an application\n→ Self-hosted → domain ${hostname} → policy Allow / Emails: ${allowed.join(', ')}.`;
+    const manual = `Configure it by hand: dashboard → Zero Trust → Access → Applications → Add an application\n→ Self-hosted → domain ${hostname} → policy Allow / Emails in list "${ACCESS_LIST_NAME}".`;
     degraded(
       followUps,
       `could not configure Cloudflare Access on ${hostname}: ${err.message}`,

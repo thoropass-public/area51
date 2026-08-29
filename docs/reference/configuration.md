@@ -20,18 +20,23 @@ change requires:
 | Path | Values | To apply a change |
 |---|---|---|
 | **Rendered into `wrangler.toml`** at deploy time (bindings, `[vars]`, cron) | `WORKER_NAME`, `D1_*`, `R2_*`, `FALLBACK_ADDRESS`, `CLEANUP_*`, `AGENT_WORKER_NAME` | `./a51 deploy <target>` |
-| **Set on Cloudflare via the API** (project settings, DNS, policies) | hostnames, `ALLOWED_EMAILS`, `ACCESS_*`, `BLACK_HOLE_ROLES`, Pages bindings | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 access` |
+| **Set on Cloudflare via the API** (project settings, DNS, policies) | hostnames, `ACCESS_*`, `BLACK_HOLE_ROLES`, Pages bindings | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 users` |
 | **Used only by the CLI on your machine** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE` | nothing to deploy |
 
-`AGENT_SECRET` is special: it is stored as an encrypted **Worker Secret** on
-Cloudflare and mirrored in `.env` so it can be reinstalled without anyone
-memorising it. Change it with `./a51 rotate-secret`.
+No key appears in this file, including your own. Every operator's key is shown
+exactly once when it is minted and stored only as a sha256 on the deployment, so
+there is nothing here to reveal and nothing to keep in step. A lost key is
+replaced with `./a51 users rotate-secret <email>`, never recovered.
 
-Two things are **not** in `.env` on purpose:
+Three things are **not** in `.env` on purpose:
 
 - **The list of black holes.** Its source of truth is the D1 `domains` table, so
   the dashboard and Autopilot read the same live list with no redeploy. Manage it
   with `./a51 black-holes`.
+- **The list of operators.** Its source of truth is the D1 `users` table, which
+  feeds both the Cloudflare Access allow-list and Autopilot's key check. Manage
+  it with `./a51 users`. There is deliberately no `ALLOWED_EMAILS`: a second copy
+  of that list here could only ever drift from the one being enforced.
 - **Endpoints, blacklists, captures.** All database state, managed in the UI.
 
 ---
@@ -48,16 +53,19 @@ BLACK_HOLE_HOSTNAME=blackhole.com            # targets hit this; public by desig
 BLACK_HOLE_ROLES=http,mail
 DASHBOARD_HOSTNAME=area51.blackhole.com      # you log in here, behind Access
 AUTOPILOT_HOSTNAME=autopilot.blackhole.com   # agents connect here
-ALLOWED_EMAILS=you@gmail.com,teammate@work.com   # your REAL inboxes, who may log in
 FALLBACK_ADDRESS=you@gmail.com               # a REAL inbox for bounced captures
 ```
+
+Teammates are **not** listed here. Add them with `./a51 users add
+teammate@work.com`, which puts them on the Access allow-list and prints their
+own Autopilot key once.
 
 **The two email fields are different things**, and this is the most common point
 of confusion:
 
 | Field | Holds | Example | Never |
 |---|---|---|---|
-| `ALLOWED_EMAILS` | The real inbox(es) allowed to **log into the dashboard**. Access emails a one-time PIN to these. | `you@gmail.com` | An address at the black-hole domain |
+| operator address | Your real inbox. Access emails a one-time PIN to it, and it owns an Autopilot key. Lives in the D1 `users` table, **not** in `.env`. | `you@gmail.com` | An address at the black-hole domain |
 | `FALLBACK_ADDRESS` | A real inbox that receives an email **only when its capture fails** (so it isn't lost). Must be verified once. | `you@gmail.com` | An address at the black-hole domain |
 
 Neither is ever an address *on* the black hole (e.g. `anything@blackhole.com`):
@@ -89,11 +97,16 @@ Setup refuses to start if either hostname already holds a DNS record that
 belongs to something other than this deployment, naming the record so you can
 delete it or point the key somewhere free.
 
+### Operators
+
+| Key | Default | Notes |
+|---|---|---|
+| `ACCESS_LIST_ID` | filled in by setup | The Zero Trust email list the Access policy points at. A resource id, not a copy of the list: the operators live in D1 and `./a51 users` replaces this list wholesale on every add and remove. Managing it needs `Account · Zero Trust:Edit`. |
+
 ### Cloudflare Access
 
 | Key | Default | Notes |
 |---|---|---|
-| `ALLOWED_EMAILS` | — | Comma-separated allow-list. `alice@example.com` (exact) or `example.com` (any address at that domain). Empty means **no protection**, and `doctor` treats that as a failure. Edit it incrementally with `./a51 access add <…>` / `./a51 access remove <…>` (both write back here), or set it wholesale by editing this value and running `./a51 access apply`. |
 | `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organization yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers**, so if creation fails, pick another. |
 | `ACCESS_SESSION_DURATION` | `24h` | How long a login lasts. Formats: `30m`, `24h`, `730h`. Shorter means more one-time PINs; longer means a stolen laptop stays logged in. The dashboard auto-reloads when a session expires mid-use ([dashboard.md](../internals/dashboard.md#expired-session-handling)). |
 
@@ -131,9 +144,9 @@ leaves the old one running, still bound to its domains. See
 
 ### Autopilot
 
-| Key | Default | Notes |
-|---|---|---|
-| `AGENT_SECRET` | generated | 32 random bytes as hex. Sent by clients as `X-A51-Secret`, compared in constant time. Stored encrypted on the Worker; the copy here exists so it can be reinstalled. Rotate with `./a51 rotate-secret`, then re-register every agent. |
+Nothing to configure. Autopilot authenticates every call against the D1 `users`
+table — there is no shared secret and no Worker Secret, so a key added or revoked
+with `./a51 users` takes effect immediately, with no deploy.
 
 ### Cleanup worker
 
@@ -161,7 +174,7 @@ it lives:
 | Blacklist edge-cache TTL | 60 minutes | `workers/black-holes/src/index.js` |
 | Autopilot read window | 60 minutes | `workers/autopilot/src/index.js` (`WINDOW_MINUTES`) |
 | Autopilot URI namespace | `/-/` | `workers/autopilot/src/index.js` (`AUTOPILOT_PREFIX`) |
-| Auth header name | `X-A51-Secret` | Autopilot worker |
+| Auth header | `Authorization: Bearer <key_id>_<secret>` | Autopilot worker |
 | Compatibility date | `2026-05-20` | the three `wrangler.toml.template` files **and** `cli/lib/provision.mjs` (`PAGES_COMPATIBILITY_DATE`) — keep all four in step |
 
 The last two matter, and they deliberately differ. Pages Functions get their

@@ -13,7 +13,7 @@
 
 import { loadContext, parseRoles } from '../lib/context.mjs';
 import { heading, section, plain, color, kv, table, info, sym } from '../lib/log.mjs';
-import { parseList } from '../lib/env.mjs';
+import { listUsers } from '../lib/users.mjs';
 
 const unset = color.dim('(not set)');
 
@@ -46,9 +46,8 @@ export async function run() {
   kv('requests', `keep newest ${env.CLEANUP_REQUESTS_KEEP || '?'} rows`);
   kv('emails', `delete after ${env.CLEANUP_EMAIL_MAX_AGE_DAYS || '?'} days ${color.dim('(starred kept forever)')}`);
 
-  section('Dashboard access');
-  const allowed = parseList(env.ALLOWED_EMAILS);
-  kv('allow-list', allowed.length ? allowed.join(', ') : color.yellow('empty — the dashboard may be public'));
+  section('Operators');
+  await printUsers(cf, accountId, env);
   kv('session', env.ACCESS_SESSION_DURATION || color.dim('(default)'));
 
   plain('');
@@ -100,6 +99,32 @@ async function printBlackHoles(cf, accountId, env) {
       color.dim(surfaces.join('  ') || '—'),
     ]);
   }
+  table(out);
+}
+
+/**
+ * The operators, from the `users` table — the same list that gates the dashboard
+ * (via the Cloudflare Access allow-list) and Autopilot (via each row's key hash).
+ * Key ids are public and printed; the keys themselves are stored only as hashes.
+ */
+async function printUsers(cf, accountId, env) {
+  if (!env.D1_DATABASE_ID) {
+    plain(`  ${sym.warn} ${color.yellow('no database yet — run ./a51 setup')}`);
+    return;
+  }
+  let users = [];
+  try {
+    users = await listUsers(cf, accountId, env.D1_DATABASE_ID);
+  } catch (err) {
+    plain(`  ${sym.fail} ${color.red(`could not read the users table: ${err.message}`)}`);
+    return;
+  }
+  if (!users.length) {
+    plain(`  ${sym.warn} ${color.yellow('none')} ${color.dim('— nobody can log in or call Autopilot; ./a51 users add')}`);
+    return;
+  }
+  const out = [[color.dim('EMAIL'), color.dim('KEY ID'), color.dim('ADDED')]];
+  for (const u of users) out.push([color.cyan(u.email), u.key_id, color.dim((u.created_at || '').slice(0, 10))]);
   table(out);
 }
 

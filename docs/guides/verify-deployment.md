@@ -30,7 +30,7 @@ The three Workers and the Pages project, all deployed:
 
 ## D1 database
 
-One database, `area51`, holds all metadata (six tables, no message bodies):
+One database, `area51`, holds all metadata (seven tables, no message bodies):
 
 ![D1 database](../../.github/assets/d1-database.png)
 
@@ -66,9 +66,12 @@ than just the custom hostname:
 
 ### The allow policy
 
-Default-deny, with one **Allow** policy of two include rules: an email-domain
-rule and an exact-address rule (built from `ALLOWED_EMAILS`). Only these
-identities get a one-time PIN and in:
+Default-deny, with one **Allow** policy holding a single include rule: *emails in
+a list*, pointing at the Zero Trust email list named by `ACCESS_LIST_ID`. The
+addresses in that list are a projection of the `email` column of the D1 `users`
+table, replaced wholesale by `./a51 users` on every add and remove — so editing
+the list here does not survive the next command. Only those identities get a
+one-time PIN and in:
 
 ![Access allow policy](../../.github/assets/access-policy.png)
 
@@ -83,7 +86,7 @@ The important one. The application guards **three** public hostnames:
 ![Access destinations](../../.github/assets/access-destinations.png)
 
 If only the custom domain were listed, anyone with the `*.pages.dev` URL could
-reach the dashboard with **no login**. `./a51 setup` and `./a51 access apply` add all
+reach the dashboard with **no login**. `./a51 setup` and `./a51 users sync` add all
 three automatically, and `./a51 doctor` fails if the pages.dev destination is
 ever missing.
 

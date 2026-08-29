@@ -23,13 +23,13 @@ it. What each check actually asserts is documented in
 | `could not enable Email Routing … [10000] Authentication error` | The token has *Email Routing Rules* but not **Zone · Zone Settings:Edit**, and the enable endpoint is a Zone Settings write | Add **Zone · Zone Settings:Edit**, re-run. See [setup.md#api-token](getting-started.md#api-token) |
 | An auth error on a step whose permission you *know* you granted | Either the token's **Zone Resources** don't include this zone, or a freshly-edited token hasn't propagated | Set *Zone Resources → Include → your zone*; wait ~a minute and re-run (setup also retries automatically) |
 | The Access step fails on the first run but `doctor --fix` fixes it later | A just-created Zero Trust org wasn't live yet | Fixed: setup now polls the org until it's ready. If it still fails, confirm Zero Trust is activated on the account |
-| `could not create a Zero Trust organization` / Access denied with correct perms | Zero Trust was never activated on the account | dashboard → *Zero Trust* → pick a team name → Free plan, then `./a51 access` |
+| `could not create a Zero Trust organization` / Access denied with correct perms | Zero Trust was never activated on the account | dashboard → *Zero Trust* → pick a team name → Free plan, then `./a51 users sync` |
 | `the API token cannot list accounts` | Missing *Account Settings:Read* | Add it, or set `CLOUDFLARE_ACCOUNT_ID` in `.env` by hand |
 | `this account has no active zones` | The domain is not on this Cloudflare account yet | Add the site in Cloudflare and wait for it to go active |
 | `no Cloudflare zone found for <host>` | Hostname is on a zone the token cannot see | Add *Zone:Read* for it, or fix the hostname |
 | `could not create R2 bucket …` | R2 is not enabled on the account | Dashboard → R2 → *Get started*, then re-run |
 | `wrangler is not installed` | Dependencies were never installed | `npm install` at the repository root |
-| `could not create a Zero Trust organization` | Team names are globally unique and yours is taken | Set `ACCESS_TEAM_NAME` in `.env`, run `./a51 access` |
+| `could not create a Zero Trust organization` | Team names are globally unique and yours is taken | Set `ACCESS_TEAM_NAME` in `.env`, run `./a51 users sync` |
 | Setup finishes with `Manual follow-ups (n)` and exit code 2 | Some steps could not complete | Each entry prints the dashboard click-path; fix and re-run `./a51 setup` |
 | `unsubstituted placeholders in …wrangler.toml.template` | A template references a value not declared for that target | Add the key to the target's `vars` list in `cli/lib/wrangler.mjs` |
 
@@ -71,8 +71,8 @@ it. What each check actually asserts is documented in
 | `/api/*` returns 500, or HTML instead of JSON | The D1 binding is missing on the Pages project | `./a51 doctor --fix` then `./a51 deploy dashboard` |
 | Uploading a file to an endpoint returns 500 | The `FILES` binding is missing on Pages | Same fix. Bindings must exist on **Production and Preview** |
 | `/api/emails/<id>/raw` returns 500 | The `EML` binding is missing on Pages | Same fix, and note this breaks *every* email body, not just Download Raw |
-| Opening the dashboard shows no Access challenge | No Access application, or it targets a different hostname | `./a51 access apply` |
-| The dashboard opens with **no login** at its `*.pages.dev` URL (but the custom domain asks for one) | The Access app guards only the custom domain, leaving the pages.dev URL an unauthenticated bypass | `./a51 doctor --fix` (or `./a51 access apply`) adds `*.<project>.pages.dev` to the app's destinations |
+| Opening the dashboard shows no Access challenge | No Access application, or it targets a different hostname | `./a51 users sync` |
+| The dashboard opens with **no login** at its `*.pages.dev` URL (but the custom domain asks for one) | The Access app guards only the custom domain, leaving the pages.dev URL an unauthenticated bypass | `./a51 doctor --fix` (or `./a51 users sync`) adds `*.<project>.pages.dev` to the app's destinations |
 | A long-idle tab errors once, then works after a manual reload | The Access session expired | Expected: the app auto-reloads once ([dashboard.md](../internals/dashboard.md#expired-session-handling)). Raise `ACCESS_SESSION_DURATION` to make it rarer |
 | The tab reloads repeatedly | Something other than our API is answering `/api/*` | The 15 s cooldown caps this, so a loop means the API is genuinely unreachable, so check the Pages deployment and bindings |
 | Search misses matches | `LIKE '%term%'` is exact-substring, not fuzzy | Try a shorter or different substring |
@@ -84,8 +84,10 @@ it. What each check actually asserts is documented in
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Every call returns 401 | Wrong secret, or none installed on the worker | `./a51 doctor` compares `.env` against the live worker; `./a51 deploy autopilot` reinstalls |
-| An agent's calls 401 but curl works | The agent still has the pre-rotation secret | Re-register: `claude mcp remove autopilot` then add it again |
+| Every call returns **401** | The key is unknown, revoked, rotated, or malformed. There is no "installed secret" to be wrong — keys are checked against the `users` table | `./a51 users list` shows who has one and their key id. Issue a replacement: `./a51 users rotate-secret <email>` |
+| Every call returns **503** | The worker cannot reach D1, so it cannot check *anybody's* key. Not a credential problem | `./a51 doctor` — check the `DB` binding and that the `users` table exists. `./a51 doctor --fix` applies the schema |
+| An agent's calls 401 but curl works | The agent still has a key that was rotated, or is still sending the old `X-A51-Secret` header | Re-register: `claude mcp remove autopilot`, then add it again with `Authorization: Bearer <key>` |
+| A key that worked before this version now 401s | Pre-`users` keys were raw 64-hex and no longer match the `<key_id>_<secret>` shape | Every operator needs a new key: `./a51 users rotate-secret <email>` |
 | `uri must start with /-/` | The agent tried to touch an endpoint outside its namespace | Working as intended. Create it in the dashboard |
 | Upsert or delete refuses with a message about the dashboard | The URI is file-backed and Autopilot has no `FILES` binding | Working as intended; a human staged that payload |
 | `email_raw` returns 404 for an id the agent just saw | The 60-minute window closed | Working as intended. Read it in the dashboard |

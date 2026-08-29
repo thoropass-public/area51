@@ -12,20 +12,20 @@
 //   * bindings before upload   — the Pages project is created WITH its D1/R2
 //                                bindings, so the first deployment already works
 
-import { randomBytes } from 'node:crypto';
-import { loadEnv, saveEnv, ensureEnvFile, parseList, envPath } from '../lib/env.mjs';
+import { loadEnv, saveEnv, ensureEnvFile, envPath } from '../lib/env.mjs';
 import { Cloudflare } from '../lib/cloudflare.mjs';
 import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die, setStepTotal, section, hint, detail, summary } from '../lib/log.mjs';
 import { ask, confirm, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
-  ensurePagesProject, ensurePagesDomain, ensureAccess, authFixHint,
+  ensurePagesProject, ensurePagesDomain, authFixHint,
   inspectZoneTakeover, describeTakeover, findHostnameConflict, attempt,
 } from '../lib/provision.mjs';
 import { isAuthError } from '../lib/cloudflare.mjs';
 import { printTokenPermissions } from '../lib/permissions.mjs';
-import { deployWorker, deployPages, putWorkerSecret, wranglerBin, WORKER_TARGETS } from '../lib/wrangler.mjs';
+import { deployWorker, deployPages, wranglerBin, WORKER_TARGETS } from '../lib/wrangler.mjs';
+import { listUsers, upsertUser, normalizeEmail, mcpRegisterLines, syncOperators } from '../lib/users.mjs';
 
 const DEFAULTS = {
   D1_DATABASE_NAME: 'area51',
@@ -174,37 +174,54 @@ export async function run(args) {
     env.FALLBACK_ADDRESS || '',
   );
 
-  // ── 3. access allow-list ──────────────────────────────────────────────────
-  step('Dashboard access');
-  // There is no way to opt out of Access. The dashboard has no login of its own,
-  // and its API can read every captured request and every captured email — so a
-  // deployment without Access in front of it is a public archive of client data.
-  // A `--no-access` flag used to exist for that; it was removed, because the only
-  // thing it bought was the ability to publish that archive in one keystroke.
+  // ── 3. the first operator ─────────────────────────────────────────────────
+  step('Your operator account');
+  // Setup provisions exactly one operator: you. Everyone else is added later
+  // with `./a51 users add`, which is also the only way to mint a key.
   //
-  // A blocked prerequisite (Zero Trust not activated yet) does NOT need a flag:
-  // the Access step degrades into a follow-up like any other, so the rest of the
+  // Both doors are opened from this one answer. The address goes on the
+  // Cloudflare Access allow-list, which is what keeps the dashboard private —
+  // there is no way to opt out of that. The dashboard has no login of its own,
+  // and its API can read every captured request and every captured email, so a
+  // deployment without Access in front of it is a public archive of client data.
+  // (A `--no-access` flag used to exist; it was removed, because all it bought
+  // was the ability to publish that archive in one keystroke.) The same address
+  // gets an Autopilot API key, minted in step 6 once the schema exists.
+  //
+  // A blocked prerequisite (Zero Trust not activated yet) needs no flag: the
+  // Access step degrades into a follow-up like any other, so the rest of the
   // deployment still lands and the summary says plainly that it is unprotected.
-  let allowed = parseList(env.ALLOWED_EMAILS);
-  if (!allowed.length) {
+  // Operators live in D1 and nowhere else, so there is no .env value to consult
+  // here — the question is answered by the database itself. On a re-run against a
+  // live deployment D1_DATABASE_ID is already set, the table already has rows,
+  // and setup stays quiet. Only a deployment with no operators asks.
+  //
+  // The answer is held in `firstOperator` for the rest of this run and never
+  // written to .env: a second copy of "who may log in" is exactly what this
+  // design removed.
+  let firstOperator = '';
+  let existingOperators = [];
+  if (env.D1_DATABASE_ID) {
+    try {
+      existingOperators = await listUsers(cf, accountId, env.D1_DATABASE_ID);
+    } catch { /* no database, no table, no permission — fall through and ask */ }
+  }
+  if (existingOperators.length) {
+    skip(`${existingOperators.length} operator${existingOperators.length === 1 ? '' : 's'} already configured: ${existingOperators.map((u) => u.email).join(', ')}`);
+  } else {
     plain('');
     plain('  The dashboard has no login of its own — Cloudflare Access is the only thing');
-    plain('  keeping it private. Entries can be full addresses (you@example.com) or bare');
-    plain('  domains (example.com = anyone with that email domain). Comma-separated.');
+    plain('  keeping it private. Cloudflare emails a one-time PIN to this address, so it');
+    plain('  must be a real inbox you can read (not an address on the black-hole domain).');
     plain('');
-    const answer = await ask('  Who may open the dashboard?', '', { required: true });
-    allowed = parseList(answer);
-    env.ALLOWED_EMAILS = allowed.join(',');
-  } else {
-    skip(`allow-list: ${allowed.join(', ')}`);
+    plain('  The same address gets an Autopilot API key, shown once at the end.');
+    plain('');
+    const answer = await ask('  Your email address', '', { required: true });
+    const parsed = normalizeEmail(answer);
+    if (!parsed.ok) die(parsed.reason);
+    firstOperator = parsed.email;
   }
   if (!env.ACCESS_TEAM_NAME) env.ACCESS_TEAM_NAME = teamNameFrom(zoneName);
-
-  // ── 4. autopilot secret ───────────────────────────────────────────────────
-  if (!env.AGENT_SECRET) {
-    env.AGENT_SECRET = randomBytes(32).toString('hex');
-    ok('generated a 32-byte AGENT_SECRET for Autopilot');
-  }
 
   saveEnv({
     CLOUDFLARE_ZONE: zoneName,
@@ -213,10 +230,8 @@ export async function run(args) {
     AUTOPILOT_HOSTNAME: env.AUTOPILOT_HOSTNAME,
     BLACK_HOLE_ROLES: roles.join(','),
     FALLBACK_ADDRESS: env.FALLBACK_ADDRESS || '',
-    ALLOWED_EMAILS: env.ALLOWED_EMAILS || '',
     ACCESS_TEAM_NAME: env.ACCESS_TEAM_NAME,
     ACCESS_SESSION_DURATION: env.ACCESS_SESSION_DURATION,
-    AGENT_SECRET: env.AGENT_SECRET,
     D1_DATABASE_NAME: env.D1_DATABASE_NAME,
     R2_BUCKET_NAME: env.R2_BUCKET_NAME,
     R2_FILES_BUCKET_NAME: env.R2_FILES_BUCKET_NAME,
@@ -239,7 +254,8 @@ export async function run(args) {
     `Worker             ${env.CLEANUP_WORKER_NAME} (cron ${env.CLEANUP_CRON}, no domain)`,
     `Pages project      ${env.PAGES_PROJECT_NAME} → https://${env.DASHBOARD_HOSTNAME}`,
     `Email Routing      *@${zoneName} → ${env.WORKER_NAME}`,
-    `Cloudflare Access  ${env.DASHBOARD_HOSTNAME} for ${allowed.join(', ')}`,
+    `Cloudflare Access  ${env.DASHBOARD_HOSTNAME} for ${firstOperator || existingOperators.map((u) => u.email).join(', ')}`,
+    `Operator           ${firstOperator ? `${firstOperator} ${color.dim('(+ an Autopilot key, shown once at the end)')}` : color.dim('unchanged')}`,
   ];
   plain('');
   for (const line of plan) plain(`    ${line}`);
@@ -276,6 +292,12 @@ export async function run(args) {
   }
 
   // ── 6. storage ────────────────────────────────────────────────────────────
+  // Two things the rest of the run needs come out of this step, because both
+  // live in D1 and D1 does not exist until now: the operator's freshly minted
+  // key (printed once, in the summary) and the Access allow-list (read from the
+  // users table rather than kept as a second copy in .env).
+  let mintedKey = null;
+  let allowed = [];
   step('Storage (D1 + R2)');
   const dbStep = await attempt(
     followUps,
@@ -293,6 +315,37 @@ export async function run(args) {
       () => applySchema(cf, accountId, db.id),
       'Apply it by hand: `npx wrangler d1 execute ' + env.D1_DATABASE_NAME + ' --remote --file=db/schema.sql`, or re-run `./a51 doctor --fix`.',
     );
+
+    // The operator row, now that there is a table to put it in. This is what
+    // makes setup idempotent for users: re-running against a live deployment
+    // finds the row and leaves the existing key alone, because minting a new one
+    // would silently break every agent already registered with the old.
+    const seeded = await attempt(
+      followUps,
+      `could not add ${firstOperator || 'the first operator'} to the users table`,
+      async () => {
+        if (!firstOperator) return null;
+        const existing = await listUsers(cf, accountId, db.id);
+        if (existing.some((u) => u.email === firstOperator)) return null;
+        return upsertUser(cf, accountId, db.id, firstOperator);
+      },
+      `Add yourself by hand once the cause is fixed: \`./a51 users add ${firstOperator || ''}\`.`,
+    );
+    // Held in memory for the summary only. Like every other key this one is
+    // printed once and never written anywhere — not to .env, not to disk. If it
+    // scrolls away, `./a51 users rotate-secret` issues another.
+    mintedKey = seeded.value;
+    if (mintedKey) ok(`added ${color.bold(firstOperator)} as an operator ${color.dim(`(key id ${mintedKey.keyId})`)}`);
+    else if (seeded.ok && firstOperator) skip(`${firstOperator} is already an operator — keeping their existing key`);
+
+    // Everyone in the table, which from here on is the only allow-list there is.
+    const listed = await attempt(
+      followUps,
+      'could not read the users table to build the Access allow-list',
+      () => allowListFrom(cf, accountId, db.id),
+      'Fix the cause, then run `./a51 users sync`. Until it succeeds the dashboard is UNPROTECTED.',
+    );
+    allowed = listed.value || [];
   } else {
     // Everything downstream binds to this id. Say so once, here, rather than
     // letting four later steps fail for the same reason.
@@ -315,14 +368,12 @@ export async function run(args) {
   }
 
   step(`Deploy ${WORKER_TARGETS.autopilot.label}`);
+  // No secret to install. Autopilot authenticates against the D1 users table, so
+  // its credentials travel with the database rather than with the deploy — which
+  // is what makes `./a51 users add` take effect without one.
   if (skipUploads) {
     skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
-  } else if (putWorkerSecret('autopilot', env, 'AGENT_SECRET', env.AGENT_SECRET).ok) {
-    ok('installed AGENT_SECRET as an encrypted Worker Secret');
-  } else {
-    followUps.push({ label: 'AGENT_SECRET was not installed on the Autopilot worker', detail: 'Run `./a51 deploy autopilot` again — without the secret every agent call returns 401.' });
-  }
-  if (!skipUploads && !deployWorker('autopilot', env).ok) {
+  } else if (!deployWorker('autopilot', env).ok) {
     followUps.push({ label: `${env.AGENT_WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy autopilot`.' });
   }
 
@@ -431,23 +482,24 @@ export async function run(args) {
   // a growth in the list is the one reliable signal that Access did not fully
   // land — and the summary needs to say so loudly rather than congratulate you.
   const followUpsBeforeAccess = followUps.length;
+  // Exactly the path `./a51 users sync` takes: read the operators out of D1,
+  // replace the Zero Trust list with them, and point the Access policy at that
+  // list. Setup deliberately does not have its own version of this — a second
+  // implementation is how the two ways of writing the same thing drift apart.
+  //
+  // `force` because setup must converge the application itself, not just the
+  // list: on a first run there is no application yet, and on a re-run the policy
+  // is what has to be proven correct.
   await attempt(
     followUps,
     `could not configure Cloudflare Access on ${env.DASHBOARD_HOSTNAME}`,
-    () => ensureAccess(cf, accountId, {
-      hostname: env.DASHBOARD_HOSTNAME,
-      allowed,
-      sessionDuration: env.ACCESS_SESSION_DURATION,
-      teamName: env.ACCESS_TEAM_NAME,
-      pagesProjectName: env.PAGES_PROJECT_NAME,
-      followUps,
-    }),
-    'Re-run `./a51 access apply` once the cause is fixed. Until it succeeds the dashboard is UNPROTECTED.',
+    () => syncOperators(cf, accountId, env, { followUps, force: true }),
+    'Re-run `./a51 users sync` once the cause is fixed. Until it succeeds the dashboard is UNPROTECTED.',
   );
   const accessProtected = followUps.length === followUpsBeforeAccess;
 
   // ── done ──────────────────────────────────────────────────────────────────
-  printSummary(env, roles, allowed, accessProtected);
+  printSummary(env, roles, mintedKey, accessProtected);
 
   if (followUps.length) {
     heading(`${color.yellow(`Needs a human (${followUps.length})`)}`);
@@ -587,7 +639,7 @@ async function findDerivedHostnameConflicts(cf, accountId, zone, env) {
   return conflicts;
 }
 
-function printSummary(env, roles, allowed, accessProtected) {
+function printSummary(env, roles, mintedKey, accessProtected) {
   heading('Deployed');
   plain('');
   plain(`  AREA 51      ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)}`);
@@ -603,11 +655,25 @@ function printSummary(env, roles, allowed, accessProtected) {
     plain(`    Email callbacks  ${color.cyan(`<anything>@${env.BLACK_HOLE_HOSTNAME}`)}`);
   }
   plain('');
-  plain(`  ${color.bold('Register Autopilot with Claude Code:')}`);
-  plain('');
-  plain(`    claude mcp add autopilot https://${env.AUTOPILOT_HOSTNAME}/mcp \\`);
-  plain(`      --transport http --header "X-A51-Secret: ${env.AGENT_SECRET}"`);
-  plain('');
+  // A key exists in readable form for exactly this moment. On a re-run against a
+  // live deployment there is no new key — the existing one still works, and it
+  // cannot be reprinted, so point at the command that replaces it instead.
+  if (mintedKey) {
+    plain(`  ${color.bold('Your Autopilot key')} ${color.dim('— shown once, now:')}`);
+    plain('');
+    plain(`    ${color.bold(color.green(mintedKey.key))}`);
+    plain('');
+    plain(`  ${color.bold('Register Autopilot with Claude Code:')}`);
+    plain('');
+    for (const line of mcpRegisterLines(env.AUTOPILOT_HOSTNAME, mintedKey.key)) plain(`    ${line}`);
+    plain('');
+  } else {
+    plain(`  ${color.bold('Autopilot')} ${color.dim('— the existing operators keep their keys')}`);
+    plain('');
+    plain('    Only a hash of each is stored, so none can be shown again. If one is lost:');
+    plain('      ./a51 users rotate-secret <email>');
+    plain('');
+  }
   plain(`  ${color.bold('Verify:')}`);
   plain('');
   plain(`    curl -i https://${env.BLACK_HOLE_HOSTNAME}/hello        ${color.dim('# 404! Not Found, and a row in Requests')}`);
@@ -617,7 +683,7 @@ function printSummary(env, roles, allowed, accessProtected) {
   if (!accessProtected) {
     plain(`  ${color.red('!')} ${color.bold('The dashboard is NOT protected.')} Anyone who finds`);
     plain(`    ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)} can read every captured request and email.`);
-    plain(`    Fix the Access follow-up below, then run ${color.bold('./a51 access apply')}.`);
+    plain(`    Fix the Access follow-up below, then run ${color.bold('./a51 users sync')}.`);
     plain('');
   }
   plain(`  DNS and certificates can take a minute or two to go live. Docs: ${color.dim('docs/README.md')}`);

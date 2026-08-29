@@ -15,6 +15,7 @@ import { loadContext, zoneForHostname } from '../lib/context.mjs';
 import { heading, plain, ok, warn, skip, color, info } from '../lib/log.mjs';
 import { typeToConfirm, confirm, closePrompts } from '../lib/prompt.mjs';
 import { deriveR2Credentials, listR2ObjectKeys } from '../lib/r2s3.mjs';
+import { ACCESS_LIST_NAME } from '../lib/provision.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -191,6 +192,21 @@ export async function run() {
     }
   } catch (err) {
     warn(`could not delete the Access application: ${err.message}`);
+  }
+
+  // The operator list, after the application that referenced it. Order matters:
+  // a list still in use by a policy cannot be deleted, and leaving it behind
+  // would strand a named list on the account that nothing points at.
+  if (env.ACCESS_LIST_ID) {
+    try {
+      await cf.deleteZeroTrustList(accountId, env.ACCESS_LIST_ID);
+      ok('deleted the operator email list');
+    } catch (err) {
+      warn(`could not delete the operator email list: ${err.message}`);
+      plain(color.dim(`    Remove it by hand: dashboard → Zero Trust → My Team → Lists → ${ACCESS_LIST_NAME}.`));
+    }
+  } else {
+    skip('no operator email list recorded in .env');
   }
 
   await teardownEmailRouting(cf, accountId, env);

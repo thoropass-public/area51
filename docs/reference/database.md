@@ -140,6 +140,39 @@ mail routing are the other two thirds. `./a51 black-holes add` does all three;
 
 ---
 
+## `users`
+
+The operators of this deployment, and the single source of truth for **both**
+ways in.
+
+| Column | Type | Notes |
+|---|---|---|
+| `email` | `TEXT PRIMARY KEY` | Stored lowercase; also the Cloudflare Access identity |
+| `key_id` | `TEXT NOT NULL` | 8 hex chars. **Public** — the lookup key, and what the worker logs. `UNIQUE` via `idx_users_key_id` |
+| `key_hash` | `TEXT NOT NULL` | `sha256` hex of the whole `"<key_id>_<secret>"` string |
+| `created_at` | `TEXT NOT NULL` | ISO 8601 UTC |
+
+The two doors authenticate completely independently and neither knows the other
+exists:
+
+- **The dashboard** is guarded by Cloudflare Access, which never sees a key —
+  Cloudflare emails a one-time PIN to `email`. `./a51 users` pushes the allow-list
+  derived from this table on every change, so the table and the policy stay in
+  step; `./a51 doctor` reports drift in either direction.
+- **Autopilot** reads only this table. It parses `Authorization: Bearer
+  <key_id>_<secret>`, looks the row up by the public `key_id` (one primary-key
+  read), and compares `sha256(whole key)` against `key_hash` in constant time.
+
+**Only the hash is stored.** A key is printed once, when
+`./a51 users add` / `./a51 users rotate-secret` mints it, and cannot be recovered
+afterwards. Rotating writes a new `key_id` and `key_hash`, which revokes the old
+key instantly — there is no dual-key window.
+
+Because Autopilot reads this table live, adding or revoking an operator takes
+effect on the next call with **no redeploy**, exactly like `domains`.
+
+---
+
 ## R2: captured email
 
 Bucket `R2_BUCKET_NAME`, bound as `EML` on the catcher, Autopilot, the cleanup
@@ -186,8 +219,12 @@ rule is the lever if that ever becomes a problem.
 - **No foreign keys.** Requests are not linked to the endpoint that matched them;
   the three logs are independent.
 - **No soft deletes.** Delete is delete. Purging is out-of-band and unrecoverable.
-- **No actor / created_by columns.** Access control happens at the network edge,
-  not in the data model; from the database's point of view there is one user.
+- **No actor / created_by columns.** Captures and endpoints record no author.
+  `users` exists to authenticate people at the edge, not to attribute rows: who
+  staged an endpoint or read an email is answered from worker logs (which record
+  `key_id` and `email`), not from the data model.
+- **No `last_seen` on `users`.** Tracking it would mean a D1 *write* on every
+  authenticated Autopilot call, to answer a question the logs already answer.
 
 ## Migrations
 
@@ -208,6 +245,10 @@ There is no migration framework. The schema is idempotent and additive, so:
   (`emails.read`, `emails.starred`, `emails.attachment_count`, `endpoints.r2_key`,
   `endpoints.filename`) and prints the exact `ALTER TABLE` if one is missing. Add
   new checks there when you add a column.
+
+  `users` arrived the same way, as a new table. A deployment created before it
+  answers `no such table: users`, which closes Autopilot entirely — `./a51 deploy
+  schema` creates it, then `./a51 users add` puts someone in it.
 - **Dropped column:** remove it from the schema and every `SELECT`, then
   `ALTER TABLE … DROP COLUMN` on live deployments. Every query in the codebase
   lists columns explicitly, so a dropped column fails loudly rather than

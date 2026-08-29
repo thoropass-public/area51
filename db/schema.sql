@@ -4,7 +4,7 @@
 -- re-applied by `./a51 doctor --fix`. Every statement is `IF NOT EXISTS`, so
 -- running it against a live database is safe and never drops data.
 --
--- Six tables, one R2 bucket for captured email, one R2 bucket for endpoint file
+-- Seven tables, one R2 bucket for captured email, one R2 bucket for endpoint file
 -- uploads. Full column-by-column reference: docs/reference/database.md.
 
 -- ─── endpoints ──────────────────────────────────────────────────────────────
@@ -96,3 +96,34 @@ CREATE TABLE IF NOT EXISTS domains (
   domain TEXT PRIMARY KEY,
   roles TEXT NOT NULL      -- JSON array, subset of ["http","mail"]
 );
+
+-- ─── users ──────────────────────────────────────────────────────────────────
+-- The operators of this deployment, and the single source of truth for both
+-- ways in: the Cloudflare Access allow-list (dashboard login) and the Autopilot
+-- API keys (agent auth). `./a51 users` keeps the two in step.
+--
+-- Access and Autopilot authenticate independently and neither knows about the
+-- other. Access never sees a key — Cloudflare emails a one-time PIN to `email`.
+-- Autopilot never sees the allow-list; it only reads this table.
+--
+-- A key is `<key_id>_<secret>`, sent as `Authorization: Bearer <key>`:
+--   key_id    4 random bytes as hex. PUBLIC — it is the lookup key, it is what
+--             the worker logs, and `./a51 users list` prints it. On its own it
+--             authenticates nothing.
+--   secret    32 random bytes as hex. The credential.
+--
+-- Only key_hash is stored: sha256 of the WHOLE key string, so a tampered key_id
+-- cannot be paired with a valid secret. The plaintext key is printed once when
+-- it is minted and never recoverable — `./a51 users rotate-secret` issues a new
+-- one rather than reading the old.
+--
+-- Looking rows up by the public key_id (rather than by something derived from
+-- the secret) keeps secret material out of the query planner and the index; the
+-- comparison that matters is done in the worker, in constant time.
+CREATE TABLE IF NOT EXISTS users (
+  email      TEXT PRIMARY KEY,   -- stored lowercase; also the Access identity
+  key_id     TEXT NOT NULL,      -- 8 hex chars, public
+  key_hash   TEXT NOT NULL,      -- sha256 hex of "<key_id>_<secret>"
+  created_at TEXT NOT NULL       -- ISO 8601 UTC
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_key_id ON users(key_id);

@@ -11,7 +11,7 @@ every exit code, see [reference/cli](../reference/cli.md).
 ```bash
 ./a51 deploy all             # everything: three workers, the dashboard, the schema
 ./a51 deploy black-holes     # the catcher
-./a51 deploy autopilot       # the agent worker (also reinstalls AGENT_SECRET)
+./a51 deploy autopilot       # the agent worker
 ./a51 deploy cleanup         # the retention worker (re-registers its cron)
 ./a51 deploy dashboard       # re-asserts Pages bindings, then uploads
 ./a51 deploy schema          # re-apply db/schema.sql (idempotent)
@@ -124,21 +124,26 @@ Run `doctor` after any change you did not make through the CLI, after a failed
 setup, and when something is behaving strangely. It is read-only without `--fix`.
 
 
-## Rotating the Autopilot secret
+## Rotating an Autopilot key
 
 ```bash
-./a51 rotate-secret
+./a51 users rotate-secret <email>
 ```
 
-Generates 32 fresh bytes, installs them as the Worker Secret, updates `.env`, and
-prints the re-registration command. Every agent breaks until re-registered; there
-is no dual-secret window. Rotate when someone leaves, when a secret has been
-pasted somewhere it should not have been, or on a schedule you set.
+Mints a fresh key for that one operator, writes its hash, and prints the new key
+and the re-registration line. The old key dies the moment the row is written and
+there is no dual-key window, so that operator's agents break until they are
+re-registered — but **only theirs**: keys are per person, so rotating one does
+not disturb anyone else.
+
+Rotate when someone's key has been pasted somewhere it should not have been, when
+a device is lost, or on a schedule you set. When someone leaves, use
+`./a51 users remove <email>` instead — that closes the dashboard too.
 
 ## Lost or stolen device
 
 The machine that ran `./a51` holds `.env`, which contains the **Cloudflare API
-token** and a copy of the **Autopilot secret** (`AGENT_SECRET`). If a device with
+token**. No operator key is stored on any machine the CLI runs on. If a device with
 that file is lost or stolen, assume both are exposed and act immediately, in this
 order. None of these steps need the lost machine:
 
@@ -148,8 +153,11 @@ order. None of these steps need the lost machine:
    provisioning and deploy access. Mint a fresh token when you redeploy and put it
    in the new machine's `.env`.
 2. **Rotate the Autopilot secret** from a trusted machine that still has the repo
-   and a valid token: `./a51 rotate-secret`, then re-register every agent. The old
-   `AGENT_SECRET` stops working the moment the new one is installed.
+   and a valid token: `./a51 users rotate-secret <their email>`, then have them
+   re-register their agents. The old key stops working the moment the new row is
+   written — and because keys are per person, only that one operator is affected,
+   not everybody. If the device is gone for good, `./a51 users remove <their
+   email>` revokes both doors outright.
 3. **Revoke dashboard sessions.** Zero Trust → *Access* → your app → revoke active
    sessions, so a still-logged-in browser on the lost device is cut off. Consider a
    shorter `ACCESS_SESSION_DURATION` going forward.
@@ -160,23 +168,38 @@ order. None of these steps need the lost machine:
 ## Changing who can log in
 
 ```bash
-./a51 access                                  # same as `list` — read-only
-./a51 access list                             # show the current allow-list
-./a51 access add new@gmail.com,asca.com       # add entries, keep the existing ones
-./a51 access remove new@gmail.com             # remove entries, keep the rest
-./a51 access apply                            # re-apply ALLOWED_EMAILS from .env
+./a51 users                                   # same as `list` — read-only
+./a51 users list                              # who has access, and their key ids
+./a51 users add teammate@work.com             # add an operator, print their key once
+./a51 users remove teammate@work.com          # revoke both doors
+./a51 users rotate-secret teammate@work.com   # issue them a new key
+./a51 users sync                              # reconcile Cloudflare with D1
 ```
 
-`add` / `remove` edit the allow-list incrementally against what is already in
-`ALLOWED_EMAILS`. Entries are full addresses (`you@example.com`) or bare domains
-(`example.com`), normalized to lowercase. Both write the result to the Access
-policy **and** back to `ALLOWED_EMAILS` in `.env`.
+One command for one person, because a deployment has two doors and they work
+completely differently:
 
-There is no positional "replace the whole list" form. It was removed as a
-footgun (it silently wiped any entry you forgot to re-type). **To set the list
-wholesale**, edit `ALLOWED_EMAILS` in `.env` and run `./a51 access apply`, which
-re-applies exactly what the file says. You cannot leave the list empty (that would
-make the dashboard public, and there is no flag that does).
+| | Dashboard | Autopilot |
+|---|---|---|
+| Guarded by | Cloudflare Access | The D1 `users` table |
+| Credential | **None** — Cloudflare emails a one-time PIN | `Authorization: Bearer <key>` |
+| Takes effect | On the next login | Immediately, no redeploy |
+
+The `users` table is the source of truth for both, and every change re-pushes
+the Access allow-list derived from it. There is no `ALLOWED_EMAILS` to edit — a
+second copy of the list could only ever drift from the one being enforced. If a
+push fails (a missing permission, Zero Trust not yet activated), the table is
+still correct: fix the cause and run `./a51 users sync`.
+
+**Keys are shown once.** `add` and `rotate-secret` print the new key and only the
+hash is kept, so it cannot be read back later. Hand it over out of band; if it is
+lost, rotate rather than hunt for it. Rotating revokes the old key instantly, so
+every agent using it must be re-registered.
+
+**Removing the last operator** closes Autopilot but not the dashboard: Cloudflare
+Access requires at least one identity in an allow policy, so the application
+keeps its previous policy until somebody is added. The command says so.
+
 
 Existing sessions keep working until they expire. Revoke them in Zero Trust →
 Access → *your app* if that matters.

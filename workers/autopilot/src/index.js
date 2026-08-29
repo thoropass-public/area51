@@ -31,8 +31,10 @@
 //   autopilot_endpoints_upsert
 //   autopilot_endpoints_delete
 //
-// Every request must include `X-A51-Secret: <secret>` (matched against the
-// AGENT_SECRET worker secret in constant time). 401 otherwise.
+// Every request must carry one operator's API key as `Authorization: Bearer
+// <key_id>_<secret>`, matched against the `users` table in D1. 401 otherwise.
+// There is no shared secret and no worker secret: keys are per-person, minted
+// and revoked with `./a51 users`, and only their sha256 is ever stored.
 //
 // The /-/* prefix on managed endpoint URIs is hardcoded server-side
 // and cannot be widened by the client. Any CRUD call referencing a URI that
@@ -63,11 +65,51 @@ function constantTimeEqual(a, b) {
   return mismatch === 0;
 }
 
-function authOk(request, env) {
-  const provided = request.headers.get('x-a51-secret') || '';
-  const expected = env.AGENT_SECRET || '';
-  if (!expected) return false;
-  return constantTimeEqual(provided, expected);
+/** sha256 as lowercase hex. Must stay byte-identical to cli/lib/users.mjs. */
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Identify the caller from `Authorization: Bearer <key_id>_<secret>`.
+ *
+ * The key's two halves are handled differently on purpose. The 8-hex key_id is
+ * public: it is the row lookup, so the index and the query planner never touch
+ * anything derived from the credential. The comparison that actually decides
+ * the request is done here, in constant time, over sha256 of the WHOLE key —
+ * which is also why a tampered key_id cannot be paired with a valid secret.
+ *
+ * Failure modes are deliberately distinct. A malformed, unknown or wrong key is
+ * 401 (the caller is wrong). D1 being unreachable is 503 (the caller may well be
+ * right and there is no way to tell) — reporting that as 401 sends an operator
+ * hunting for a bad key that isn't bad.
+ *
+ * Returns { status } on refusal, or { ok: true, email, keyId }.
+ */
+async function authenticate(request, env) {
+  const header = request.headers.get('authorization') || '';
+  const bearer = /^Bearer\s+(\S+)$/i.exec(header.trim());
+  if (!bearer) return { ok: false, status: 401, reason: 'no_bearer' };
+
+  const key = bearer[1];
+  const parts = /^([0-9a-f]{8})_([0-9a-f]{64})$/.exec(key);
+  if (!parts) return { ok: false, status: 401, reason: 'malformed_key' };
+
+  let row;
+  try {
+    row = await env.DB.prepare('SELECT email, key_hash FROM users WHERE key_id = ?').bind(parts[1]).first();
+  } catch (err) {
+    logErr('agent_auth_unavailable', { error: String((err && err.message) || err) });
+    return { ok: false, status: 503, reason: 'auth_backend_unavailable' };
+  }
+  if (!row) return { ok: false, status: 401, reason: 'unknown_key_id' };
+
+  const presented = await sha256Hex(key);
+  if (!constantTimeEqual(presented, row.key_hash || '')) {
+    return { ok: false, status: 401, reason: 'bad_secret' };
+  }
+  return { ok: true, email: row.email, keyId: parts[1] };
 }
 
 function json(data, status = 200) {
@@ -624,10 +666,17 @@ export default {
     const path = url.pathname;
     log('agent_hit', { method: request.method, path });
 
-    if (!authOk(request, env)) {
-      log('agent_unauthorized', { method: request.method, path });
-      return new Response('Unauthorized', { status: 401 });
+    const auth = await authenticate(request, env);
+    if (!auth.ok) {
+      log('agent_unauthorized', { method: request.method, path, reason: auth.reason, status: auth.status });
+      return auth.status === 503
+        ? new Response('Authentication is temporarily unavailable', { status: 503 })
+        : new Response('Unauthorized', { status: 401 });
     }
+    // The key id is public and the email identifies the operator, so both are
+    // safe to log — and they are what makes a call attributable to a person.
+    // The key itself is never logged.
+    log('agent_authorized', { method: request.method, path, key_id: auth.keyId, email: auth.email });
 
     try {
       // Read endpoints.

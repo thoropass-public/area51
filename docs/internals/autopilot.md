@@ -10,30 +10,45 @@ Think of it as **programmatic, bounded access to the black holes**.
 
 ## Auth
 
-Every route, REST and MCP alike, requires a header:
+Every route, REST and MCP alike, requires one operator's API key:
 
 ```
-X-A51-Secret: <AGENT_SECRET>
+Authorization: Bearer <key_id>_<secret>
 ```
 
-- Compared in **constant time** (`constantTimeEqual`) so response timing leaks
-  nothing about the value.
-- Stored as an encrypted **Worker Secret**, installed by
-  `./a51 deploy autopilot` via `wrangler secret put` with the value piped through
-  stdin. Never in `wrangler.toml`, never in argv, never in `[vars]`.
-- Mirrored in `.env` so it can be reinstalled or handed to a teammate without
-  anyone memorising it.
-- Missing or wrong → `401`. If the secret is not installed at all, *every* request
-  is `401` (an empty expected value can never match).
+Keys are **per person**, minted and revoked with `./a51 users`, and checked
+against the D1 `users` table. There is no shared secret and no Worker Secret:
+Autopilot's credentials travel with the database, which is why `./a51 users add`
+takes effect immediately and needs no deploy.
 
-Rotate:
+The key's two halves are handled deliberately differently:
 
-```bash
-./a51 rotate-secret        # generates, installs, updates .env, prints the re-register command
-```
+| Half | Length | Public? | Role |
+|---|---|---|---|
+| `key_id` | 8 hex | **Yes** | The row lookup, and what the worker logs |
+| secret | 64 hex | No | The credential, 256 bits |
 
-Every agent must then be re-registered. There is no grace period and no second
-accepted value.
+- The **lookup uses only `key_id`**, so nothing derived from the credential ever
+  reaches the query planner or an index.
+- The **comparison uses `sha256` of the whole key string**, in **constant time**
+  (`constantTimeEqual`), so response timing leaks nothing — and a tampered
+  `key_id` cannot be paired with a valid secret.
+- Only the hash is stored. A key is shown once, when minted, and is not
+  recoverable; `./a51 users rotate-secret <email>` issues a replacement.
+
+Failure modes are kept distinct on purpose:
+
+| Situation | Status |
+|---|---|
+| No `Authorization`, malformed key, unknown `key_id`, wrong secret | `401` |
+| D1 unreachable, so no key can be checked | `503` |
+
+Reporting the second as `401` would send an operator hunting for a bad key that
+isn't bad. On success the worker logs `key_id` and `email` — never the key — so
+every call is attributable to a person.
+
+Rotating breaks every agent registered with the old key at once. There is no
+grace period and no second accepted value.
 
 ## REST routes
 
@@ -125,13 +140,16 @@ each has its own silent failure mode:
 ```bash
 claude mcp add autopilot https://<autopilot-host>/mcp \
   --transport http \
-  --header "X-A51-Secret: <AGENT_SECRET from .env>"
+  --header "Authorization: Bearer <the key ./a51 users printed>"
 ```
 
 Every session on that machine then has the eight `mcp__autopilot__*` tools as
 native tool calls. No curl, no header juggling, no parsing instructions in a
 system prompt. The secret lives in the client's own config, not in the
 conversation.
+
+`./a51 users add <email>` prints this exact line, filled in, at the moment the
+key is minted — the only moment it is readable.
 
 Other MCP clients work the same way: HTTP transport, one custom header.
 
@@ -142,8 +160,8 @@ Other MCP clients work the same way: HTTP transport, one custom header.
   namespace and let probes reach them.
 - **Different read pattern.** The catcher is write-heavy on the request path;
   Autopilot is read-oriented with narrow writes.
-- **Different auth.** Black holes must be wide open. Autopilot is behind a shared
-  secret. Different exposure, different rules.
+- **Different auth.** Black holes must be wide open. Autopilot is behind a
+  per-operator key. Different exposure, different rules.
 - **Different blast radius.** A runaway agent is bounded to `/-/*` and to recent
   reads.
 
@@ -152,20 +170,26 @@ Both share the same database binding; no schema change was needed to add it.
 ## Smoke tests
 
 ```bash
-SECRET=$(grep '^AGENT_SECRET=' .env | cut -d= -f2)
+# No key is stored anywhere, so paste your own — the one printed when it was
+# minted. If it is lost: ./a51 users rotate-secret <your email>
+KEY=<key_id>_<secret>
 BASE=https://<autopilot-host>
 
-curl -sS -H "X-A51-Secret: $SECRET" $BASE/requests | jq .served_at
-curl -sS -H "X-A51-Secret: $SECRET" $BASE/emails   | jq '.rows | length'
+curl -sS -H "Authorization: Bearer $KEY" $BASE/requests | jq .served_at
+curl -sS -H "Authorization: Bearer $KEY" $BASE/emails   | jq '.rows | length'
 curl -sS -o /dev/null -w '%{http_code}\n' $BASE/requests        # → 401
+# An unknown key must also be 401. A 503 here means the worker cannot reach D1
+# to check anyone's key — an infrastructure fault, not a bad credential.
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer 00000000_$(printf '0%.0s' {1..64})" $BASE/requests   # → 401
 
-curl -sS -H "X-A51-Secret: $SECRET" -H 'Content-Type: application/json' \
+curl -sS -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' $BASE/mcp | jq .
 
-curl -sS -H "X-A51-Secret: $SECRET" -H 'Content-Type: application/json' \
+curl -sS -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' $BASE/mcp | jq '.result.tools[].name'
 
-curl -sS -H "X-A51-Secret: $SECRET" -H 'Content-Type: application/json' \
+curl -sS -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"requests_recent_1hr","arguments":{}}}' \
   $BASE/mcp | jq '.result.content[0].text | fromjson | .rows | length'
 ```

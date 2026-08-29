@@ -116,7 +116,7 @@ build step ([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)).
 ## Agent flow
 
 ```
-Claude Code ──MCP──► https://<autopilot>/mcp        (X-A51-Secret on every call)
+Claude Code ──MCP──► https://<autopilot>/mcp   (Authorization: Bearer <key>, checked against D1 `users`)
                         │
                         ├─ requests_recent_1hr   ─► SELECT … WHERE ts >= now-60min
                         ├─ emails_recent_1hr     ─► SELECT … WHERE ts >= now-60min
@@ -140,7 +140,8 @@ cannot widen either. See [autopilot.md](autopilot.md).
 | Blacklists | D1 `ip_blacklist`, `email_blacklist` | dashboard | catcher (60-min edge cache) |
 | Configured black holes | D1 `domains` | `./a51 black-holes` | dashboard, Autopilot |
 | Deployment configuration | `.env` on the operator's machine | `./a51 setup` | the CLI, wrangler |
-| Autopilot secret | encrypted Worker Secret + `.env` | `./a51 deploy autopilot`, `./a51 rotate-secret` | Autopilot worker |
+| Operators and their key hashes | D1 `users` | `./a51 users` | Autopilot (auth), and the Zero Trust list the Access policy points at |
+| The Access allow-list | a Zero Trust email list on Cloudflare | `./a51 users` (a projection of D1; never edited directly) | Cloudflare Access, at dashboard login |
 
 Nothing is cached anywhere else. There is no KV namespace, no Durable Object and
 no in-memory state that survives a request, apart from the blacklists' edge cache.

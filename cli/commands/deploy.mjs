@@ -1,6 +1,6 @@
 // `./a51 deploy [target]` — push code. Provisioning stays in `setup`; this
-// command only uploads what is already provisioned (plus the two things that
-// must travel with a deploy: the Autopilot secret and the Pages bindings).
+// command only uploads what is already provisioned (plus the one thing that
+// must travel with a deploy: the Pages bindings).
 //
 // Targets are independent, and `deploy all` is the common case, so each one runs
 // in its own try/catch: a schema error must not stop the workers from shipping,
@@ -8,8 +8,8 @@
 // collected and reported together with a count of what did succeed.
 
 import { loadContext } from '../lib/context.mjs';
-import { step, ok, warn, heading, plain, color, resetSteps, die } from '../lib/log.mjs';
-import { deployWorker, deployPages, putWorkerSecret, requireWrangler, WORKER_TARGETS } from '../lib/wrangler.mjs';
+import { step, heading, plain, color, resetSteps, die } from '../lib/log.mjs';
+import { deployWorker, deployPages, requireWrangler, WORKER_TARGETS } from '../lib/wrangler.mjs';
 import { ensurePagesProject, applySchema } from '../lib/provision.mjs';
 
 const TARGETS = ['black-holes', 'autopilot', 'cleanup', 'dashboard', 'schema'];
@@ -75,16 +75,10 @@ async function deployTarget(t, cf, accountId, env, failed) {
       return;
     }
 
+    // Autopilot has no secret to install: it authenticates every call against
+    // the D1 users table, so operator keys travel with the database and
+    // `./a51 users add` takes effect with no deploy at all.
     step(WORKER_TARGETS[t].label);
-    if (t === 'autopilot') {
-      if (!env.AGENT_SECRET) {
-        warn('AGENT_SECRET is empty in .env — run `./a51 rotate-secret` to generate and install one');
-      } else if (putWorkerSecret('autopilot', env, 'AGENT_SECRET', env.AGENT_SECRET).ok) {
-        ok('AGENT_SECRET installed (encrypted Worker Secret)');
-      } else {
-        failed.push('AGENT_SECRET install');
-      }
-    }
     if (!deployWorker(t, env).ok) failed.push(`${t} deploy`);
   }
 }

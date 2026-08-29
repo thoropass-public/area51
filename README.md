@@ -93,7 +93,7 @@ domain is captured. Public by necessity, because targets have to reach it.
 
 **Autopilot** · the agent interface
 
-A secret-authenticated MCP + REST server. Reads the last hour of callbacks,
+A key-authenticated MCP + REST server. Reads the last hour of callbacks,
 stages its own response stubs, and cannot touch anything else.
 
 </td>
@@ -105,9 +105,9 @@ stages its own response stubs, and cannot touch anything else.
 Cool and easy: **Autopilot** exposes an MCP server (with a REST mirror) so an
 authorized AI agent can run the loop itself mid-engagement, without you in the
 middle of it. It reads the last hour of callbacks, stages its own response stub
-under the fenced `/-/*` namespace, and confirms the hit. It is
-secret-authenticated and sandboxed: it can never read your files, or any endpoint
-outside `/-/`. → [Autopilot internals](docs/internals/autopilot.md)
+under the fenced `/-/*` namespace, and confirms the hit. Every operator gets
+their own API key, and it is sandboxed: it can never read your files, or any
+endpoint outside `/-/`. → [Autopilot internals](docs/internals/autopilot.md)
 
 ## What it looks like
 

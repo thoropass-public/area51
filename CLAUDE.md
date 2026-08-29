@@ -16,7 +16,7 @@ database and two R2 buckets:
 | Piece | Path | Role |
 |---|---|---|
 | Black Holes worker | `workers/black-holes/` | Public catcher: serves endpoints, logs requests, captures email |
-| Autopilot worker | `workers/autopilot/` | Secret-auth REST + MCP server for agents, fenced to `/-/*` |
+| Autopilot worker | `workers/autopilot/` | Key-auth REST + MCP server for agents, fenced to `/-/*` |
 | Cleanup worker | `workers/cleanup/` | Cron-only retention |
 | Dashboard | `dashboard/` | Cloudflare Pages (React + `/api/*` Functions), behind Access |
 | CLI | `cli/` (`./a51`) | Provisions and deploys everything |
@@ -48,8 +48,10 @@ cp .env.example .env        # paste CLOUDFLARE_API_TOKEN, then run setup
 ```
 
 `setup` prompts for the zone, a confirmation that the zone may be taken over,
-the fallback inbox and the Access allow-list, then writes every answer back to
-`.env`. It does **not** ask about hostnames: the black hole is always the zone
+the fallback inbox and your own email address (as the first operator). Most
+answers are written back to `.env`; the operator address is not — it becomes a
+row in the D1 `users` table, and a re-run reads that table instead of asking
+again. It does **not** ask about hostnames: the black hole is always the zone
 apex with both roles, and the other two are derived as `area51.<zone>` and
 `autopilot.<zone>` (the apex is what puts the zone's mail catch-all in place, so
 nothing on the zone captures mail until it is a black hole — see
@@ -63,20 +65,24 @@ enables Email Routing for that name and reuses the zone catch-all — but it
 refuses unless that subdomain's own zone apex is already a mail black hole.
 
 **The API token is where installs fail.** Create it at **My Profile → API
-Tokens → Create Token → Custom token** with these **thirteen** permissions (the
+Tokens → Create Token → Custom token** with these **fourteen** permissions (the
 full table with per-permission rationale is [docs/guides/getting-started.md#api-token](docs/guides/getting-started.md#api-token)):
 
 | Scope | Permissions |
 |---|---|
-| **Account** | Workers Scripts:Edit · D1:Edit · Workers R2 Storage:Edit · Cloudflare Pages:Edit · Account Settings:Read · Access: Apps and Policies:Edit · Access: Organizations, Identity Providers, and Groups:Edit · Email Routing Addresses:Edit |
+| **Account** | Workers Scripts:Edit · D1:Edit · Workers R2 Storage:Edit · Cloudflare Pages:Edit · Account Settings:Read · Access: Apps and Policies:Edit · Access: Organizations, Identity Providers, and Groups:Edit · **Zero Trust:Edit** · Email Routing Addresses:Edit |
 | **Zone** | Zone:Read · **Zone Settings:Edit** · DNS:Edit · Workers Routes:Edit · Email Routing Rules:Edit |
 
 Then, under **Zone Resources**, *Include* the zone you deploy onto (or *All
-zones*). All thirteen are required: the primary black hole always carries the
+zones*). All fourteen are required: the primary black hole always carries the
 `mail` role, so the Email Routing permissions and Zone Settings are never
 optional at setup time.
 
-Three traps account for almost every "permission is set but still denied":
+Four traps account for almost every "permission is set but still denied":
+- **The operator email list needs `Account · Zero Trust:Edit`**, NOT Access: Apps
+  and Policies. Zero Trust lists live under the Gateway resource tree, so a token
+  that can write the Access application still cannot write the list its policy
+  points at.
 - **Enabling Email Routing needs `Zone · Zone Settings:Edit`**, NOT Email Routing
   Rules. Missing it → `[10000] Authentication error` on the mail step.
 - **Zone Resources** must *include* the target zone (or All zones), or every zone
@@ -129,7 +135,32 @@ schema, Pages bindings, domain bindings and the Access policy.
    step for the frontend without revisiting that decision. Deploys are pure file
    uploads.
 
-7. **`.env` is the only state.** No lock file, no state file, nothing in a home
+7. **Operators live in D1, and a key is shown once.** The `users` table is the
+   single source of truth for *both* doors, and the only thing `./a51 users`
+   writes. Autopilot reads `key_hash` live. Cloudflare Access cannot read D1 —
+   policies are enforced at Cloudflare's edge — so the `email` column is
+   **projected** into a Zero Trust email list (`ACCESS_LIST_ID`) that the policy
+   points at. That projection is mandatory, and it is the only permitted copy:
+   don't reintroduce `ALLOWED_EMAILS` or a shared secret.
+
+   Rules that must hold when you touch this:
+   - **Write D1, re-read D1, then `PUT` the full list.** Never compose the pushed
+     set in memory from what you think you just wrote — a concurrent change from
+     another machine would be silently reverted. `PUT`, never `PATCH`, so a hand
+     edit in the Cloudflare dashboard does not survive.
+   - **Only the zero-crossing touches the Access application.** Routine adds and
+     removes rewrite the list alone. An empty operator set writes an **explicit
+     deny-everyone** policy rather than relying on an empty list matching nobody,
+     which Cloudflare does not document.
+   - **Only `sha256(<whole key>)` is stored**, so keys are rotated, never
+     recovered — including your own. No key is ever written to `.env`.
+   - Look rows up by the **public** `key_id` and compare hashes in **constant
+     time**; never key a query on something derived from the secret. D1
+     unreachable answers **503, not 401**.
+   - Managing the list needs `Account · Zero Trust:Edit`, which is a *different*
+     permission from `Access: Apps and Policies:Edit`.
+
+8. **`.env` is the only state.** No lock file, no state file, nothing in a home
    dir. ("Lock file" here means a *deployment*-state file, Terraform-style —
    nothing to do with `package-lock.json`, which is gitignored for its own
    separate reason.) The CLI reads and *writes back* to `.env` (surgical per-line
@@ -141,8 +172,9 @@ schema, Pages bindings, domain bindings and the Access policy.
 
 - Provisioning goes through the hand-written REST client
   [cli/lib/cloudflare.mjs](cli/lib/cloudflare.mjs), **not** wrangler. Wrangler
-  only uploads code and installs the Autopilot secret. Keep it that way — the
-  REST path is what makes every step inspectable and idempotent.
+  only uploads code. Keep it that way — the REST path is what makes every step
+  inspectable and idempotent. (Autopilot has no Worker Secret at all: it
+  authenticates against the D1 `users` table.)
 - A step that fails in a way a human can finish records a `followUp` with the
   exact click-path and the run continues (exit `2`); it does not abort.
 - Auth-shaped Cloudflare errors (`403` / `[9109]` / `[10000]`) have several
@@ -165,8 +197,9 @@ schema, Pages bindings, domain bindings and the Access policy.
 - **Deploy / operate:** `./a51 setup` (provision, idempotent), `./a51 deploy
   [target]`, `./a51 status`, `./a51 doctor [--fix]` (the real acceptance test —
   checks bindings and probes live hosts), `./a51 black-holes [list|add|remove]`
-  (manage catchers; the D1 table is still named `domains`). `./a51 <cmd> --help`
-  for each.
+  (manage catchers; the D1 table is still named `domains`), `./a51 users
+  [list|add|remove|rotate-secret|sync]` (manage operators — dashboard access and
+  Autopilot keys together). `./a51 <cmd> --help` for each.
 - **Syntax-check CLI edits:** `node --check <file>` (the CLI is plain ESM, no
   build). There is no test suite; `./a51 doctor` is how a deployment is verified.
 - **One `package.json` at the root.** Workers have no manifests of their own;
@@ -181,9 +214,10 @@ schema, Pages bindings, domain bindings and the Access policy.
 
 This is offensive-security tooling for **authorized** engagements. The black
 hole is deliberately public (targets must reach it); the dashboard is protected
-only by Cloudflare Access; Autopilot only by a shared secret. Don't weaken those
-boundaries, don't log secrets, and keep the Autopilot fence (`/-/` + no FILES
-binding + 60-min window) intact.
+only by Cloudflare Access; Autopilot only by a per-operator API key. Don't weaken
+those boundaries, don't log keys (the public `key_id` is fine and is what makes a
+call attributable; the key itself never is), and keep the Autopilot fence (`/-/`
++ no FILES binding + 60-min window) intact.
 
 ## Where the documentation lives
 

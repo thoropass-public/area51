@@ -60,7 +60,7 @@ token's Access permissions are correct, because there is no Zero Trust
 organization for the API to write into. Setup names this as a candidate cause, and
 the step degrades into a follow-up rather than stopping the run — so the rest of
 the deployment lands and the summary says plainly that the dashboard is
-unprotected until you activate Zero Trust and run `./a51 access apply`.
+unprotected until you activate Zero Trust and run `./a51 users sync`.
 
 ### 4. A clean zone, with no prior mail (MX) records
 
@@ -86,8 +86,8 @@ node --version    # v20 or newer
 npm install       # installs wrangler and postal-mime at the repo root
 ```
 
-Wrangler is used only to upload Worker code, install the Autopilot secret and
-upload the dashboard. Everything else goes through the REST API.
+Wrangler is used only to upload Worker code and the dashboard. Everything else
+goes through the REST API.
 
 ### API token
 
@@ -102,6 +102,7 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Account | **Account Settings** · Read | discovering the account id |
 | Account | **Access: Apps and Policies** · Edit | the Access application in front of the dashboard |
 | Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organization and enabling one-time PIN login |
+| Account | **Zero Trust** · Edit | the operator email list the Access policy points at. Lists live under the Gateway/Zero Trust resource tree, *not* under Access: Apps and Policies — see the note below. |
 | Account | **Email Routing Addresses** · Edit | registering the fallback inbox as a destination |
 | Zone | **Zone** · Read | resolving hostnames to zones |
 | Zone | **Zone Settings** · Edit | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss; see the warning below. |
@@ -109,7 +110,7 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Zone | **Workers Routes** · Edit | binding black hole / Autopilot hostnames to Workers |
 | Zone | **Email Routing Rules** · Edit | setting the catch-all rule that points inbound mail at the worker |
 
-That is **thirteen** permissions: eight Account-scoped, five Zone-scoped.
+That is **fourteen** permissions: nine Account-scoped, five Zone-scoped.
 
 > **The Email Routing trap.** *Enabling* Email Routing lives under **Zone
 > Settings**, not **Email Routing Rules**. Email Routing Rules only covers the
@@ -156,7 +157,7 @@ questions:
 |---|---|---|
 | Black hole | `example.com` — the zone apex, always | **Public.** Targets reach it. Serves your endpoints, captures every request and every address. |
 | AREA 51 | `area51.example.com` | Behind Cloudflare Access. |
-| Autopilot | `autopilot.example.com` | Public but useless without `AGENT_SECRET`; every route answers 401. |
+| Autopilot | `autopilot.example.com` | Public but useless without an operator key; every route answers 401. |
 
 The black hole always carries **both roles** (`http` and `mail`), which gives you
 two callback surfaces on one domain:
@@ -219,7 +220,9 @@ zone — and setup uses it as-is instead of deriving one.
 ## What setup does, step by step
 
 Each step below lists the API call it makes and the equivalent manual action, in
-case you need to finish it by hand.
+case you need to finish it by hand. The CLI counts the three Worker deploys
+separately, so its `[n/12]` progress markers run slightly ahead of the ten
+headings here.
 
 ### 1. Credentials
 
@@ -259,27 +262,37 @@ deployment created are recognized as its own, so re-running stays a no-op.
 
 Finally it asks for the fallback inbox. All answers are saved to `.env`.
 
-### 3. Access allow-list
+### 3. Your operator account
 
-Asks who may open the dashboard. Entries are full addresses
-(`alice@example.com`) or bare domains (`example.com` = anyone with that email
-domain), comma-separated. Saved as `ALLOWED_EMAILS`.
+Asks for **your** email address, and only yours — setup provisions one operator.
+It must be a real inbox you can read, because Cloudflare Access emails a one-time
+PIN to it; it is not an address on the black-hole domain, which is the trap, not
+your mailbox.
 
-### 4. Autopilot secret
+The answer is **not** saved to `.env`. Operators live in the D1 `users` table and
+nowhere else, so on a re-run setup reads that table instead of asking again — and
+stays silent once anyone is in it.
 
-If `AGENT_SECRET` is empty, generates 32 random bytes as hex.
+The same address gets an Autopilot API key, minted in step 6 once the database
+exists and printed once at the end. Teammates are added later with
+`./a51 users add`, which is also the only way to mint a key.
 
-### 5. Plan and confirmation
+### 4. Plan and confirmation
 
 Prints exactly what will be created, then asks once. `--dry-run` stops here.
 
-### 6. Storage
+### 5. Storage
 
 - `POST /accounts/{a}/d1/database` creates the database if no database with
   that name exists. Writes `D1_DATABASE_ID` to `.env`.
 - Applies `db/schema.sql` **statement by statement** through
   `POST /accounts/{a}/d1/database/{id}/query`, then lists the resulting tables.
   Every statement is `CREATE … IF NOT EXISTS`, so re-applying is a no-op.
+- Writes your `users` row: the address from step 3, a fresh key id, and the
+  sha256 of its key. Re-running finds the existing row and **keeps the existing
+  key**, since minting a new one would silently break every agent already
+  registered. The key itself is held in memory only and printed once at the end.
+  The allow-list pushed to Access in step 10 is read from this table.
 - `POST /accounts/{a}/r2/buckets` creates the email bucket and the files
   bucket, tolerating "already exists".
 
@@ -287,21 +300,21 @@ Prints exactly what will be created, then asks once. `--dry-run` stops here.
 `npx wrangler d1 execute <name> --remote --file=db/schema.sql`,
 `npx wrangler r2 bucket create <name>` (twice).
 
-### 7. Workers
+### 6. Workers
 
 For each Worker: renders `wrangler.toml` from `wrangler.toml.template` + `.env`,
 then `wrangler deploy` from that directory.
 
-The Autopilot deploy also pipes `AGENT_SECRET` into
-`wrangler secret put AGENT_SECRET` first, so the value never appears in a command
-line or in `wrangler.toml`.
+No secrets are installed. Autopilot authenticates every call against the `users`
+table in D1, so operator keys travel with the database rather than with a deploy
+— which is what makes `./a51 users add` take effect with no redeploy at all.
 
 The cleanup Worker's cron trigger is registered by the deploy itself, so there is
 nothing else to configure.
 
 *Manual equivalent:* `./a51 deploy black-holes` / `autopilot` / `cleanup`.
 
-### 8. Black hole hostname
+### 7. Black hole hostname
 
 - `PUT /accounts/{a}/workers/domains` with `{hostname, service, zone_id}`
   attaches the hostname to the catcher as a Custom Domain. Cloudflare provisions
@@ -323,11 +336,11 @@ Workers & Pages → *worker* → Settings → Domains & Routes → Add → Custo
 zone → Email → Email Routing → Get started · Routing rules → Catch-all → Edit →
 *Send to a Worker* · `./a51 black-holes add <host> http,mail`.
 
-### 9. Autopilot hostname
+### 8. Autopilot hostname
 
 Same Custom Domain call, pointed at the Autopilot Worker.
 
-### 10. Dashboard
+### 9. Dashboard
 
 - Creates the Pages project **bare** (name + `production_branch = main`), then
   **PATCHes the bindings** onto it: `d1_databases.DB`, `r2_buckets.EML`,
@@ -350,7 +363,7 @@ Same Custom Domain call, pointed at the Autopilot Worker.
 R2 `FILES`, on Production **and** Preview) → Custom domains → *Set up a custom
 domain* → redeploy.
 
-### 11. Cloudflare Access
+### 10. Cloudflare Access
 
 - `GET /accounts/{a}/access/organizations`, and if the account has no Zero Trust
   organization, creates one with `auth_domain = <ACCESS_TEAM_NAME>.cloudflareaccess.com`,
@@ -358,13 +371,13 @@ domain* → redeploy.
   application (a just-created org isn't instantly usable, which is what used to
   make the first run fail and a second run "fix it"). Team names are **globally
   unique**; if yours is taken, set `ACCESS_TEAM_NAME` in `.env` and re-run
-  `./a51 access`. This step needs **Zero Trust activated on the account** first
+  `./a51 users sync`. This step needs **Zero Trust activated on the account** first
   (Prerequisite 3). Without it there is no organization to create into and the
   step fails with an auth-shaped error.
 - Ensures the **One-time PIN** login method exists (Access emails a code, with no
   identity provider to configure).
 - Creates or updates a `self_hosted` application with one allow policy built from
-  `ALLOWED_EMAILS`, `session_duration` from `ACCESS_SESSION_DURATION`, and
+  the `users` table, `session_duration` from `ACCESS_SESSION_DURATION`, and
   `auto_redirect_to_identity` so users skip the login-method chooser.
 - **Guards the pages.dev URL too, not just the custom domain.** A Cloudflare Pages
   site is reachable at *both* its custom domain **and** its `*.pages.dev` URL: the
@@ -392,8 +405,8 @@ hostname destinations → policy *Allow* with an Emails or Email domain rule.
 
 `doctor` is the real acceptance test. It checks the schema (including columns
 added by later releases), both buckets, all three Workers **and the bindings that
-actually reached them** (including whether `AGENT_SECRET` is installed), every
-black hole's Custom Domain and mail routing — including that a subdomain mail
+actually reached them**, the operator list and whether Access enforces exactly
+it, every black hole's Custom Domain and mail routing — including that a subdomain mail
 black hole has MX records of its own — the Pages bindings on both environments,
 the Access application and its policy, then makes live requests:
 
@@ -424,7 +437,7 @@ Then, in order:
 | Schema changed upstream | `./a51 deploy schema` (or `./a51 doctor --fix`) |
 | Changed a hostname, bucket or worker name in `.env` | `./a51 setup`, but read [operations.md](operations.md#renaming-things) first: renaming a Worker or a bucket creates a *new* one and orphans the old |
 | Added a domain | `./a51 black-holes add <host> http,mail` |
-| Changed who may log in | `./a51 access add <…>` / `./a51 access remove <…>` (or edit `ALLOWED_EMAILS` in `.env` and run `./a51 access`) |
+| Someone joined or left | `./a51 users add <email>` / `./a51 users remove <email>` — both doors at once |
 | Want it gone | `./a51 destroy` |
 
 A second, independent deployment (a separate account, or a separate database on

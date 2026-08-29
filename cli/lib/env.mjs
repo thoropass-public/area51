@@ -105,8 +105,9 @@ export function saveEnv(updates) {
   // almost always already exists — copied from .env.example, which is 0644
   // because it holds nothing secret. So the mode above silently did nothing and
   // the file stayed world-readable while the CLI reported "mode 600". chmod
-  // applies either way. This file holds the Cloudflare API token and a copy of
-  // AGENT_SECRET, so it must not be readable by other users on the machine.
+  // applies either way. This file holds the Cloudflare API token and this
+  // operator's own Autopilot key, so it must not be readable by other users on
+  // the machine.
   try {
     chmodSync(envPath, 0o600);
   } catch {

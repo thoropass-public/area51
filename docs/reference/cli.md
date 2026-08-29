@@ -10,10 +10,12 @@ inspects, repairs and tears down.
 
 - **Provisioning goes through the Cloudflare REST API**, not wrangler, so every
   step can inspect current state before changing it. Wrangler is used only to
-  upload Worker code, install the Autopilot secret and upload the dashboard.
-- **`.env` is the only state.** Commands read it, and `setup` / `access` /
-  `rotate-secret` write back into it. There is no lock file and nothing cached in
-  a home directory.
+  upload Worker code and the dashboard.
+- **`.env` holds the configuration; D1 holds the live lists.** Commands read
+  `.env`, and `setup` / `users` write back into it. There is no lock file and
+  nothing cached in a home directory. Who may use the deployment (`users`) and
+  which hosts are catchers (`black-holes`) live in D1 instead, so both change
+  without a redeploy.
 - **Everything is idempotent.** Re-running is the normal way to converge a
   deployment.
 
@@ -103,7 +105,7 @@ Uploads code that is already provisioned. Defaults to `all`.
 | Target | What happens |
 |---|---|
 | `black-holes` | Render `wrangler.toml` from the template + `.env`, then `wrangler deploy` |
-| `autopilot` | Install `AGENT_SECRET` as an encrypted Worker Secret, then deploy |
+| `autopilot` | Render `wrangler.toml` and deploy. No secret to install — it authenticates against the D1 `users` table |
 | `cleanup` | Deploy, which re-registers the cron trigger from `CLEANUP_CRON` |
 | `dashboard` | Re-assert the Pages D1/R2 bindings, then upload `dashboard/` |
 | `schema` | Re-apply `db/schema.sql` (idempotent; never drops data) |
@@ -131,9 +133,9 @@ No row counts, deliberately, because D1 bills per row read
 ```
 
 The acceptance test. Verifies, in order: `.env` completeness · token validity ·
-the database and its six tables and late-added columns · both buckets · all three
-Workers **and the bindings that actually reached them** (including whether
-`AGENT_SECRET` is installed) · every black hole's Custom Domain and mail
+the database and its seven tables and late-added columns · both buckets · all three
+Workers **and the bindings that actually reached them** · the operator list, and
+whether Cloudflare Access enforces exactly it · every black hole's Custom Domain and mail
 catch-all, **plus MX records of its own for any subdomain that captures mail** ·
 the Pages project's bindings on production **and** preview · its
 custom domain · the Access application, its allow policy, and that its
@@ -142,7 +144,8 @@ destinations cover the `*.pages.dev` URL.
 Then it probes the live hosts from your machine:
 
 - the black hole answers `404` on an unknown path,
-- Autopilot answers `401` with no secret and `200` with the one in `.env`,
+- Autopilot answers `401` with no key, and `401` (not `503`) to an unknown one —
+  proving it can reach D1 to check keys at all,
 - the dashboard redirects to the Access login rather than serving content.
 
 | Flag | Effect |
@@ -210,32 +213,64 @@ DNS and the certificate take a minute.
   the same zone may still need it. Captured data is kept.
 - `list` flags any host that is in the table but not actually bound.
 
-## access
+## users
 
 ```
-./a51 access [list]                        # show the allow-list (no network)
-./a51 access add <email|domain>[,...]      # add entries, keep the rest
-./a51 access remove <email|domain>[,...]   # drop entries, keep the rest
-./a51 access apply                         # re-apply ALLOWED_EMAILS from .env
+./a51 users [list]                  # who has access, and their key ids
+./a51 users add [email]             # add an operator and mint their key
+./a51 users remove <email>          # revoke the dashboard and Autopilot
+./a51 users rotate-secret <email>   # issue a new key for one operator
+./a51 users sync                    # reconcile Cloudflare with D1
 ```
 
 Subcommands, matching `./a51 black-holes` — both manage a list, so both read the
 same way. With no action it lists, which is read-only.
 
-Manages the Cloudflare Access application in front of the dashboard: the Zero
-Trust organization, the One-time PIN login method, the application itself, its
+One command because a person is one thing, even though a deployment has two
+doors, and they authenticate completely differently:
+
+| | Dashboard | Autopilot |
+|---|---|---|
+| Guarded by | Cloudflare Access | The `users` table |
+| Credential | **None** — Cloudflare emails a one-time PIN | `Authorization: Bearer <key>` |
+| Changing it | Re-push the Access allow policy | Nothing — the worker reads D1 live |
+
+Neither knows the other exists. Keeping them in step is this command's whole
+job: the D1 `users` table is the source of truth for both, and every mutation
+re-pushes the Access allow-list derived from it. That is also why there is no
+`ALLOWED_EMAILS` — a second copy of the list in `.env` could only ever drift.
+
+`add` and `rotate-secret` also manage the Access application itself when needed:
+the Zero Trust organization, the One-time PIN login method, the application, its
 allow policy, and its destinations (custom domain **plus** the `*.pages.dev`
 URLs, so there is no unauthenticated bypass).
 
-Entries are full addresses (`you@example.com`) or bare domains (`example.com` =
-anyone with that email domain). Everything is lowercased and de-duplicated.
+### Keys
 
-There is deliberately **no "replace the list" form**. `add` and `remove` express
-every change without the footgun of silently dropping entries you forgot to
-retype. To set the list wholesale, edit `ALLOWED_EMAILS` in `.env` and run
-`./a51 access apply`. Refuses to leave the list empty; use
-at least one entry instead — Access is the dashboard's only protection, and there
-is no supported way to publish it.
+A key is `<key_id>_<secret>` — 8 hex characters, an underscore, 64 hex
+characters — sent as `Authorization: Bearer <key>`:
+
+- **`key_id` is public.** It is the database lookup, it is what the worker logs,
+  and `users list` prints it. On its own it authenticates nothing.
+- **The 64-hex tail is the credential**, 256 bits of entropy.
+
+Only `sha256(<the whole key>)` is stored, so **a key is shown exactly once**,
+when it is minted, and cannot be recovered afterwards. A lost key is replaced
+with `rotate-secret`, never read back. Rotating takes effect immediately and
+breaks every agent registered with the old key; there is no dual-key window.
+
+Your own key is the one exception to keys never being stored locally: it is
+never written to disk — including your own. `doctor` therefore does not probe
+with a real key; it proves the deployment
+actually accepts a key. Everyone else's is handed over out of band.
+
+### Removing the last operator
+
+Cloudflare Access requires at least one identity in an allow policy, so an empty
+list cannot be pushed. Removing the last operator therefore closes Autopilot
+immediately — their key stops working — but leaves the Access application
+carrying its previous policy, so they can still open the dashboard until someone
+is added. The command says so rather than reporting a clean revocation.
 
 ## purge
 
@@ -257,16 +292,6 @@ unreachable, which is an invisible storage leak. Starred email is never purged.
 
 Unattended retention is the cleanup worker's job
 ([internals/cleanup](../internals/cleanup.md)).
-
-## rotate-secret
-
-```
-./a51 rotate-secret [value]
-```
-
-Generates 32 random bytes (or takes the value you pass), installs it as the
-Autopilot Worker Secret, writes it to `.env`, and prints the re-registration
-command. Every agent breaks until re-registered; there is no dual-secret window.
 
 ## tail
 
@@ -326,8 +351,8 @@ cp .env.example .env && ./a51 setup
 ./a51 black-holes add other-domain.example http,mail
 
 # someone joined / left the team
-./a51 access add them@example.com
-./a51 access remove them@example.com
+./a51 users add them@example.com      # prints their key once
+./a51 users remove them@example.com
 
 # something is off
 ./a51 doctor            # diagnose

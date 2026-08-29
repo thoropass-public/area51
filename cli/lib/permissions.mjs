@@ -10,11 +10,12 @@
 import { plain, color } from './log.mjs';
 
 export function printTokenPermissions() {
-  plain(`  ${color.bold('API token')} ${color.dim('— 13 permissions · My Profile → API Tokens → Create Token → Custom token')}`);
+  plain(`  ${color.bold('API token')} ${color.dim('— 14 permissions · My Profile → API Tokens → Create Token → Custom token')}`);
   plain('');
   plain(`    ${color.bold('Account scope')}`);
   plain(`      ${color.bold('Edit')}   Workers Scripts · D1 · Workers R2 Storage · Cloudflare Pages`);
   plain(`             Access: Apps and Policies · Access: Orgs, IdPs and Groups · Email Routing Addresses`);
+  plain(`             Zero Trust ${color.dim('(the operator email list — NOT covered by Access: Apps and Policies)')}`);
   plain(`      ${color.bold('Read')}   Account Settings`);
   plain('');
   plain(`    ${color.bold('Zone scope')}`);

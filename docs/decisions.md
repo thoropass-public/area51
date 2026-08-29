@@ -438,6 +438,90 @@ external configuration: Access emails a code to an allow-listed address. Anyone 
 wants an IdP, device posture or an IP rule can compose that in Zero Trust; the code
 does not care.
 
+## One `users` table for both doors, and per-operator keys
+
+**Decision:** a single D1 `users` table is the source of truth for *both* ways
+into a deployment, and `./a51 users` is the only command that touches either.
+The Autopilot shared secret and the `access` command are gone, along with
+`ALLOWED_EMAILS`.
+
+**Why one command:** a person is one thing. Before this there were two commands
+and two mental models for the same teammate — `./a51 access add them@work.com`
+for the dashboard, `./a51 rotate-secret` (which rotated *everyone's* secret) for
+agents. Off-boarding somebody meant remembering both, and rotating for one leaver
+broke every other operator's agents.
+
+**Why they still authenticate separately:** they have to. Cloudflare Access
+authenticates a *person* by mailing a one-time PIN — there is no key we could
+issue and no exchange we own. Autopilot authenticates a *client* with a bearer
+key. Neither can be expressed in the other's terms, so the table is the seam:
+Access gets an allow-list derived from `email`, Autopilot reads `key_hash`, and
+neither knows the other exists.
+
+**Why D1 and not `.env`:** the same reason as `domains`. A list in `.env` is a
+copy of something Cloudflare or a Worker actually enforces, and a copy can drift
+invisibly. In D1 it is read live — `users add` works with no redeploy — and
+`doctor` can compare the table against what Access enforces and report drift in
+either direction.
+
+**Why hashes, and a key shown once:** storing keys would make `.env` a vault of
+other people's credentials and a D1 dump a set of working logins. Only
+`sha256(<whole key>)` is kept, so a lost key is rotated rather than recovered.
+
+There is **no exception for your own key.** An earlier draft kept it in `.env` so
+`doctor` could prove the deployment accepts a real key. That bought one
+diagnostic and cost the model its only clean sentence — "a key is shown once" was
+true for everyone except the person most likely to leak one. It also created a
+loop nobody would enjoy: rotating your own key left `.env` holding the dead one,
+and `doctor`'s fix hint told you to rotate again. `doctor` now proves what it can
+without a credential (an unknown key must come back `401`, not `503`), and
+rotating takes two seconds.
+
+**Why the key has two halves.** `<key_id>_<secret>`: the 8-hex id is public and
+is the row lookup; the 64-hex tail is the credential. Keeping the lookup on a
+public value means nothing derived from the secret reaches an index or the query
+planner, and the comparison that decides the request stays a constant-time one
+over hashes, in the worker. The id is also what makes a call attributable — it
+is safe to log, so worker logs name the operator without naming the key.
+
+**Why an empty operator set writes an explicit deny.** When the last operator is
+removed there is nobody to put in the list, and Cloudflare does not document how
+an include rule behaves when the list it names is empty. "Probably nobody
+matches" is not a safe inference for the only control in front of every captured
+request and email, so the policy is rewritten to an explicit deny-everyone
+instead. Adding an operator restores the allow. This is the one case where a
+routine `users` command touches the Access application rather than just the list.
+
+**Why `Authorization: Bearer` and not a custom header.** Log pipelines, proxies,
+devtools, HAR exports and Cloudflare's own request logging already redact
+`Authorization` by default. `X-A51-Secret` got none of that, and these keys get
+pasted into terminals, CI configs and screenshots during engagements.
+
+**What it costs:**
+
+- **Every agent had to be re-registered.** The old raw-hex secret does not match
+  `^[0-9a-f]{8}_[0-9a-f]{64}$`, so it fails on shape — which is deliberate, as it
+  lets `doctor` say "old-format key" instead of the ambiguous "auth failed".
+- **One D1 row read per Autopilot call.** A primary-key lookup, against a worker
+  that already queries D1 on every route. Not cached, so `users remove` revokes
+  instantly rather than up to an hour later.
+- **D1 becomes an availability dependency for auth.** Handled explicitly: an
+  unreachable database answers `503`, never `401`, so nobody debugs a key that is
+  fine.
+- **Two copies of the allow-list, not one.** Cloudflare Access cannot read D1 —
+  policies are enforced at Cloudflare's edge, from Cloudflare's own config — so
+  the addresses have to be *projected* into a Zero Trust email list the policy
+  points at. That copy is mandatory, which is what separates it from
+  `ALLOWED_EMAILS`: the list is the enforcement point, `.env` would have been a
+  third copy with no job. Every mutation writes D1, re-reads D1, and `PUT`s the
+  full set, so a hand edit in the Cloudflare dashboard does not survive the next
+  `users` command. `doctor` reconciles the two and `users sync` repairs them, in
+  one direction only.
+- **A 14th token permission.** Zero Trust lists live under the Gateway resource
+  tree, so `Account · Zero Trust:Edit` is required on top of `Access: Apps and
+  Policies:Edit`. A token with the latter can rewrite the whole application and
+  still not add one address to the list its policy depends on.
+
 ## `.env` is the only state, and the CLI writes to it
 
 There is no separate state file, no lock file, and nothing cached in a home
@@ -450,8 +534,13 @@ replaced in place, with comments and ordering preserved, so it stays the human-r
 document `.env.example` starts as.
 
 The consequence: `.env` is both configuration and state, so losing it means
-re-discovering ids (setup can look most of them up by name) and, for
-`AGENT_SECRET`, rotating rather than recovering.
+re-discovering ids — which setup can mostly do by name. It holds exactly one
+secret, the Cloudflare API token; no operator key is ever written to it.
+
+What is deliberately *not* in `.env` is any list that Cloudflare or a Worker
+enforces live: black holes (`domains`) and operators (`users`) are both D1
+tables. A copy in `.env` could only ever drift from what is actually being
+enforced, and the drift would be invisible.
 
 ## A step that fails does not abort the run
 
@@ -547,7 +636,7 @@ a database. "Take the default" is not a safe answer to any of those, and a flag
 that says "assume the safe thing" cannot exist when the safe thing is what the
 question was asking about.
 
-What this costs: `./a51 setup`, `purge`, `destroy`, `rotate-secret` and
+What this costs: `./a51 setup`, `purge`, `destroy`, `users` and
 `black-holes add` cannot run from CI. That is intended — none of them should. The
 read-and-upload commands never call a prompt, so **`status`, `doctor`, `deploy`
 and `tail` remain fully scriptable**, which is the half worth automating.

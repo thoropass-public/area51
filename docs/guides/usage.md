@@ -230,7 +230,7 @@ own stubs, unattended. Register it once per machine:
 
 ```bash
 claude mcp add autopilot https://<autopilot-host>/mcp \
-  --transport http --header "X-A51-Secret: <AGENT_SECRET from .env>"
+  --transport http --header "Authorization: Bearer <the key ./a51 users printed>"
 ```
 
 The agent gets eight tools: the last 60 minutes of requests and of emails, a raw

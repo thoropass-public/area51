@@ -32,5 +32,6 @@ bucket_name = "${R2_BUCKET_NAME}"
 # Deliberately NO `FILES` binding: Autopilot can see that an endpoint serves an
 # uploaded file, but can never read, replace, or delete that object.
 
-# AGENT_SECRET is installed as an encrypted Worker Secret by
-# `./a51 deploy autopilot`, never as a [vars] entry.
+# No secrets and no [vars] credentials. Every call is authenticated against the
+# `users` table in the D1 database above, so operator keys travel with the
+# database rather than with a deploy — `./a51 users add` takes effect at once.

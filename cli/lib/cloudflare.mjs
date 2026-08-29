@@ -437,6 +437,62 @@ export class Cloudflare {
     return this.delete(`/accounts/${accountId}/access/apps/${appId}`);
   }
 
+  // ── Zero Trust lists (the operator allow-list) ─────────────────────────────
+  //
+  // The Access policy that guards the dashboard points at a list of email
+  // addresses rather than inlining them, and this is that list. Note the path:
+  // lists live under `/gateway/`, NOT under `/access/`, which is why they need
+  // `Account · Zero Trust:Edit` and are not covered by `Access: Apps and
+  // Policies:Edit`. That split is the single most confusing thing about this
+  // resource — a token that can rewrite the whole application still cannot add
+  // one address to the list its policy depends on.
+  //
+  // D1's `users` table is the source of truth; this list is a projection of it,
+  // rewritten wholesale by `./a51 users`. Nothing here is ever edited in place.
+
+  listZeroTrustLists(accountId) {
+    return this.get(`/accounts/${accountId}/gateway/lists`);
+  }
+
+  getZeroTrustList(accountId, listId) {
+    return this.get(`/accounts/${accountId}/gateway/lists/${listId}`);
+  }
+
+  /** The list's entries, which the list object itself does not include. */
+  getZeroTrustListItems(accountId, listId) {
+    return this.get(`/accounts/${accountId}/gateway/lists/${listId}/items?per_page=1000`);
+  }
+
+  createZeroTrustList(accountId, { name, description = '', items = [] }) {
+    return this.post(`/accounts/${accountId}/gateway/lists`, {
+      name,
+      description,
+      type: 'EMAIL',
+      items: items.map((value) => ({ value })),
+    });
+  }
+
+  /**
+   * Replace a list's contents wholesale.
+   *
+   * PUT is deliberate: it is a full replace, so whatever the list held before —
+   * including anything edited by hand in the Cloudflare dashboard — is gone
+   * afterwards. That is what makes D1 authoritative in practice rather than
+   * only on paper. (PATCH on this resource appends and removes deltas; using it
+   * would let manual edits survive, so it is not used anywhere.)
+   */
+  updateZeroTrustList(accountId, listId, { name, description = '', items = [] }) {
+    return this.put(`/accounts/${accountId}/gateway/lists/${listId}`, {
+      name,
+      description,
+      items: items.map((value) => ({ value })),
+    });
+  }
+
+  deleteZeroTrustList(accountId, listId) {
+    return this.delete(`/accounts/${accountId}/gateway/lists/${listId}`);
+  }
+
   // ── Workers scripts ────────────────────────────────────────────────────────
 
   /**

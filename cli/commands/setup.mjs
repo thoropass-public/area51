@@ -14,7 +14,7 @@
 
 import { loadEnv, saveEnv, ensureEnvFile, envPath } from '../lib/env.mjs';
 import { Cloudflare } from '../lib/cloudflare.mjs';
-import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die, setStepTotal, section, hint, detail, summary } from '../lib/log.mjs';
+import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die, setStepTotal, hint, detail, summary } from '../lib/log.mjs';
 import { ask, confirm, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import {

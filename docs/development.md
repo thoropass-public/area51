@@ -55,7 +55,7 @@ interactively and age-based for both tables. Watch a real scheduled run with
 |---|---|
 | `a51`, `cli/a51.mjs` | CLI entrypoint and command dispatch |
 | `cli/lib/cloudflare.mjs` | Cloudflare REST client + resource helpers. Every provisioning call goes through here |
-| `cli/lib/provision.mjs` | The idempotent provisioning primitives shared by `setup`, `deploy`, `domains`, `access`, `doctor` |
+| `cli/lib/provision.mjs` | The idempotent provisioning primitives shared by `setup`, `deploy`, `black-holes`, `users`, `doctor` |
 | `cli/lib/env.mjs` | `.env` parsing and surgical writes |
 | `cli/lib/wrangler.mjs` | Worker target table, `wrangler.toml` rendering, wrangler invocation |
 | `cli/lib/{log,prompt,context,sql}.mjs` | Output, prompts, per-command bootstrap, SQL splitting |

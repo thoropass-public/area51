@@ -123,7 +123,3 @@ export function pick(env, key, fallback = '') {
   return v === undefined || v === '' ? fallback : v;
 }
 
-/** Parse a comma/space separated list into trimmed, de-duplicated entries. */
-export function parseList(value) {
-  return [...new Set(String(value || '').split(/[,\s]+/).map((s) => s.trim()).filter(Boolean))];
-}

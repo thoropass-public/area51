@@ -10,7 +10,7 @@
 // for one-off, ad-hoc purges and for the things the worker never touches.
 
 import { loadContext } from '../lib/context.mjs';
-import { ok, warn, plain, heading, color, die, info } from '../lib/log.mjs';
+import { ok, warn, plain, heading, color, info } from '../lib/log.mjs';
 import { ask, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 
 /** ISO 8601 UTC cutoff `now - days`, matching the format stored in `ts`. */

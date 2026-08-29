@@ -21,9 +21,6 @@ import { saveEnv } from './env.mjs';
 import { ok, skip, color } from './log.mjs';
 import { ensureAccess, ensureAccessList, ACCESS_LIST_NAME } from './provision.mjs';
 
-/** A well-formed key: 8 hex (public id), underscore, 64 hex (secret). */
-export const KEY_RE = /^([0-9a-f]{8})_([0-9a-f]{64})$/;
-
 /** sha256 of the whole key string, hex. Must match the worker's hash exactly. */
 export function hashKey(key) {
   return createHash('sha256').update(key, 'utf8').digest('hex');

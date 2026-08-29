@@ -43,7 +43,7 @@ and are gitignored, so edit the template or `.env` and never the rendered file.
 
 ## Making a change
 
-1. Fork and branch from `public`, naming it something like `fix/mail-parse` or
+1. Fork and branch from `main`, naming it something like `fix/mail-parse` or
    `feat/blocklist-cidr`.
 2. Keep the change focused. One logical change per PR.
 3. **Match the surrounding style.** These files carry unusually thorough "why"

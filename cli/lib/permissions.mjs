@@ -15,7 +15,7 @@ export function printTokenPermissions() {
   plain(`    ${color.bold('Account scope')}`);
   plain(`      ${color.bold('Edit')}   Workers Scripts · D1 · Workers R2 Storage · Cloudflare Pages`);
   plain(`             Access: Apps and Policies · Access: Orgs, IdPs and Groups · Email Routing Addresses`);
-  plain(`             Zero Trust ${color.dim('(the operator email list — NOT covered by Access: Apps and Policies)')}`);
+  plain(`             Zero Trust`);
   plain(`      ${color.bold('Read')}   Account Settings`);
   plain('');
   plain(`    ${color.bold('Zone scope')}`);

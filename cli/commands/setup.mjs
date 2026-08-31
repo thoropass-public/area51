@@ -25,7 +25,7 @@ import {
 import { isAuthError } from '../lib/cloudflare.mjs';
 import { printTokenPermissions } from '../lib/permissions.mjs';
 import { deployWorker, deployPages, wranglerBin, WORKER_TARGETS } from '../lib/wrangler.mjs';
-import { listUsers, upsertUser, normalizeEmail, mcpRegisterLines, syncOperators } from '../lib/users.mjs';
+import { listUsers, upsertUser, normalizeEmail, mcpRegisterLines, syncOperators, allowListFrom } from '../lib/users.mjs';
 
 const DEFAULTS = {
   D1_DATABASE_NAME: 'area51',

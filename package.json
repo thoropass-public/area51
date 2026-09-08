@@ -1,0 +1,30 @@
+{
+  "name": "area51",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted out-of-band callback infrastructure on Cloudflare: a dashboard, catch-all HTTP/email black holes, and an MCP server for AI agents.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "a51": "./cli/a51.mjs"
+  },
+  "scripts": {
+    "setup": "node cli/a51.mjs setup",
+    "deploy": "node cli/a51.mjs deploy",
+    "doctor": "node cli/a51.mjs doctor",
+    "status": "node cli/a51.mjs status",
+    "black-holes": "node cli/a51.mjs black-holes",
+    "users": "node cli/a51.mjs users",
+    "purge": "node cli/a51.mjs purge",
+    "a51": "node cli/a51.mjs"
+  },
+  "dependencies": {
+    "postal-mime": "^2.4.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.42.0"
+  }
+}

@@ -1,0 +1,47 @@
+# Local scratch notes (not part of the repo)
+pre-context.md
+
+# Worker configs are generated artifacts. Source of truth = .env + each
+# worker's wrangler.toml.template. Regenerated on every `./a51 deploy`.
+workers/black-holes/wrangler.toml
+workers/autopilot/wrangler.toml
+workers/cleanup/wrangler.toml
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Deliberately not committed. `npm install` regenerates it, and leaving it out
+# keeps the repo to one dependency manifest. The trade is that installs resolve
+# the caret ranges in package.json fresh, so two installs can pick up different
+# patch/minor versions of wrangler and postal-mime — pin a range in package.json
+# if a specific version ever matters. See docs/decisions.md.
+package-lock.json
+
+# Wrangler / Cloudflare local state
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Environment — holds the Cloudflare API token
+.env
+.env.*
+!.env.example
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.obsidian/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Media Kit
+media-kit/

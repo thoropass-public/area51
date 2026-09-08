@@ -1,0 +1,572 @@
+// `./a51 doctor` checks every moving part of a deployment and says exactly what
+// is wrong and how to fix it. `--fix` re-applies the things that are safe to
+// re-apply (schema, Pages bindings, domain bindings, Access policy).
+//
+// Read-only by default. The live probes at the end hit the deployed hostnames
+// from this machine, so they also catch DNS and certificate problems that the
+// API cannot see.
+
+import { loadContext, parseRoles, zoneForHostname } from '../lib/context.mjs';
+import { heading, section, plain, color, info, hint, summary, sym } from '../lib/log.mjs';
+import { applySchema, ensurePagesProject, ensurePagesDomain, ensureBlackHole, pagesBindings } from '../lib/provision.mjs';
+import { listUsers, syncOperators } from '../lib/users.mjs';
+
+const REQUIRED_TABLES = ['domains', 'email_blacklist', 'emails', 'endpoints', 'ip_blacklist', 'requests', 'users'];
+
+class Report {
+  constructor() {
+    this.pass = 0;
+    this.warns = [];
+    this.fails = [];
+  }
+
+  ok(msg) {
+    this.pass += 1;
+    plain(`  ${sym.ok} ${msg}`);
+  }
+
+  warn(msg, fix) {
+    this.warns.push(msg);
+    plain(`  ${sym.warn} ${msg}`);
+    if (fix) hint(fix);
+  }
+
+  fail(msg, fix) {
+    this.fails.push(msg);
+    plain(`  ${sym.fail} ${msg}`);
+    if (fix) hint(fix);
+  }
+}
+
+/**
+ * Run one `--fix` repair without letting it abort the report.
+ *
+ * A repair is a provisioning call, so it can fail for all the usual reasons: a
+ * missing permission, or a transient error. `doctor` exists to tell an operator
+ * everything that is wrong; throwing out of the middle of the report would hide
+ * every check after the one that failed, which is the opposite of the point.
+ */
+async function repair(r, label, fn, okMsg) {
+  try {
+    await fn();
+    if (okMsg) r.ok(okMsg);
+    return true;
+  } catch (err) {
+    r.fail(`${label}: ${err && err.message ? err.message : err}`, 'Fix the cause, then re-run `./a51 doctor --fix`.');
+    return false;
+  }
+}
+
+async function probe(url, { headers = {}, redirect = 'manual' } = {}) {
+  try {
+    const res = await fetch(url, { headers, redirect, signal: AbortSignal.timeout(10000) });
+    return { ok: true, status: res.status, location: res.headers.get('location') || '', body: (await res.text()).slice(0, 200) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+export async function run(args) {
+  const fix = args.includes('--fix');
+  const { env, cf, accountId } = await loadContext();
+  const r = new Report();
+  const followUps = [];
+
+  heading(`AREA 51 doctor${fix ? color.yellow('  (--fix: will repair what it can)') : ''}`);
+
+  // ── configuration ─────────────────────────────────────────────────────────
+  section('Configuration');
+  const required = ['CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'D1_DATABASE_NAME', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'WORKER_NAME', 'AGENT_WORKER_NAME', 'CLEANUP_WORKER_NAME', 'PAGES_PROJECT_NAME', 'DASHBOARD_HOSTNAME', 'AUTOPILOT_HOSTNAME'];
+  const missing = required.filter((k) => !env[k]);
+  if (missing.length) r.fail(`.env is missing ${missing.join(', ')}`, 'Run `./a51 setup` — it fills these in as it provisions.');
+  else r.ok('.env has every value the deploy needs');
+  // No operator key is checked for here, because none is stored: Autopilot's
+  // credentials live in D1 and a key exists in readable form only at the moment
+  // it is minted. That is why the live probes below authenticate with a
+  // deliberately bogus key rather than a real one.
+
+  try {
+    const token = await cf.verifyToken();
+    if (token && token.status === 'active') r.ok('API token is active');
+    else r.fail(`API token status is "${token && token.status}"`, 'Create a new token and update CLOUDFLARE_API_TOKEN in .env.');
+  } catch (err) {
+    r.fail(`API token rejected: ${err.message}`, 'See docs/guides/getting-started.md#api-token for the exact permission list.');
+    summarize(r);
+    return r.fails.length ? 1 : 0;
+  }
+
+  // ── storage ───────────────────────────────────────────────────────────────
+  section('Storage');
+  let tables = [];
+  if (env.D1_DATABASE_ID) {
+    try {
+      const db = await cf.get(`/accounts/${accountId}/d1/database/${env.D1_DATABASE_ID}`);
+      r.ok(`D1 database ${db.name} (${env.D1_DATABASE_ID})`);
+      tables = (await cf.d1Rows(accountId, env.D1_DATABASE_ID, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).map((t) => t.name);
+      const missingTables = REQUIRED_TABLES.filter((t) => !tables.includes(t));
+      if (missingTables.length) {
+        if (fix) {
+          await repair(r, 'could not re-apply db/schema.sql',
+            () => applySchema(cf, accountId, env.D1_DATABASE_ID),
+            `re-applied db/schema.sql (was missing: ${missingTables.join(', ')})`);
+        } else {
+          r.fail(`missing tables: ${missingTables.join(', ')}`, 'Run `./a51 doctor --fix` (or `./a51 deploy schema`) to apply db/schema.sql.');
+        }
+      } else {
+        r.ok(`all seven tables present`);
+      }
+
+      // Column-level drift: these were added after the first release.
+      const emailCols = (await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'PRAGMA table_info(emails)')).map((c) => c.name);
+      for (const col of ['read', 'starred', 'attachment_count']) {
+        if (!emailCols.includes(col)) {
+          r.fail(`emails.${col} is missing`, `Add it: ALTER TABLE emails ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0;`);
+        }
+      }
+      const endpointCols = (await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'PRAGMA table_info(endpoints)')).map((c) => c.name);
+      for (const col of ['r2_key', 'filename']) {
+        if (!endpointCols.includes(col)) {
+          r.fail(`endpoints.${col} is missing — file-backed endpoints will fail`, `Add it: ALTER TABLE endpoints ADD COLUMN ${col} TEXT;`);
+        }
+      }
+      if (emailCols.length && endpointCols.length) r.ok('emails / endpoints columns match the current schema');
+    } catch (err) {
+      r.fail(`D1 database unreachable: ${err.message}`, 'Check D1_DATABASE_ID in .env, or run `./a51 setup`.');
+    }
+  }
+
+  for (const [label, bucket] of [['captured email', env.R2_BUCKET_NAME], ['endpoint files', env.R2_FILES_BUCKET_NAME]]) {
+    if (!bucket) continue;
+    try {
+      await cf.get(`/accounts/${accountId}/r2/buckets/${encodeURIComponent(bucket)}`);
+      r.ok(`R2 bucket ${bucket} (${label})`);
+    } catch (err) {
+      r.fail(`R2 bucket ${bucket} missing: ${err.message}`, 'Run `./a51 setup`, or create it at dashboard → R2 → Create bucket.');
+    }
+  }
+
+  // ── workers ───────────────────────────────────────────────────────────────
+  section('Workers');
+  // `bindings` must be present; `forbidden` must NOT be. The second list matters
+  // because Autopilot having no FILES binding is a security boundary, not a
+  // preference. It is what stops an agent reading or clobbering a payload a
+  // human staged (CLAUDE.md invariant 3). The template guarantees it on deploy,
+  // but a binding added by hand in the dashboard would silently break it, and
+  // that is exactly the drift `doctor` exists to catch.
+  const WORKER_CHECKS = [
+    { target: 'black-holes', label: 'Black Holes', name: env.WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
+    { target: 'autopilot', label: 'Autopilot', name: env.AGENT_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
+    { target: 'cleanup', label: 'Cleanup', name: env.CLEANUP_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
+  ];
+  for (const check of WORKER_CHECKS) {
+    if (!check.name) continue;
+    let settings = null;
+    try {
+      settings = await cf.getWorkerSettings(accountId, check.name);
+    } catch (err) {
+      r.warn(`could not read ${check.name}: ${err.message}`, 'The token needs Account · Workers Scripts:Edit to read a worker\'s bindings.');
+      continue;
+    }
+    if (!settings) {
+      r.fail(`${check.label} worker "${check.name}" is not deployed`, `Run \`./a51 deploy ${check.target}\`.`);
+      continue;
+    }
+    r.ok(`${check.label}: ${check.name} deployed`);
+    const present = new Set(((settings.bindings || [])).map((b) => b.name));
+    const missing = check.bindings.filter((b) => !present.has(b));
+    if (missing.length) {
+      r.fail(
+        `${check.name} is missing binding(s): ${missing.join(', ')}`,
+        `Run \`./a51 deploy ${check.target}\` after confirming the matching names in .env.`,
+      );
+    }
+    const forbidden = (check.forbidden || []).filter((b) => present.has(b));
+    if (forbidden.length) {
+      r.fail(
+        `${check.name} carries a binding it must not have: ${forbidden.join(', ')}`,
+        `${check.label} must not reach the uploads bucket — it could read, replace or delete a payload staged from the dashboard. Remove the binding (dashboard → Workers & Pages → ${check.name} → Settings → Bindings), then run \`./a51 deploy ${check.target}\`.`,
+      );
+    }
+  }
+
+  // ── black holes ───────────────────────────────────────────────────────────
+  section('Black holes');
+  let blackHoles = [];
+  if (env.D1_DATABASE_ID && tables.includes('domains')) {
+    try {
+      blackHoles = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
+    } catch (err) {
+      r.fail(`could not read the domains table: ${err.message}`, 'Check the D1 binding and the token\'s D1:Edit permission.');
+    }
+    if (!blackHoles.length) r.warn('the domains table is empty — the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <host> http,mail`.');
+  }
+
+  let workerDomains = [];
+  try {
+    workerDomains = (await cf.listWorkerDomains(accountId, env.WORKER_NAME)) || [];
+  } catch (err) {
+    r.warn(`could not list the worker's Custom Domains: ${err.message}`, 'The token needs Zone · Workers Routes:Edit to read or change these.');
+  }
+  const boundHosts = new Set(workerDomains.map((d) => d.hostname));
+
+  for (const row of blackHoles) {
+    const roles = parseRoles(safeRoles(row.roles), { fallback: [] });
+    if (roles.includes('http')) {
+      if (boundHosts.has(row.domain)) r.ok(`${row.domain}: bound to ${env.WORKER_NAME}`);
+      else if (fix) {
+        await repair(r, `could not re-bind ${row.domain}`,
+          () => ensureBlackHole(cf, accountId, { hostname: row.domain, roles, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps }),
+          `${row.domain}: re-bound to ${env.WORKER_NAME}`);
+      } else {
+        r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 black-holes add ' + row.domain + ' ' + roles.join(',') + '`.');
+      }
+    }
+    if (roles.includes('mail')) {
+      const zone = await zoneForHostname(cf, accountId, row.domain);
+      if (!zone) {
+        r.warn(`${row.domain}: no zone visible, cannot check Email Routing`);
+        continue;
+      }
+      try {
+        const settings = await cf.getEmailRouting(zone.id);
+        if (!settings || !settings.enabled) {
+          r.fail(`Email Routing is disabled on ${zone.name}`, `Enable it: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`);
+        } else {
+          const catchAll = await cf.getCatchAll(zone.id);
+          const action = ((catchAll && catchAll.actions) || [])[0] || {};
+          const target = (action.value || [])[0];
+          if (action.type === 'worker' && target === env.WORKER_NAME) r.ok(`*@${zone.name} → ${env.WORKER_NAME}`);
+          else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`);
+        }
+
+        // A SUBDOMAIN mail black hole needs one more thing than the zone checks
+        // above: Email Routing enabled for its own name, which is what puts MX
+        // records there. The zone catch-all covers the subdomain, but only once
+        // those records exist. Without this check a subdomain whose per-name
+        // routing was never enabled (or got removed) reports perfectly healthy
+        // while every message to it bounces at the sender, which is the exact
+        // silent failure the apex rule exists to prevent.
+        if (row.domain !== zone.name) {
+          try {
+            const atName = await cf.listDnsRecordsByName(zone.id, row.domain);
+            if (atName.some((rec) => rec.type === 'MX')) {
+              r.ok(`${row.domain} has its own MX records — mail capture is live`);
+            } else {
+              r.fail(
+                `${row.domain} is a mail black hole with no MX records of its own — mail to it bounces`,
+                `Enable Email Routing for the name: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`,
+              );
+            }
+          } catch (err) {
+            r.warn(`could not read DNS records for ${row.domain}: ${err.message}`);
+          }
+        }
+      } catch (err) {
+        r.fail(`could not read Email Routing on ${zone.name}: ${err.message}`, 'Reading Email Routing state needs Zone · Zone Settings:Read (NOT Email Routing Rules, which only covers the catch-all rule). Enabling it needs Zone Settings:Edit.');
+      }
+    }
+  }
+
+  if (env.FALLBACK_ADDRESS) {
+    try {
+      const list = (await cf.listDestinationAddresses(accountId)) || [];
+      const dest = list.find((d) => (d.email || '').toLowerCase() === env.FALLBACK_ADDRESS.toLowerCase());
+      if (dest && dest.verified) r.ok(`fallback inbox ${env.FALLBACK_ADDRESS} is verified`);
+      else if (dest) r.warn(`fallback inbox ${env.FALLBACK_ADDRESS} is not verified — forwarding on a failed capture will fail`, 'Click the verification link Cloudflare emailed to that address.');
+      else r.warn(`${env.FALLBACK_ADDRESS} is not an Email Routing destination on this account`, 'Run `./a51 setup` to register it, then verify from that inbox.');
+    } catch (err) {
+      r.warn(`could not check destination addresses: ${err.message}`);
+    }
+  }
+
+  // ── dashboard ─────────────────────────────────────────────────────────────
+  section('Dashboard');
+  const project = await cf.getPagesProject(accountId, env.PAGES_PROJECT_NAME);
+  if (!project) {
+    r.fail(`Pages project "${env.PAGES_PROJECT_NAME}" does not exist`, 'Run `./a51 setup`.');
+  } else {
+    r.ok(`Pages project ${project.name} (${project.subdomain})`);
+    const want = pagesBindings(env);
+    for (const target of ['production', 'preview']) {
+      const cfg = (project.deployment_configs && project.deployment_configs[target]) || {};
+      const problems = [];
+      if (!cfg.d1_databases || !cfg.d1_databases.DB || cfg.d1_databases.DB.id !== want.d1_databases.DB.id) problems.push('DB (D1)');
+      for (const binding of ['EML', 'FILES']) {
+        const got = cfg.r2_buckets && cfg.r2_buckets[binding];
+        if (!got || got.name !== want.r2_buckets[binding].name) problems.push(`${binding} (R2)`);
+      }
+      if (problems.length) {
+        if (fix) {
+          await repair(r, `could not repair ${target} bindings`,
+            () => ensurePagesProject(cf, accountId, env, followUps),
+            `${target} bindings repaired — redeploy with \`./a51 deploy dashboard\``);
+        } else {
+          r.fail(`${target} bindings missing or wrong: ${problems.join(', ')}`, 'Run `./a51 doctor --fix` then `./a51 deploy dashboard`. Without these, /api/* returns 500.');
+        }
+      } else {
+        r.ok(`${target} bindings: DB, EML, FILES`);
+      }
+    }
+    try {
+      const domains = (await cf.listPagesDomains(accountId, env.PAGES_PROJECT_NAME)) || [];
+      const match = domains.find((d) => d.name === env.DASHBOARD_HOSTNAME);
+      if (match) r.ok(`custom domain ${match.name} (${match.status || 'active'})`);
+      else r.fail(`${env.DASHBOARD_HOSTNAME} is not attached to the Pages project`, 'Run `./a51 setup`.');
+    } catch (err) {
+      r.warn(`could not list Pages custom domains: ${err.message}`);
+    }
+
+    // Production branch. A mismatch means the branch `deploy` uploads to (main)
+    // is NOT the one the custom domain serves, so the dashboard renders empty.
+    if (project.production_branch && project.production_branch !== 'main') {
+      if (fix) {
+        await repair(r, 'could not reset the production branch',
+          () => ensurePagesProject(cf, accountId, env, followUps),
+          `production branch was "${project.production_branch}" — reset to main; redeploy with \`./a51 deploy dashboard\``);
+      } else {
+        r.fail(`Pages production branch is "${project.production_branch}", not main — the custom domain serves an empty production`, 'Run `./a51 doctor --fix`, then `./a51 deploy dashboard`.');
+      }
+    }
+
+    // DNS target. The dashboard CNAME must point at the project's REAL subdomain
+    // (Cloudflare suffixes it on a global name collision, e.g. area51-xxxx.pages.dev),
+    // not a guessed `<name>.pages.dev`.
+    try {
+      const zone = await zoneForHostname(cf, accountId, env.DASHBOARD_HOSTNAME);
+      const record = zone && (await cf.findDnsRecord(zone.id, env.DASHBOARD_HOSTNAME));
+      if (record && record.type === 'CNAME' && project.subdomain && record.content !== project.subdomain) {
+        if (fix) {
+          await repair(r, 'could not repoint the dashboard CNAME',
+            () => ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps),
+            `DNS repointed to ${project.subdomain} (was ${record.content})`);
+        } else {
+          r.fail(`dashboard DNS points at ${record.content}, but the Pages subdomain is ${project.subdomain}`, 'Run `./a51 doctor --fix` — it repoints the CNAME.');
+        }
+      } else if (record && record.type === 'CNAME' && record.content === project.subdomain) {
+        r.ok(`DNS → ${project.subdomain}`);
+      }
+    } catch (err) {
+      r.warn(`could not check the dashboard DNS record: ${err.message}`);
+    }
+  }
+
+  // ── access ────────────────────────────────────────────────────────────────
+  section('Access control');
+  // The users table is the only allow-list there is. Reading it here is also how
+  // drift is caught: what Cloudflare Access actually enforces is compared against
+  // it below, rather than against a second copy in .env that could be stale.
+  let users = [];
+  let usersReadable = false;
+  if (env.D1_DATABASE_ID && tables.includes('users')) {
+    try {
+      users = await listUsers(cf, accountId, env.D1_DATABASE_ID);
+      usersReadable = true;
+      if (users.length) {
+        r.ok(`${users.length} operator${users.length === 1 ? '' : 's'}: ${users.map((u) => u.email).join(', ')}`);
+      } else {
+        r.fail('the users table is empty — nobody can open the dashboard or reach Autopilot', 'Add yourself: `./a51 users add`.');
+      }
+    } catch (err) {
+      r.warn(`could not read the users table: ${err.message}`);
+    }
+  } else if (env.D1_DATABASE_ID) {
+    r.fail('the users table does not exist — Autopilot rejects every call', 'Run `./a51 doctor --fix` to apply db/schema.sql, then `./a51 users add`.');
+  }
+  const allowed = users.map((u) => u.email);
+
+  try {
+    const apps = (await cf.listAccessApps(accountId)) || [];
+    const app = apps.find((a) => (a.domain || '').replace(/\/$/, '') === env.DASHBOARD_HOSTNAME);
+    if (!app) {
+      if (fix && allowed.length) {
+        await repair(r, `could not create the Access application on ${env.DASHBOARD_HOSTNAME}`,
+          () => syncOperators(cf, accountId, env, { followUps, force: true }));
+      } else {
+        r.fail(`no Cloudflare Access application protects ${env.DASHBOARD_HOSTNAME} — the dashboard is open to anyone`, allowed.length ? 'Run `./a51 users sync` (or `./a51 doctor --fix`).' : 'Add an operator first: `./a51 users add`.');
+      }
+    } else {
+      const policies = (await cf.get(`/accounts/${accountId}/access/apps/${app.id}/policies`)) || [];
+      const allows = policies.filter((p) => p.decision === 'allow');
+      if (!allows.length) r.fail(`the Access app on ${env.DASHBOARD_HOSTNAME} has no allow policy — nobody can get in`, 'Run `./a51 users sync`.');
+      else r.ok(`Access protects ${env.DASHBOARD_HOSTNAME} (${allows.length} allow policy, session ${app.session_duration || 'default'})`);
+
+      // Drift between D1 and what Access actually enforces.
+      //
+      // Resolving this means following an indirection: the policy does not hold
+      // addresses, it holds a reference to a Zero Trust email list, and the
+      // addresses live in that list's items. A check that only reads inline
+      // `email` rules sees an empty policy and reports every operator as locked
+      // out, which is exactly backwards, and alarming enough to send someone
+      // "fixing" a deployment that was fine.
+      if (usersReadable && users.length) {
+        const enforced = new Set();
+        const referencedLists = new Set();
+        let unresolved = false;
+        for (const p of allows) {
+          for (const rule of p.include || []) {
+            if (rule.email && rule.email.email) enforced.add(String(rule.email.email).toLowerCase());
+            else if (rule.email_domain && rule.email_domain.domain) enforced.add(`@${String(rule.email_domain.domain).toLowerCase()}`);
+            else if (rule.email_list && rule.email_list.id) referencedLists.add(rule.email_list.id);
+          }
+        }
+        for (const id of referencedLists) {
+          try {
+            const items = (await cf.getZeroTrustListItems(accountId, id)) || [];
+            for (const i of items) {
+              const value = String(i.value || '').toLowerCase();
+              if (value) enforced.add(value);
+            }
+          } catch (err) {
+            // Cannot read the list, so cannot compare. Say so rather than
+            // treating "unknown" as "empty" and condemning every operator.
+            unresolved = true;
+            r.warn(`could not read the Access email list ${id}: ${err.message}`, 'The token needs Account · Zero Trust:Edit to read it.');
+          }
+        }
+
+        if (env.ACCESS_LIST_ID && referencedLists.size && !referencedLists.has(env.ACCESS_LIST_ID)) {
+          r.warn(`the Access policy points at a different list than ACCESS_LIST_ID (${env.ACCESS_LIST_ID})`, `It uses ${[...referencedLists].join(', ')}. Point ACCESS_LIST_ID at the one in use, or run \`./a51 users sync\` to adopt yours.`);
+        }
+
+        const stale = [...enforced].filter((e) => !e.startsWith('@') && !allowed.includes(e));
+        const absent = allowed.filter((e) => !enforced.has(e));
+        const repairAccess = () => syncOperators(cf, accountId, env, { followUps, force: true });
+
+        if (unresolved) {
+          // Deliberately no verdict: an unreadable list is a permissions problem,
+          // already reported above, not evidence about who can log in.
+        } else if (stale.length) {
+          if (fix) {
+            await repair(r, 'could not remove stale identities from the Access allow-list', repairAccess,
+              `removed ${stale.join(', ')} — no longer operators`);
+          } else {
+            r.fail(`Access still admits ${stale.join(', ')}, who are not in the users table`, 'A revocation did not reach Cloudflare. Run `./a51 users sync` (or `./a51 doctor --fix`).');
+          }
+        } else if (absent.length) {
+          if (fix) {
+            await repair(r, 'could not add missing operators to the Access allow-list', repairAccess,
+              `added ${absent.join(', ')} to the allow-list`);
+          } else {
+            r.fail(`${absent.join(', ')} are operators but Access does not admit them — they cannot log in`, 'Run `./a51 users sync` (or `./a51 doctor --fix`).');
+          }
+        } else {
+          r.ok(`the Access allow-list matches the users table (${allowed.length} operator${allowed.length === 1 ? '' : 's'})`);
+        }
+      }
+
+      // The dashboard is also reachable at the project's *.pages.dev URL. If the
+      // Access app's destinations don't cover it, that URL is an unauthenticated
+      // bypass, and one of the most important things to catch here.
+      if (project && project.subdomain) {
+        const uris = (app.destinations || []).map((d) => d.uri || '');
+        // BOTH are required, and they cover different hosts: the bare subdomain is
+        // the production URL, `*.<sub>` is every preview and branch deployment. A
+        // wildcard does not match the apex, so accepting either one on its own
+        // would report "no bypass" while one of the two was wide open.
+        const apex = uris.includes(project.subdomain);
+        const wild = uris.includes(`*.${project.subdomain}`);
+        const guarded = apex && wild;
+        if (guarded) {
+          r.ok(`Access also guards the pages.dev URL (${project.subdomain} and *.${project.subdomain}) — no bypass`);
+        } else if (fix && allowed.length) {
+          await repair(r, 'could not add the pages.dev URL to the Access app',
+            () => syncOperators(cf, accountId, env, { followUps, force: true }),
+            `added the pages.dev URL (${project.subdomain}) to the Access app`);
+        } else {
+          const gap = [!apex && project.subdomain, !wild && `*.${project.subdomain}`].filter(Boolean).join(' and ');
+          r.fail(`the Access app does not cover ${gap} — the dashboard is reachable UNAUTHENTICATED at that pages.dev URL`, 'Run `./a51 doctor --fix` (or `./a51 users sync`) to add it.');
+        }
+      }
+    }
+  } catch (err) {
+    r.warn(`could not check Cloudflare Access: ${err.message}`, 'The token needs Account · Access: Apps and Policies:Edit to read this.');
+  }
+
+  // ── live probes ───────────────────────────────────────────────────────────
+  //
+  // Always run. These three are the most valuable checks in the report, because
+  // they see what the API cannot: DNS that has not propagated, a certificate
+  // still provisioning, a worker that deployed but is not routed. A probe that
+  // cannot reach the host is reported as a failure with that reason, which is
+  // information, so there is nothing to gain from being able to turn them off.
+  section('Live probes');
+  for (const row of blackHoles) {
+    const roles = parseRoles(safeRoles(row.roles), { fallback: [] });
+    if (!roles.includes('http')) continue;
+    const res = await probe(`https://${row.domain}/__a51_doctor_probe`);
+    if (!res.ok) r.fail(`https://${row.domain} did not respond: ${res.error}`, 'DNS or the certificate may still be provisioning. Retry in a minute.');
+    else if (res.status === 404) r.ok(`https://${row.domain} answers 404 on an unknown path (correct — and the hit is now in Requests)`);
+    else if (res.status === 403) r.warn(`https://${row.domain} answered 403 — this machine's IP may be on the ip_blacklist`);
+    else r.warn(`https://${row.domain} answered ${res.status} on an unknown path — expected 404`);
+  }
+
+  if (env.AUTOPILOT_HOSTNAME) {
+    // No key is sent, because no key is stored: every operator's key is shown
+    // once and lives only wherever they put it. So this probes the two answers
+    // that do not need one, and the distinction between them is the whole point.
+    //
+    //   401  the worker is up, routed, and refusing anonymous callers. Correct.
+    //   503  the worker is up but cannot reach D1 to check anyone's key. That is
+    //         an infrastructure fault, not a bad key, and reporting it as 401
+    //         would send an operator hunting a credential that was never wrong.
+    //
+    // A deliberately malformed key exercises the same path a real one takes up to
+    // the point of the database lookup, which is as far as this can honestly go.
+    const unauth = await probe(`https://${env.AUTOPILOT_HOSTNAME}/requests`);
+    if (!unauth.ok) r.fail(`https://${env.AUTOPILOT_HOSTNAME} did not respond: ${unauth.error}`, 'Check the Custom Domain binding on the Autopilot worker.');
+    else if (unauth.status === 401) {
+      r.ok('Autopilot rejects unauthenticated requests (401)');
+      const bogus = await probe(`https://${env.AUTOPILOT_HOSTNAME}/requests`, {
+        headers: { Authorization: 'Bearer 00000000_' + '0'.repeat(64) },
+      });
+      if (bogus.status === 401) r.ok('Autopilot reaches D1 to check keys, and rejects an unknown one (401)');
+      else if (bogus.status === 503) {
+        r.fail('Autopilot answered 503 — it cannot reach D1 to authenticate anyone', 'Every agent call fails until this is fixed. Check the DB binding and that the users table exists: `./a51 doctor --fix`, then `./a51 deploy autopilot`.');
+      } else r.warn(`Autopilot answered ${bogus.status || bogus.error} to an unknown key — expected 401`);
+    } else if (unauth.status === 503) {
+      r.fail('Autopilot answered 503 — it cannot reach D1 to authenticate anyone', 'Every agent call fails until this is fixed. Check the DB binding and that the users table exists: `./a51 doctor --fix`, then `./a51 deploy autopilot`.');
+    } else if (unauth.status === 530) {
+      r.fail(`https://${env.AUTOPILOT_HOSTNAME} answered 530 — the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy autopilot`, then `./a51 setup` to (re)bind the hostname.');
+    } else {
+      r.fail(`Autopilot answered ${unauth.status} without a key — expected 401`, 'If the worker is deployed, confirm its DB binding and the users table: `./a51 doctor --fix`.');
+    }
+  }
+
+  if (env.DASHBOARD_HOSTNAME) {
+    const res = await probe(`https://${env.DASHBOARD_HOSTNAME}/`);
+    if (!res.ok) r.fail(`https://${env.DASHBOARD_HOSTNAME} did not respond: ${res.error}`, 'DNS or the Pages custom domain may still be provisioning.');
+    else if ([301, 302, 303, 307, 308].includes(res.status) && /cloudflareaccess\.com/.test(res.location)) r.ok('the dashboard redirects to the Cloudflare Access login (protected)');
+    else if (res.status === 200 && /cloudflareaccess/.test(res.body)) r.ok('the dashboard is behind Cloudflare Access');
+    else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Add an operator (`./a51 users add`), then run `./a51 users sync`.');
+    else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed (Pages project or its custom domain is missing)`, 'Run `./a51 setup` to (re)create the project and attach the custom domain.');
+    else r.warn(`the dashboard answered ${res.status}`);
+  }
+
+  summarize(r);
+  return r.fails.length ? 1 : 0;
+}
+
+function safeRoles(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.join(',') : '';
+  } catch {
+    return '';
+  }
+}
+
+function summarize(r) {
+  plain('');
+  summary([
+    { count: r.pass, one: 'ok', many: 'ok', color: 'green' },
+    { count: r.warns.length, one: 'warning', many: 'warnings', color: 'yellow' },
+    { count: r.fails.length, one: 'problem', many: 'problems', color: 'red' },
+  ]);
+  if (!r.fails.length && !r.warns.length) {
+    info(color.dim('Everything checks out.'));
+  } else if (r.fails.length) {
+    info(color.dim('`./a51 doctor --fix` repairs the schema, Pages bindings, black hole'));
+    info(color.dim('bindings and the Access policy. The rest need the fix printed above.'));
+  }
+  plain('');
+}

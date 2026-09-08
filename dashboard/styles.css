@@ -1,0 +1,2137 @@
+/* ================================================
+   AREA 51 dashboard styles
+   Nord-inspired dark palette, dense developer UI
+   ================================================ */
+
+:root {
+  /* Polar night (backgrounds) */
+  --n0: #20242c;   /* app background, slightly darker than nord0 for depth */
+  --n1: #2a2f3a;   /* surface */
+  --n2: #323845;   /* surface raised */
+  --n3: #3b4252;   /* border / hover */
+  --n4: #8893a8;   /* secondary text (readable muted) */
+
+  /* Snow storm (text) */
+  --s0: #d8dee9;   /* body text */
+  --s1: #e5e9f0;   /* strong */
+  --s2: #eceff4;   /* highest */
+
+  /* Frost (primary accents) */
+  --f0: #8fbcbb;   /* teal */
+  --f1: #88c0d0;   /* light blue */
+  --f2: #81a1c1;   /* mid blue */
+  --f3: #5e81ac;   /* deep blue */
+  --f3-hover: #6b8fb8; /* primary button hover */
+  --on-primary: #eceff4; /* text on primary button, always light */
+
+  /* Aurora */
+  --red: #bf616a;
+  --orange: #d08770;
+  --yellow: #ebcb8b;
+  --green: #a3be8c;
+  --purple: #b48ead;
+
+  /* Translucent accents derived from theme */
+  --f1-soft: rgba(136, 192, 208, 0.10);
+  --f1-edge: rgba(136, 192, 208, 0.30);
+  --red-soft: rgba(191, 97, 106, 0.10);
+  --red-edge: rgba(191, 97, 106, 0.35);
+  --green-soft: rgba(163, 190, 140, 0.08);
+  --green-edge: rgba(163, 190, 140, 0.30);
+  --yellow-soft: rgba(235, 203, 139, 0.08);
+  --yellow-edge: rgba(235, 203, 139, 0.30);
+  --orange-soft: rgba(208, 135, 112, 0.08);
+  --orange-edge: rgba(208, 135, 112, 0.30);
+  --purple-soft: rgba(180, 142, 173, 0.08);
+  --purple-edge: rgba(180, 142, 173, 0.30);
+
+  --modal-shadow: 0 30px 70px rgba(0,0,0,0.55);
+  --modal-backdrop: rgba(16, 19, 24, 0.6);
+  --row-active: rgba(94, 129, 172, 0.18);
+
+  /* Email read/unread surfaces, named semantically so "prominent" resolves per theme.
+     Dark: unread is a lighter surface (pops), read sits on the dark page.
+     The "page" state is spelled var(--n0) rather than `transparent`: identical
+     pixels, but every row surface stays opaque, so anything layered inside a row
+     can paint against a known color. */
+  --email-unread-bg: var(--n1);
+  --email-unread-bg-hover: var(--n2);
+  --email-read-bg: var(--n0);
+  --email-read-bg-hover: var(--n1);
+
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+
+  --radius: 5px;
+  --radius-sm: 4px;
+
+  --row-h: 44px;
+  --topbar-h: 56px;
+}
+
+[data-theme="light"] {
+  /* Warm off-white snowstorm backgrounds */
+  --n0: #f6f4ef;   /* app background, warm cream */
+  --n1: #ecebe4;   /* surface */
+  --n2: #e1dfd6;   /* surface raised / dividers */
+  --n3: #cdcabb;   /* border / hover */
+  --n4: #6d6c61;   /* secondary text (warm muted) */
+
+  /* Polar text on cream */
+  --s0: #3a3933;   /* body */
+  --s1: #25241f;   /* strong */
+  --s2: #14130f;   /* highest */
+
+  /* Deepened frost for contrast on cream */
+  --f0: #4d7c7b;
+  --f1: #3e8095;
+  --f2: #3a6090;
+  --f3: #2e5478;
+  --f3-hover: #234366;
+
+  /* Slightly deepened aurora for legibility */
+  --red: #9b3a44;
+  --orange: #a85a3e;
+  --yellow: #946d10;
+  --green: #557a3d;
+  --purple: #7a3f74;
+
+  --f1-soft: rgba(62, 128, 149, 0.08);
+  --f1-edge: rgba(62, 128, 149, 0.30);
+  --red-soft: rgba(155, 58, 68, 0.08);
+  --red-edge: rgba(155, 58, 68, 0.35);
+  --green-soft: rgba(85, 122, 61, 0.10);
+  --green-edge: rgba(85, 122, 61, 0.32);
+  --yellow-soft: rgba(148, 109, 16, 0.10);
+  --yellow-edge: rgba(148, 109, 16, 0.30);
+  --orange-soft: rgba(168, 90, 62, 0.08);
+  --orange-edge: rgba(168, 90, 62, 0.30);
+  --purple-soft: rgba(122, 63, 116, 0.08);
+  --purple-edge: rgba(122, 63, 116, 0.30);
+
+  --modal-shadow: 0 20px 50px rgba(45, 42, 35, 0.20);
+  --modal-backdrop: rgba(45, 42, 35, 0.30);
+  --row-active: rgba(62, 128, 149, 0.12);
+
+  /* Light: unread is the bright page (pops), read gets a gray tint (recedes).
+     That is the reverse of dark, since you can't go brighter than the cream page.
+     var(--n0) rather than `transparent` for the same reason as the dark block. */
+  --email-unread-bg: var(--n0);
+  --email-unread-bg-hover: var(--n1);
+  --email-read-bg: var(--n1);
+  --email-read-bg-hover: var(--n2);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--n0);
+  color: var(--s0);
+  font-family: var(--sans);
+  font-size: 14.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--s1);
+  background: var(--n0);
+  border: 1px solid var(--n3);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.1s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--f2);
+}
+
+textarea {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+/* Drop the native dropdown arrow on <select> and paint a themed chevron with
+   actual breathing room from the right edge. currentColor in the SVG follows
+   the field's text color so dark/light themes both look right. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10' fill='none' stroke='%238893a8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M2 4l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 10px;
+}
+
+::selection {
+  background: rgba(136, 192, 208, 0.3);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--n3);
+  border-radius: 5px;
+  border: 2px solid var(--n0);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--n4);
+}
+
+/* ===== App shell ===== */
+
+.app {
+  display: grid;
+  grid-template-rows: var(--topbar-h) 1fr;
+  height: 100vh;
+  background: var(--n0);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--n2);
+  padding: 0 14px;
+  background: var(--n0);
+  user-select: none;
+}
+
+.topbar .brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px 0 6px;
+  margin-right: 8px;
+  border-right: 1px solid var(--n2);
+  height: 100%;
+  background: none;
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  cursor: pointer;
+  color: var(--f1);
+  transition: color 0.1s ease;
+}
+.topbar .brand:hover { color: var(--s2); }
+.topbar .brand .alien { display: block; }
+
+.brand-mark {
+  width: 18px;
+  height: 18px;
+  position: relative;
+  display: inline-block;
+}
+.brand-mark::before, .brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--f1);
+  border-radius: 50%;
+}
+.brand-mark::after {
+  transform: scale(0.55);
+  background: var(--f1);
+  border: none;
+}
+
+.brand-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--s2);
+}
+
+.brand-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #8893a8;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  gap: 2px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 18px;
+  font-size: 14px;
+  color: var(--n4);
+  position: relative;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.1s ease;
+}
+
+.tab:hover {
+  color: var(--s0);
+}
+
+.tab.active {
+  color: var(--s2);
+  border-bottom-color: var(--f1);
+}
+
+.tab .tab-count {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--n4);
+  background: var(--n2);
+  padding: 1px 7px;
+  border-radius: 9px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.tab.active .tab-count {
+  color: var(--f1);
+  background: var(--f1-soft);
+}
+
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  color: var(--n4);
+  background: transparent;
+  transition: color 0.1s ease, background 0.1s ease;
+}
+.theme-toggle:hover { color: var(--s1); background: var(--n1); }
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(163, 190, 140, 0.6);
+}
+
+.kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  border: 1px solid var(--n3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--n4);
+  background: var(--n1);
+}
+
+/* ===== Workspace ===== */
+
+.workspace {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--n2);
+  background: var(--n0);
+  flex-shrink: 0;
+}
+
+.toolbar .search-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 640px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--n0);
+  border: 1px solid var(--n3);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px 4px 32px;
+  transition: border-color 0.1s ease;
+  min-height: 36px;
+}
+.toolbar .search-wrap:focus-within { border-color: var(--f2); }
+
+.toolbar .search-wrap .pin-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 1px 0;
+}
+
+.toolbar .search-wrap input {
+  flex: 1;
+  min-width: 120px;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 2px 2px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--s1);
+}
+.toolbar .search-wrap input::placeholder { color: var(--n4); }
+
+.toolbar .search-wrap .icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--n4);
+  pointer-events: none;
+}
+
+.pin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 5px 0 8px;
+  background: var(--f1-soft);
+  border: 1px solid var(--f1-edge);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--f1);
+  max-width: 220px;
+}
+.pin-chip .pin-glyph {
+  display: inline-flex;
+  color: var(--f1);
+  opacity: 0.85;
+}
+.pin-chip .pin-val {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pin-chip .pin-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  color: var(--n4);
+}
+.pin-chip .pin-x:hover { color: var(--red); background: rgba(191,97,106,0.15); }
+
+.pin-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  color: var(--f1);
+  background: transparent;
+  transition: background 0.1s ease;
+}
+.pin-add:hover { background: var(--f1-soft); }
+
+.toolbar .search-wrap .clear {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--n4);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.toolbar .search-wrap .clear:hover { color: var(--s1); background: var(--n2); }
+
+.toolbar-meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--n4);
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.toolbar-meta .meta-filter {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--f1);
+  padding: 3px 8px;
+  background: var(--f1-soft);
+  border: 1px solid var(--f1-edge);
+  border-radius: 4px;
+}
+
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  color: var(--n4);
+  background: transparent;
+  border: 1px solid var(--n3);
+  transition: color 0.1s ease, background 0.1s ease, border-color 0.1s ease;
+}
+.refresh-btn:hover {
+  color: var(--f1);
+  border-color: var(--f1-edge);
+  background: var(--f1-soft);
+}
+.refresh-btn:disabled { cursor: default; }
+.refresh-btn.spinning svg {
+  animation: refresh-spin 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  background: var(--n2);
+  color: var(--s1);
+  border: 1px solid transparent;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.btn:hover { background: var(--n3); }
+
+.btn.primary {
+  background: var(--f3);
+  color: var(--on-primary);
+}
+.btn.primary:hover { background: var(--f3-hover); }
+
+.btn.ghost {
+  background: transparent;
+  color: var(--s0);
+}
+.btn.ghost:hover { background: var(--n2); }
+
+.btn.danger {
+  background: transparent;
+  color: var(--red);
+  border-color: var(--n3);
+}
+.btn.danger:hover {
+  background: rgba(191, 97, 106, 0.12);
+  border-color: var(--red);
+}
+
+.btn .plus {
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 1;
+  color: var(--f1);
+}
+.btn.primary .plus { color: var(--on-primary); }
+
+.btn .dl-glyph {
+  display: inline-flex;
+  align-items: center;
+  color: var(--f1);
+}
+
+/* ===== Content area ===== */
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.table-header,
+.row {
+  display: grid;
+  align-items: center;
+  padding: 0 22px;
+  gap: 16px;
+  font-size: 14px;
+  min-height: var(--row-h);
+}
+
+.table-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--n0);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n4);
+  border-bottom: 1px solid var(--n2);
+  min-height: 38px;
+}
+
+.row {
+  position: relative;
+  border-bottom: 1px solid var(--n2);
+  cursor: pointer;
+  color: var(--s0);
+  transition: background 0.06s ease;
+}
+
+/* Filter-match color spine, one segment per matching pin, stacked top→bottom */
+.pin-ribbon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+}
+.pin-ribbon > i {
+  flex: 1;
+  display: block;
+  min-height: 2px;
+}
+
+.row:hover {
+  background: var(--n1);
+}
+
+.row.active {
+  background: var(--row-active);
+}
+
+.row .mono { font-family: var(--mono); font-size: 13.5px; }
+
+/* Endpoints columns */
+.endpoint-grid {
+  grid-template-columns: 28px 1fr 120px 110px 150px;
+}
+
+/* Requests columns */
+.request-grid {
+  grid-template-columns: 28px 190px 80px 1fr 150px;
+}
+
+/* Emails columns (trailing track is the star toggle) */
+.email-grid {
+  grid-template-columns: 28px 190px 1fr 1fr 1fr 36px;
+}
+
+.cell-trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----- Email grouping (identical From + Subject; recipient deliberately
+   excluded, so one sender blasting many aliases folds into one row) ----- */
+
+/* Grouped row: read/unread treatment is IDENTICAL to a singleton (see the
+   .email-grid.unread / .read rules: background pop/recede + text weight), so
+   grouping is marked structurally instead:
+     - the leftmost icon (stack vs envelope),
+     - the To cell (below),
+     - and .group-stack, the fanned "page edge" bars on the RIGHT edge.
+   The right edge is used because the left 6px belongs to pin ribbons and the
+   background belongs to read/unread. The bars are absolutely positioned inside
+   the row, so they never bleed into the rows above or below. Click drills in. */
+
+/* Group To cell: the latest member's recipient + a fixed ", and more" suffix.
+   Flex (not .cell-trunc) so the address absorbs the truncation and the suffix
+   never gets ellipsed away, since the suffix is the part that carries the meaning.
+   No gap: the comma has to hug the address. */
+.group-to {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--n4);
+}
+.group-to-addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-to-more {
+  flex: none;
+  white-space: nowrap;
+}
+
+.group-stack {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  pointer-events: none;
+}
+.group-stack > i {
+  position: absolute;
+  display: block;
+  background: var(--n3);
+  border-radius: 1px;
+  transition: background 0.06s ease;
+}
+/* Decreasing height + rightward offset reads as stacked sheets seen edge-on. */
+.group-stack > i:nth-child(1) { right: 0;   top: 4px;  bottom: 4px;  width: 3px; }
+.group-stack > i:nth-child(2) { right: 5px; top: 8px;  bottom: 8px;  width: 2px; }
+.group-stack > i:nth-child(3) { right: 9px; top: 12px; bottom: 12px; width: 2px; }
+.row.email-group-row:hover .group-stack > i { background: var(--n4); }
+
+/* Starred filter toggle in the Emails toolbar. */
+.star-filter-btn.active { color: var(--yellow); border-color: var(--yellow-edge); }
+
+/* Drill-in header bar (replaces the toolbar while viewing one group). */
+.group-detail-toolbar { gap: 14px; }
+.group-detail-toolbar .back-btn { flex-shrink: 0; }
+.group-detail-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;                 /* take remaining width so toolbar-meta sits at the right */
+  font-size: 12.5px;
+  color: var(--n4);
+}
+.group-detail-context .mono { font-family: var(--mono); }
+.group-detail-context .arrow,
+.group-detail-context .sep { flex-shrink: 0; }
+.group-detail-context .subject { color: var(--s1); }
+.group-detail-context .cell-trunc { max-width: 240px; }
+/* Subject takes the remaining width of the bar (from stays capped). */
+.group-detail-context .subject.cell-trunc { flex: 1; min-width: 0; max-width: none; }
+
+/* Confirm dialog: give the email address and the subject distinct formatting. */
+.confirm-em { font-family: var(--mono); color: var(--f1); }
+.confirm-subj { color: var(--s2); font-style: italic; }
+
+.method-tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.method-GET { color: var(--green); border-color: var(--green-edge); background: var(--green-soft); }
+.method-POST { color: var(--f1); border-color: var(--f1-edge); background: var(--f1-soft); }
+.method-PUT { color: var(--yellow); border-color: var(--yellow-edge); background: var(--yellow-soft); }
+.method-PATCH { color: var(--orange); border-color: var(--orange-edge); background: var(--orange-soft); }
+.method-DELETE { color: var(--red); border-color: var(--red-edge); background: var(--red-soft); }
+.method-OPTIONS, .method-HEAD { color: var(--purple); border-color: var(--purple-edge); background: var(--purple-soft); }
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--n3);
+  color: var(--s0);
+  white-space: nowrap;
+}
+.status-2xx { color: var(--green); border-color: var(--green-edge); }
+.status-3xx { color: var(--f1); border-color: var(--f1-edge); }
+.status-4xx { color: var(--yellow); border-color: var(--yellow-edge); }
+.status-5xx { color: var(--red); border-color: var(--red-edge); }
+
+.row-icon {
+  color: var(--n4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.row .row-icon svg { width: 13px; height: 13px; }
+
+/* Interactive row-icon buttons (copy URL, read/unread toggle) */
+button.row-icon {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  color: inherit;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+button.row-icon:active { transform: scale(0.88); }
+button.row-icon:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--f1-edge);
+  border-radius: 4px;
+}
+button.row-icon.copy-link { color: var(--n4); }
+button.row-icon.copy-link:hover { color: var(--f1); }
+button.row-icon.copy-link.copied { color: var(--green); }
+
+/* ===== Endpoints: file-backed rows + upload UI ===== */
+
+/* List marker. Sits inline after the URI so a file endpoint is identifiable
+   without opening it; the filename truncates before the URI does. */
+.row .uri-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--n3);
+  border-radius: 99px;
+  background: var(--n1);
+  color: var(--n4);
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+.file-tag svg { flex: none; }
+
+/* Drop target, text mode only. Sits inside a .field under a FILE label, so it
+   takes no margin of its own; the label's 7px is the gap. */
+.file-drop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px dashed var(--n3);
+  border-radius: var(--radius);
+  color: var(--n4);
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
+}
+.file-drop:hover,
+.file-drop.over {
+  border-color: var(--f2);
+  background: var(--f1-soft);
+  color: var(--s0);
+}
+.file-drop .ico { display: inline-flex; flex: none; }
+.file-drop-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.file-drop-text b { color: var(--s1); font-weight: 600; font-size: 13px; }
+.file-drop-text .helper { margin: 0; }
+
+/* File mode: what this endpoint serves, plus its two escapes. */
+.file-chip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--n3);
+  border-radius: var(--radius);
+  background: var(--n1);
+}
+.file-chip.missing { border-color: var(--red-edge); background: var(--red-soft); }
+.file-chip > .ico { display: inline-flex; flex: none; color: var(--f1); }
+.file-chip .file-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.file-chip .name {
+  color: var(--s1);
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-chip .sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--n4);
+  font-size: 12px;
+  min-width: 0;
+}
+.file-chip .sub .mono { font-family: var(--mono); }
+.file-chip .sub .sep { color: var(--n3); }
+.file-chip .sub .pending { color: var(--yellow); }
+.file-chip.missing .sub .pending { color: var(--red); }
+.file-chip .file-actions { display: flex; gap: 6px; flex: none; }
+
+/* ===== Emails: read / unread / star ===== */
+
+/* Default-state column colors (overridden by .unread / .read below) */
+.row.email-grid .from { color: var(--s0); }
+.row.email-grid .subject { color: var(--s1); }
+
+/* Unread pops, read recedes. Backgrounds come from theme-aware tokens so this
+   holds in BOTH themes (light: unread = bright page, read = gray tint; dark:
+   unread = lighter surface, read = dark page). The left edge is reserved for
+   pin ribbons, so unread uses no accent rail. */
+.row.email-grid.unread { background: var(--email-unread-bg); }
+.row.email-grid.unread:hover { background: var(--email-unread-bg-hover); }
+.row.email-grid.unread .from { color: var(--s1); }
+.row.email-grid.unread .subject { color: var(--s2); font-weight: 600; }
+.row.email-grid.unread .mail-toggle,
+.row.email-grid.unread .group-icon { color: var(--f1); }
+
+/* Read: muted text, open envelope, recessed background */
+.row.email-grid.read { background: var(--email-read-bg); }
+.row.email-grid.read:hover { background: var(--email-read-bg-hover); }
+.row.email-grid.read .from { color: var(--n4); }
+.row.email-grid.read .subject { color: var(--n4); }
+.row.email-grid.read .mail-toggle,
+.row.email-grid.read .group-icon { color: var(--n4); }
+
+/* Keep the open-row highlight winning over the read/unread tints. */
+.row.email-grid.unread.active,
+.row.email-grid.read.active { background: var(--row-active); }
+
+.row.email-grid .mail-toggle:hover { color: var(--s2); }
+.row.email-grid .group-icon:hover { color: var(--s2); }
+
+/* Star toggle: reveals on row hover, gold when on */
+.star-toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  color: var(--n4);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+.row.email-grid:hover .star-toggle { opacity: 0.65; }
+.star-toggle:hover { color: var(--yellow); opacity: 1; }
+.star-toggle:active { transform: scale(0.82); }
+.star-toggle.on { color: var(--yellow); opacity: 1; }
+.star-toggle:focus-visible {
+  outline: none;
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--yellow-edge);
+  border-radius: 4px;
+}
+
+/* Star pin chip glyph stays fully opaque (color comes from its assigned pin color) */
+.pin-chip.pin-special .pin-glyph { opacity: 1; }
+
+/* Star toggle inside the email modal header */
+.modal-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 6px;
+  border-radius: 4px;
+  color: var(--n4);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.modal-star:hover { color: var(--yellow); background: var(--yellow-soft); }
+.modal-star.on { color: var(--yellow); }
+
+.loadmore-wrap {
+  padding: 18px 22px 40px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.loadmore-wrap .meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--n4);
+}
+
+.empty {
+  padding: 100px 24px;
+  text-align: center;
+  color: var(--n4);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.empty .glyph {
+  font-size: 34px;
+  color: var(--n3);
+  margin-bottom: 14px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  gap: 10px;
+  color: var(--n4);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--n3);
+  border-top-color: var(--f1);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== Home tab ===== */
+
+.home {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 72px 40px 96px;
+}
+
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 52px;
+}
+
+.alien-xl {
+  color: var(--f1);
+  margin-bottom: 22px;
+  filter: drop-shadow(0 0 36px var(--f1-edge));
+}
+
+/* ----- Orbit stage on Home -----
+   Container holds two dashed orbit-ring circles, the alien centered, and one
+   absolutely-positioned chip per configured domain. Chip positions are
+   computed in JS (chipPlacement) so the layout adapts to any N domains. */
+.orbit-stage {
+  position: relative;
+  width: 640px;
+  max-width: 100%;
+  height: 320px;
+  margin-bottom: -60px;
+}
+
+.orbit-stage .orbit-rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--n3);
+  pointer-events: none;
+}
+
+.orbit-stage .alien-xl {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+}
+
+.orbit-anchor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.orbit-domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 13px 8px 12px;
+  background: var(--n0);
+  border: 1px solid var(--n3);
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--s1);
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  animation: orbit-drift 7s ease-in-out infinite;
+  will-change: transform;
+}
+
+[data-theme="light"] .orbit-domain {
+  box-shadow: 0 4px 14px rgba(45, 42, 35, 0.10);
+}
+
+.orbit-domain .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green-edge);
+  animation: orbit-pulse 2.2s ease-in-out infinite;
+}
+
+.orbit-domain .scope {
+  color: var(--n4);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Hosts that serve http can become the default; mail-only hosts are locked. */
+.orbit-domain.selectable {
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
+}
+.orbit-domain.selectable:hover {
+  border-color: var(--f2);
+}
+.orbit-domain.selectable:focus-visible {
+  outline: none;
+  border-color: var(--f1);
+  box-shadow: 0 0 0 2px var(--f1-edge), 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.orbit-domain.locked {
+  cursor: default;
+}
+
+/* The selected default host, bound to the alien and unmistakably lit up. */
+.orbit-domain.selected {
+  border-color: var(--f1);
+  color: var(--s2);
+  background: var(--n0);
+  box-shadow:
+    0 0 0 1px var(--f1),
+    0 0 24px var(--f1-edge),
+    0 6px 18px rgba(0, 0, 0, 0.30);
+}
+.orbit-domain.selected .addr { font-weight: 600; }
+.orbit-domain.selected .dot {
+  background: var(--f1);
+  box-shadow: 0 0 10px var(--f1);
+  animation: none;
+}
+.orbit-domain.selected .scope { color: var(--f1); }
+[data-theme="light"] .orbit-domain.selected {
+  box-shadow:
+    0 0 0 1px var(--f1),
+    0 0 18px var(--f1-edge),
+    0 4px 14px rgba(45, 42, 35, 0.12);
+}
+
+@keyframes orbit-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.85); }
+}
+
+@keyframes orbit-drift {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(4px, -5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-domain { animation: none; }
+  .orbit-domain .dot { animation: none; opacity: 1; transform: none; }
+}
+
+.home h1 {
+  font-family: var(--mono);
+  font-size: 68px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--s2);
+  margin: 0 0 12px;
+  line-height: 1;
+}
+
+.home .sub {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--n4);
+  letter-spacing: 0.04em;
+}
+
+.home-intro {
+  max-width: 700px;
+  margin: 0 auto 32px;
+  color: var(--s0);
+  font-size: 15.5px;
+  line-height: 1.75;
+}
+
+.home-intro p { margin: 0 0 16px; }
+.home-intro p:last-child { margin-bottom: 0; }
+
+.home-intro .lede {
+  font-size: 17.5px;
+  color: var(--s2);
+  line-height: 1.55;
+  margin-bottom: 24px;
+  text-wrap: pretty;
+}
+
+.home-intro b { color: var(--s2); font-weight: 600; }
+.home-intro a.ext {
+  color: var(--f1);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--f1-edge);
+  padding-bottom: 1px;
+  transition: color 0.1s ease, border-color 0.1s ease;
+}
+.home-intro a.ext:hover {
+  color: var(--s2);
+  border-bottom-color: var(--s2);
+}
+.home-intro code {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--f1);
+  background: var(--n1);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.home-domains {
+  max-width: 700px;
+  margin: 0 auto 60px;
+  border: 1px solid var(--n2);
+  border-radius: 7px;
+  background: var(--n1);
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.home-domains .label {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--n4);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.home-domains .label .pill {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid var(--green-edge);
+  border-radius: 3px;
+  padding: 1px 7px;
+  letter-spacing: 0.04em;
+}
+.home-domains .domain-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+}
+.home-domains .domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--s1);
+  padding: 6px 12px;
+  background: var(--n0);
+  border: 1px solid var(--n3);
+  border-radius: 4px;
+}
+.home-domains .domain .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green-edge);
+}
+.home-domains .domain .scope {
+  color: var(--n4);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.home-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--n2);
+  border: 1px solid var(--n2);
+  border-radius: 7px;
+  overflow: hidden;
+  margin-bottom: 56px;
+}
+
+.home-tile {
+  background: var(--n0);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: inherit;
+  transition: background 0.1s ease;
+  font: inherit;
+}
+.home-tile:hover { background: var(--n1); }
+.home-tile:hover .arrow { color: var(--f1); transform: translateX(2px); }
+
+.home-tile .num {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--n4);
+  letter-spacing: 0.06em;
+}
+
+.home-tile .title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-tile .t {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--s2);
+}
+
+.home-tile .arrow {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--n4);
+  transition: color 0.1s ease, transform 0.1s ease;
+}
+
+.home-tile .desc {
+  font-size: 13.5px;
+  color: var(--n4);
+  line-height: 1.65;
+}
+
+.home-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--n2);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #8893a8;
+}
+.home-foot .lbl { color: var(--n4); margin-right: 4px; }
+.home-foot b { color: var(--s1); font-weight: 500; }
+.home-foot b.ok { color: var(--green); }
+
+/* ===== Modal ===== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 72px 24px 24px;
+  overflow-y: auto;
+}
+
+.modal {
+  width: 100%;
+  max-width: 820px;
+  background: var(--n1);
+  border: 1px solid var(--n3);
+  border-radius: 7px;
+  box-shadow: var(--modal-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 96px);
+}
+
+.modal.wide { max-width: 1000px; }
+
+/* Full-screen email BODY view (just the body, not the whole modal): the HTML
+   or plain-text body is promoted to a fixed overlay covering the entire
+   browser canvas, rendered via a portal to document.body so the modal
+   backdrop's backdrop-filter can't trap the fixed positioning. Toggled from
+   the Body section; Esc or the collapse button exits. */
+.body-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: var(--n1);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 18px;
+}
+.body-fullscreen-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+.body-fullscreen-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.body-fullscreen-content > * { flex: 1; min-height: 0; }
+.body-fullscreen-content .iframe-wrap iframe { height: 100%; }
+.body-fullscreen-content .code-block { max-height: none; margin: 0; }
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--n2);
+  flex-shrink: 0;
+}
+
+.modal-head .title {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--n4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.modal-head .id {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--s1);
+  margin-left: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.modal-head .close {
+  margin-left: auto;
+  color: var(--n4);
+  padding: 4px;
+  border-radius: 3px;
+}
+.modal-head .close:hover { color: var(--s1); background: var(--n2); }
+
+.modal-body {
+  padding: 22px 22px 26px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.modal-foot {
+  padding: 14px 20px;
+  border-top: 1px solid var(--n2);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.modal-foot .spacer { flex: 1; }
+
+.field {
+  margin-bottom: 22px;
+}
+.field:last-child { margin-bottom: 0; }
+
+.field label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n4);
+  margin-bottom: 7px;
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field textarea,
+.field select {
+  width: 100%;
+}
+
+.field textarea {
+  min-height: 96px;
+  background: var(--n0);
+}
+
+.field textarea.body { min-height: 170px; }
+
+.field input.readonly,
+.field .readonly-value {
+  background: var(--n0);
+  color: var(--s0);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--n2);
+  word-break: break-all;
+}
+
+/* A row of side-by-side fields is itself a field as far as vertical rhythm is
+   concerned: it carries the same bottom margin, and its children drop theirs so
+   the two columns stay aligned. Without the margin here, a helper line under one
+   of the columns ran straight into the next field's label. */
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.field-row:last-child { margin-bottom: 0; }
+.field-row > .field { margin-bottom: 0; }
+
+.helper {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--n4);
+  margin-top: 7px;
+}
+
+/* Detail panels in read-only modals */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px 18px;
+  font-size: 14px;
+}
+
+.detail-grid dt {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n4);
+  padding-top: 3px;
+}
+
+.detail-grid dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--s1);
+  word-break: break-all;
+}
+
+.detail-grid dd.dd-with-action,
+.dd-with-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ban-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 4px;
+  color: var(--n4);
+  background: transparent;
+  border: 1px solid var(--n3);
+  transition: color 0.1s ease, background 0.1s ease, border-color 0.1s ease;
+}
+.ban-btn:hover {
+  color: var(--red);
+  border-color: var(--red-edge);
+  background: var(--red-soft);
+}
+.ban-btn .ban-glyph,
+.blocked-tag .ban-glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.blocked-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 4px;
+  color: var(--red);
+  background: var(--red-soft);
+  border: 1px solid var(--red-edge);
+}
+
+/* ===== Blacklist (Settings) ===== */
+
+.blacklist-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.blacklist-card {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.blacklist-card .bl-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.blacklist-card h3 {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--s2);
+  margin: 0;
+}
+
+.blacklist-card .bl-count {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--n4);
+  background: var(--n2);
+  padding: 2px 8px;
+  border-radius: 9px;
+  min-width: 26px;
+  text-align: center;
+}
+
+.blacklist-card .bl-caption {
+  font-size: 13px;
+  color: var(--n4);
+  line-height: 1.55;
+  margin-top: -8px;
+}
+
+.blacklist-card .bl-add {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.blacklist-card .bl-add input {
+  font-family: var(--mono);
+  font-size: 13.5px;
+}
+
+.blacklist-card .bl-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--n4);
+  padding: 18px 0 4px;
+  text-align: center;
+  border-top: 1px dashed var(--n2);
+}
+
+.blacklist-card .bl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--n2);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.blacklist-card .bl-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px 10px 6px;
+  border-bottom: 1px solid var(--n2);
+}
+.blacklist-card .bl-list li:last-child { border-bottom: none; }
+
+.blacklist-card .bl-val {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--s1);
+  word-break: break-all;
+}
+.blacklist-card .bl-val.mono { font-family: var(--mono); font-size: 13.5px; }
+
+.blacklist-card .bl-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  color: var(--n4);
+  transition: color 0.1s ease, background 0.1s ease;
+}
+.blacklist-card .bl-remove:hover {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.section {
+  margin-top: 26px;
+}
+
+.section-title {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n4);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.code-block {
+  background: var(--n0);
+  border: 1px solid var(--n2);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--s0);
+  padding: 14px 16px;
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 360px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.code-block.wrap { white-space: pre-wrap; word-break: break-word; }
+
+.json .k { color: var(--f1); }
+.json .s { color: var(--green); }
+.json .n { color: var(--orange); }
+.json .b { color: var(--purple); }
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--yellow-soft);
+  border: 1px solid var(--yellow-edge);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  color: var(--s0);
+}
+.notice .glyph { color: var(--yellow); font-family: var(--mono); }
+
+.iframe-wrap {
+  border: 1px solid var(--n2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #fff;
+}
+
+.iframe-wrap iframe {
+  width: 100%;
+  height: 420px;
+  border: none;
+  display: block;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--n2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.attachment {
+  display: grid;
+  grid-template-columns: 20px 1fr 160px 100px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--n2);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.attachment:last-child { border-bottom: none; }
+.attachment .name { color: var(--s1); }
+.attachment .mime { color: var(--n4); }
+.attachment .size { color: var(--n4); text-align: right; }
+.attachment .ico { color: var(--f1); }
+
+/* Clickable attachment row (downloads on click) in the expanded email view. */
+.attachment.attachment-row {
+  grid-template-columns: 20px 1fr 160px 100px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--n2);
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.08s ease;
+}
+.attachment.attachment-row:last-child { border-bottom: none; }
+.attachment.attachment-row:hover { background: var(--n0); }
+.attachment.attachment-row:hover .name { color: var(--f1); }
+.attachment.attachment-row:hover .dl-affordance { color: var(--f1); }
+.attachment .dl-affordance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--n4);
+  transition: color 0.1s ease;
+}
+
+.section-title.section-title-toggle {
+  justify-content: space-between;
+  white-space: normal;
+}
+
+/* Body-view controls: HTML/Plain switcher + full-screen toggle, right-aligned. */
+.body-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+/* HTML/Plain switcher (shown only when the email has both parts). */
+.toggle-group {
+  display: inline-flex;
+  border: 1px solid var(--n3);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.toggle-group button {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 12px;
+  color: var(--n4);
+  background: transparent;
+  border-right: 1px solid var(--n3);
+}
+.toggle-group button:last-child { border-right: none; }
+.toggle-group button.active {
+  background: var(--n2);
+  color: var(--s1);
+}
+.expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  color: var(--n4);
+  border: 1px solid var(--n3);
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+.expand-btn:hover { color: var(--s1); background: var(--n2); }
+.expand-btn[aria-pressed="true"] { color: var(--f1); border-color: var(--f1-edge); }
+
+.notice.notice-error {
+  margin-top: 18px;
+  background: var(--red-soft);
+  border-color: var(--red-edge);
+}
+.notice.notice-error .glyph { color: var(--red); }
+
+.att-count { color: var(--s1); }
+.att-hint { color: var(--n4); font-style: normal; }
+
+.headers-collapse summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n4);
+  padding: 6px 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.headers-collapse summary::-webkit-details-marker { display: none; }
+.headers-collapse[open] summary .caret { transform: rotate(90deg); }
+.headers-collapse summary .caret {
+  display: inline-block;
+  transition: transform 0.1s ease;
+  color: var(--n4);
+}
+
+.headers-collapse .code-block {
+  margin-top: 8px;
+}
+
+/* ===== Settings tab ===== */
+
+.settings {
+  max-width: 880px;
+  margin: 0;
+  padding: 40px 36px 96px;
+}
+
+.settings-section {
+  margin-bottom: 36px;
+}
+
+.settings-section h2 {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s2);
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settings-section .desc {
+  font-size: 13.5px;
+  color: var(--n4);
+  margin-bottom: 18px;
+  max-width: 620px;
+  line-height: 1.65;
+}
+
+.settings-card {
+  background: var(--n1);
+  border: 1px solid var(--n2);
+  border-radius: 7px;
+  padding: 22px;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.empty-banner {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px dashed var(--n3);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--n4);
+  text-align: center;
+}
+
+.autopilot-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.autopilot-hint {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--n4);
+  line-height: 1.55;
+}
+.autopilot-hint code { font-size: 1em; }
+
+.inline-code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  background: var(--n0);
+  border: 1px solid var(--n2);
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--f1);
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--n2);
+  border: 1px solid var(--n2);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+
+.stat {
+  background: var(--n1);
+  padding: 18px 22px;
+}
+
+.stat .label {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n4);
+}
+
+.stat .value {
+  font-family: var(--mono);
+  font-size: 26px;
+  color: var(--s2);
+  margin-top: 6px;
+  font-weight: 500;
+}
+.stat .value .unit {
+  font-size: 13px;
+  color: var(--n4);
+  margin-left: 6px;
+}
+
+/* ===== Toast ===== */
+
+.toasts {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--n2);
+  border: 1px solid var(--n3);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--s1);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.4);
+  pointer-events: auto;
+  min-width: 260px;
+  animation: toast-in 0.18s ease-out;
+}
+
+.toast.success { border-left: 2px solid var(--green); }
+.toast.error { border-left: 2px solid var(--red); }
+.toast.info { border-left: 2px solid var(--f1); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ===== Confirm dialog ===== */
+
+.confirm {
+  background: var(--n1);
+  border: 1px solid var(--n3);
+  border-radius: 7px;
+  padding: 24px 26px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: var(--modal-shadow);
+}
+
+.confirm h3 {
+  font-family: var(--mono);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--s2);
+  margin: 0 0 10px;
+}
+
+.confirm p {
+  margin: 0 0 22px;
+  font-size: 14.5px;
+  color: var(--s0);
+  line-height: 1.6;
+}
+
+.confirm .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

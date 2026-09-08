@@ -1,0 +1,37 @@
+# Template for workers/autopilot/wrangler.toml.
+#
+# Dollar-brace placeholders are substituted from the repo-root .env every time you
+# run `./a51 deploy autopilot`. DO NOT edit workers/autopilot/wrangler.toml
+# directly. It is a generated, gitignored artifact and will be overwritten.
+
+name = "${AGENT_WORKER_NAME}"
+main = "src/index.js"
+compatibility_date = "2026-05-20"
+
+# No auto-generated public URLs. Reachable only via the Custom Domain bound to
+# it by `./a51 setup` (AUTOPILOT_HOSTNAME).
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = true
+
+# The same D1 database the Black Holes worker writes to and the dashboard
+# reads. Autopilot is read-heavy, with writes bounded to the /-/* URI namespace.
+[[d1_databases]]
+binding = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id = "${D1_DATABASE_ID}"
+
+# The captured-email bucket. Autopilot only READS it, to serve raw .eml
+# downloads to agents, and only for messages captured in the last 60 minutes.
+[[r2_buckets]]
+binding = "EML"
+bucket_name = "${R2_BUCKET_NAME}"
+
+# Deliberately NO `FILES` binding: Autopilot can see that an endpoint serves an
+# uploaded file, but can never read, replace, or delete that object.
+
+# No secrets and no [vars] credentials. Every call is authenticated against the
+# `users` table in the D1 database above, so operator keys travel with the
+# database rather than with a deploy, so `./a51 users add` takes effect at once.

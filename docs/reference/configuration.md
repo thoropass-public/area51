@@ -1,0 +1,198 @@
+# Configuration
+
+`.env` at the repository root is the **only** configuration state. It holds the
+Cloudflare credentials, and every name and hostname. `./a51 setup` writes into
+it as it discovers or provisions things, so after a successful run the file
+describes the whole deployment.
+
+- Gitignored, written with mode `600`. Never commit it.
+- `.env.example` is the annotated template; `cp .env.example .env` to start.
+- Edits are surgical: the CLI rewrites the `KEY=` line in place and leaves your
+  comments and ordering alone.
+- Values containing spaces must be quoted (`CLEANUP_CRON="0 6 * * *"`), because
+  the file is also intended to be shell-sourceable.
+
+## How a value reaches the thing that uses it
+
+There are three delivery paths, and knowing which one applies tells you what a
+change requires:
+
+| Path | Values | To apply a change |
+|---|---|---|
+| **Rendered into `wrangler.toml`** at deploy time (bindings, `[vars]`, cron) | `WORKER_NAME`, `D1_*`, `R2_*`, `FALLBACK_ADDRESS`, `CLEANUP_*`, `AGENT_WORKER_NAME` | `./a51 deploy <target>` |
+| **Set on Cloudflare via the API** (project settings, DNS, policies) | hostnames, `ACCESS_*`, `BLACK_HOLE_ROLES`, Pages bindings | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 users` |
+| **Used only by the CLI on your machine** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE` | nothing to deploy |
+
+No key appears in this file, including your own. Every operator's key is shown
+exactly once when it is minted and stored only as a sha256 on the deployment, so
+there is nothing here to reveal and nothing to keep in step. A lost key is
+replaced with `./a51 users rotate-key <email>`, never recovered.
+
+Three things are **not** in `.env` on purpose:
+
+- **The list of black holes.** Its source of truth is the D1 `domains` table, so
+  the dashboard and Autopilot read the same live list with no redeploy. Manage it
+  with `./a51 black-holes`.
+- **The list of operators.** Its source of truth is the D1 `users` table, which
+  feeds both the Cloudflare Access allow-list and Autopilot's key check. Manage
+  it with `./a51 users`. There is deliberately no `ALLOWED_EMAILS`: a second copy
+  of that list here could only ever drift from the one being enforced.
+- **Endpoints, blacklists, captures.** All database state, managed in the UI.
+
+---
+
+## A worked example
+
+A filled-in `.env` for a burner black hole on `<black-hole.tld>`, with the
+dashboard on a subdomain and one operator:
+
+```ini
+CLOUDFLARE_API_TOKEN=cf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+CLOUDFLARE_ZONE=<black-hole.tld>
+BLACK_HOLE_HOSTNAME=<black-hole.tld>           # targets hit this; public by design
+BLACK_HOLE_ROLES=http,mail
+DASHBOARD_HOSTNAME=area51.<black-hole.tld>     # you log in here, behind Access
+AUTOPILOT_HOSTNAME=autopilot.<black-hole.tld>  # agents connect here
+FALLBACK_ADDRESS=<you@domain.tld>              # a REAL inbox for bounced captures
+```
+
+Teammates are **not** listed here. Add them with `./a51 users add
+<teammate@domain.tld>`, which puts them on the Access allow-list and prints their
+own Autopilot key once.
+
+**The two email fields are different things**, and this is the most common point
+of confusion:
+
+| Field | Holds | Example | Never |
+|---|---|---|---|
+| operator address | Your real inbox. Access emails a one-time PIN to it, and it owns an Autopilot key. Lives in the D1 `users` table, **not** in `.env`. | `<you@domain.tld>` | An address at the black-hole domain |
+| `FALLBACK_ADDRESS` | A real inbox that receives an email **only when its capture fails** (so it isn't lost). Must be verified once. | `<you@domain.tld>` | An address at the black-hole domain |
+
+Neither is ever an address *on* the black hole (e.g. `anything@<black-hole.tld>`):
+that domain is the trap you point targets at, not a mailbox you own. The same
+real inbox can serve both fields.
+
+---
+
+## Reference
+
+### Cloudflare credentials
+
+| Key | Default | Notes |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | none | **Required.** Permissions listed in [getting-started.md#api-token](../guides/getting-started.md#api-token). Also passed to wrangler through the environment, so wrangler never opens a browser login. |
+| `CLOUDFLARE_ACCOUNT_ID` | discovered | Filled in by setup. Set it by hand to skip the account prompt. |
+| `CLOUDFLARE_ZONE` | prompted | The zone setup provisions on. Only used to offer sensible hostname defaults and to resolve zone ids. |
+
+### Hostnames
+
+| Key | Default | Notes |
+|---|---|---|
+| `BLACK_HOLE_HOSTNAME` | the zone apex | **Derived, never prompted.** `./a51 setup` always sets this to `CLOUDFLARE_ZONE` and overwrites what is here: the apex is what puts the zone's mail catch-all in place, so nothing on the zone can capture mail until it is a black hole ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)). Additional black holes, including mail on a subdomain, are added with `./a51 black-holes add`, not here. |
+| `BLACK_HOLE_ROLES` | `http,mail` | **Derived, never prompted.** Always both. `mail` enables Email Routing **for the whole zone** and points its catch-all at the catcher. Per-host roles still apply to extra black holes via `./a51 black-holes add <host> <roles>`. |
+| `DASHBOARD_HOSTNAME` | `area51.<zone>` | The Pages custom domain, protected by Access. Derived from the zone when blank; **set it here to override**, including onto another zone. Setup uses an existing value as-is and never prompts. Changing it means the old hostname keeps serving until you remove it in Pages, and the Access app follows the new name only after `./a51 setup`. |
+| `AUTOPILOT_HOSTNAME` | `autopilot.<zone>` | The MCP / REST host. Same derive-or-override rule as above. Changing it invalidates every agent's registration. |
+
+If either hostname already holds a DNS record that belongs to something other
+than this deployment, setup names the record and skips that hostname's steps
+while provisioning the rest, then lists the conflict as a follow-up (exit `2`).
+Delete the record, or point the key here at a hostname that is free, and re-run.
+
+### Operators
+
+| Key | Default | Notes |
+|---|---|---|
+| `ACCESS_LIST_ID` | filled in by setup | The Zero Trust email list the Access policy points at. A resource id, not a copy of the list: the operators live in D1 and `./a51 users` replaces this list wholesale on every add and remove. Managing it needs `Account · Zero Trust:Edit`. |
+
+### Cloudflare Access
+
+| Key | Default | Notes |
+|---|---|---|
+| `ACCESS_TEAM_NAME` | derived from the zone | Only used when the account has no Zero Trust organization yet; becomes `<name>.cloudflareaccess.com`. **Globally unique across all Cloudflare customers**, so if creation fails, pick another. |
+| `ACCESS_SESSION_DURATION` | `24h` | How long a login lasts. Formats: `30m`, `24h`, `730h`. Shorter means more one-time PINs; longer means a stolen laptop stays logged in. The dashboard auto-reloads when a session expires mid-use ([dashboard.md](../internals/dashboard.md#expired-session-handling)). |
+
+### Storage
+
+| Key | Default | Notes |
+|---|---|---|
+| `D1_DATABASE_NAME` | `area51` | Renaming after creation does **not** rename the database; setup would create a second one. |
+| `D1_DATABASE_ID` | filled in by setup | The real identity. If it stops resolving, setup falls back to looking the name up. |
+| `R2_BUCKET_NAME` | `area51-emails` | Captured `.eml` objects. Bound as `EML`. |
+| `R2_FILES_BUCKET_NAME` | `area51-files` | Endpoint uploads. Bound as `FILES`. Kept separate from email so uploads can be wiped or given a lifecycle rule independently ([decisions.md](../decisions.md#file-backed-endpoints-server-owned-response-separate-bucket)). |
+
+Renaming a bucket in `.env` and redeploying points the Workers at a **new empty
+bucket**; the old objects still exist and still cost storage. Migrate
+deliberately or not at all.
+
+### Service names
+
+| Key | Default | Notes |
+|---|---|---|
+| `WORKER_NAME` | `area51-black-holes` | The catcher's Cloudflare service name. |
+| `AGENT_WORKER_NAME` | `area51-autopilot` | Autopilot's service name. |
+| `CLEANUP_WORKER_NAME` | `area51-cleanup` | The retention worker's service name. |
+| `PAGES_PROJECT_NAME` | `area51` | Pages project name; also its `*.pages.dev` subdomain. |
+
+Renaming any of these creates a **new** Worker or project on the next deploy and
+leaves the old one running, still bound to its domains. See
+[operations.md#renaming-things](../guides/operations.md#renaming-things).
+
+### Black Holes worker
+
+| Key | Default | Notes |
+|---|---|---|
+| `FALLBACK_ADDRESS` | none | Last-resort inbox, used **only** when capture fails (object write throws, handler errors). Successful captures are never forwarded. Must be a **verified** Email Routing destination on the account or forwarding silently fails. Setup registers it; you click the verification link. Leave empty to accept that a failed capture is simply lost. |
+
+### Autopilot
+
+Nothing to configure. Autopilot authenticates every call against the D1 `users`
+table. There is no shared secret and no Worker Secret, so a key added or revoked
+with `./a51 users` takes effect immediately, with no deploy.
+
+### Cleanup worker
+
+| Key | Default | Notes |
+|---|---|---|
+| `CLEANUP_REQUESTS_KEEP` | `1000` | Newest request rows to keep; the rest are deleted daily. Count-based because request volume is spiky. |
+| `CLEANUP_EMAIL_MAX_AGE_DAYS` | `90` | Emails older than this are deleted, rows **and** their `.eml` objects. **Starred email is exempt and kept forever.** |
+| `CLEANUP_CRON` | `0 6 * * *` | Standard five-field cron, **UTC**. Must be quoted. Applied by `./a51 deploy cleanup`. |
+
+Both thresholds arrive at the Worker as strings and are parsed with a
+non-negative-integer fallback (`1000` / `90`), so a typo degrades to the default
+instead of deleting everything or nothing.
+
+---
+
+## Things that are hardcoded (and where)
+
+Not everything is configurable. These are deliberate, and each has a note where
+it lives:
+
+| Constant | Value | Where |
+|---|---|---|
+| API page size | 50 rows | `dashboard/functions/api/_shared.js` (`PAGE_SIZE`) **and** `dashboard/js/tabs.jsx`, which repeats the literal `50` (`DISPLAY_TARGET`, and each `r.length === 50` has-more test). The frontend cannot import the constant, because there is no build step, so **both must change together**; changing only the server value leaves *Load more* silently broken |
+| Endpoint upload limit | 25 MB | `dashboard/functions/api/_shared.js` (`MAX_UPLOAD_BYTES`) |
+| Blacklist edge-cache TTL | 60 minutes | `workers/black-holes/src/index.js` |
+| Autopilot read window | 60 minutes | `workers/autopilot/src/index.js` (`WINDOW_MINUTES`) |
+| Autopilot URI namespace | `/-/` | `workers/autopilot/src/index.js` (`AUTOPILOT_PREFIX`) |
+| Auth header | `Authorization: Bearer <key_id>_<secret>` | Autopilot worker |
+| Compatibility date | `2026-05-20` | the three `wrangler.toml.template` files **and** `cli/lib/provision.mjs` (`PAGES_COMPATIBILITY_DATE`). Keep all four in step |
+
+**The compatibility date lives in four files, and all four must stay in step.**
+The three Workers get theirs from their own `wrangler.toml.template`. Pages
+Functions get theirs from the project's deployment config, which the CLI sets, so
+that one lives in `provision.mjs`, not in a file you can edit, and
+`./a51 deploy dashboard` **overwrites** the live value with it every time. They
+were out of sync once (Pages raised by hand in the dashboard, the workers
+untouched) and a `deploy dashboard` would have silently rolled Pages back
+nineteen months.
+
+A compatibility date does **not** gate security patches: Cloudflare patches the
+runtime regardless and supports old dates indefinitely. It gates behavioral flags
+and **bug fixes**, which is the real cost of letting it rot. Two examples that
+touch this codebase: cross-request promise resolution (2024-10-14), which is the
+`ctx.waitUntil` request-logging pattern, and TextDecoder lone-surrogate handling
+(2026-02-24), which runs over attacker-controlled email headers.
+
+Raise it deliberately, all four together, and re-verify the email path afterwards:
+`nodejs_compat` + `postal-mime` is where the risk concentrates.

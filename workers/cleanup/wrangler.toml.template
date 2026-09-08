@@ -1,0 +1,39 @@
+# Template for workers/cleanup/wrangler.toml.
+#
+# Dollar-brace placeholders are substituted from the repo-root .env every time you
+# run `./a51 deploy cleanup`. DO NOT edit workers/cleanup/wrangler.toml
+# directly. It is a generated, gitignored artifact and will be overwritten.
+
+name = "${CLEANUP_WORKER_NAME}"
+main = "src/index.js"
+compatibility_date = "2026-05-20"
+
+# No public surface at all: this worker has only a scheduled() handler and is
+# never bound to a domain. The disabled URLs are belt-and-suspenders.
+workers_dev = false
+preview_urls = false
+
+# Retention run schedule, in UTC. From CLEANUP_CRON in .env (default 06:00
+# daily). Deploying registers the trigger; there is nothing else to click.
+[triggers]
+crons = ["${CLEANUP_CRON}"]
+
+[observability]
+enabled = true
+
+# Same shared stores as the other two workers. This worker reads ids from D1,
+# deletes the matching R2 .eml objects, then deletes the D1 rows.
+[[d1_databases]]
+binding = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id = "${D1_DATABASE_ID}"
+
+[[r2_buckets]]
+binding = "EML"
+bucket_name = "${R2_BUCKET_NAME}"
+
+# Retention thresholds, tunable from .env without a code edit. Quoted so they
+# arrive as strings; the worker parses them with a safe integer fallback.
+[vars]
+CLEANUP_REQUESTS_KEEP = "${CLEANUP_REQUESTS_KEEP}"
+CLEANUP_EMAIL_MAX_AGE_DAYS = "${CLEANUP_EMAIL_MAX_AGE_DAYS}"

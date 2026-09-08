@@ -1,0 +1,47 @@
+# Template for workers/black-holes/wrangler.toml.
+#
+# Dollar-brace placeholders are substituted from the repo-root .env every time you
+# run `./a51 deploy black-holes`. DO NOT edit workers/black-holes/wrangler.toml
+# directly. It is a generated, gitignored artifact and will be overwritten.
+# Edit this template or .env instead.
+
+name = "${WORKER_NAME}"
+main = "src/index.js"
+compatibility_date = "2026-05-20"
+compatibility_flags = ["nodejs_compat"]   # required by postal-mime
+
+# No auto-generated public URLs. The worker is reachable only through the
+# black hole hostnames bound to it as Custom Domains (`./a51 black-holes add`).
+workers_dev = false
+preview_urls = false
+
+# Persist Workers Logs so they stay queryable in the Cloudflare dashboard.
+[observability]
+enabled = true
+
+# Shared D1 database: endpoints, requests, emails, blacklists, domains.
+[[d1_databases]]
+binding = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id = "${D1_DATABASE_ID}"
+
+# Captured email. Every message's verbatim raw .eml is written to
+# emails/<id>.eml here.
+[[r2_buckets]]
+binding = "EML"
+bucket_name = "${R2_BUCKET_NAME}"
+
+# Endpoint file uploads. READ-ONLY from this worker: when an endpoints row has
+# an r2_key, the fetch handler streams that object instead of the `body`
+# column. Writes happen only through the dashboard's Pages Functions.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "${R2_FILES_BUCKET_NAME}"
+
+[vars]
+FALLBACK_ADDRESS = "${FALLBACK_ADDRESS}"
+
+# Email Routing is NOT configured here, because Wrangler v4 removed the
+# `[triggers] email` key. This worker exports an `email()` handler, and the zone's Email
+# Routing catch-all rule is what delivers mail to it. `./a51 setup` and
+# `./a51 black-holes add <host> mail` configure that rule over the API.

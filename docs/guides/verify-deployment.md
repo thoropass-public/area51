@@ -1,0 +1,137 @@
+# Deployment reference: a healthy deployment in the Cloudflare dashboard
+
+After `./a51 setup` finishes (and the manual prerequisites are done, see
+[getting-started.md](getting-started.md)), this is what a correctly-provisioned AREA 51 deployment
+looks like in the Cloudflare dashboard. Use it to eyeball that everything landed;
+`./a51 doctor` checks the same things programmatically.
+
+> The screenshots are from a real deployment on a throwaway zone; account ids,
+> the zone name and email addresses are partly redacted.
+
+---
+
+## API token
+
+Everything below was provisioned by a single **Custom token** (My Profile → API
+Tokens → Create Token). A correct token carries exactly these **fourteen**
+permissions: nine Account-scoped, five Zone-scoped.
+
+![Cloudflare API token permissions](../../.github/assets/cf-token-permissions.png)
+
+- **Account** · Workers Scripts, D1, Workers R2 Storage, Cloudflare Pages,
+  Access: Apps and Policies, Access: Organizations Identity Providers and Groups,
+  Email Routing Addresses, Zero Trust, all **Edit**; Account Settings, **Read**.
+- **Zone** · Zone Settings, DNS, Workers Routes, Email Routing Rules, all
+  **Edit**; Zone, **Read**.
+
+
+---
+
+## Workers & Pages
+
+The three Workers and the Pages project, all deployed:
+
+![Workers & Pages overview](../../.github/assets/workers-and-pages.png)
+
+- **area51-black-holes** is the public catcher (HTTP + email).
+- **area51-autopilot** is the agent-facing REST + MCP server, on its own hostname.
+- **area51-cleanup** is the retention worker; **no active routes** (cron only).
+- **area51** is the dashboard, a Pages project served at `area51-xxxx.pages.dev`
+  ( *+ 1 other domain* = the custom `area51.<zone>` domain). The `-xxxx` suffix is
+  Cloudflare disambiguating a globally-taken `*.pages.dev` name. Expected, and
+  the reason Access must also guard the pages.dev URL (below). Yours will carry a
+  different suffix; the screenshots on this page show one real assignment, so read
+  `area51-xxxx` wherever they show a concrete one.
+
+
+---
+
+## D1 database
+
+One database named `area51`, and only one. This is the account-level list, so
+what it confirms is that setup created exactly one and did not leave a duplicate
+behind:
+
+![D1 database](../../.github/assets/d1-database.png)
+
+The *Tables* column is blank here because Cloudflare populates it lazily; it is
+not evidence of an empty database. Inside are the seven tables from
+[db/schema.sql](../../db/schema.sql), holding metadata only and no message bodies.
+`./a51 doctor` is what actually verifies the schema, naming any table or
+late-added column that is missing, plus every binding onto the database.
+
+---
+
+## R2 object storage
+
+Captured email lives in the **area51-emails** bucket, with **Public Access
+Disabled** and the verbatim `.eml` objects under the `emails/` prefix:
+
+![R2 object storage](../../.github/assets/r2-object-storage.png)
+
+There is a second bucket, **area51-files**, for file-backed endpoint uploads
+(not shown). Both are private, so nothing in R2 is publicly reachable.
+
+---
+
+## Cloudflare Access (Zero Trust)
+
+Access is the dashboard's **only** authentication. These three views confirm it
+is configured correctly, including that the `*.pages.dev` URL is guarded, so the
+dashboard can't be reached unauthenticated by its Pages URL.
+
+### The application
+
+A self-hosted application, **AREA 51 dashboard**, with an **AREA 51 operators**
+allow policy. Note *+ 2 other domains* under Destinations, because the app protects more
+than just the custom hostname:
+
+![Access application](../../.github/assets/access-application.png)
+
+### The allow policy
+
+Default-deny, with one **Allow** policy holding a single include rule: *emails in
+a list*, pointing at the Zero Trust email list named by `ACCESS_LIST_ID`. The
+addresses in that list are a projection of the `email` column of the D1 `users`
+table, replaced wholesale by `./a51 users` on every add and remove, so editing
+the list here does not survive the next command. Only those identities get a
+one-time PIN and in:
+
+![Access allow policy](../../.github/assets/access-policy.png)
+
+### Destinations, and the closed pages.dev bypass
+
+The important one. The application guards **three** public hostnames:
+
+1. `area51.<zone>`, the custom dashboard domain
+2. `area51-xxxx.pages.dev`, the Pages **apex** URL
+3. `*.area51-xxxx.pages.dev`, every **preview / branch** deployment URL
+
+![Access destinations](../../.github/assets/access-destinations.png)
+
+If only the custom domain were listed, anyone with the `*.pages.dev` URL could
+reach the dashboard with **no login**. `./a51 setup` and `./a51 users sync` add all
+three automatically, and `./a51 doctor` fails if **either** pages.dev destination is
+ever missing.
+
+### Preview
+
+The end-to-end summary: **all authenticated users** matching the **AREA 51
+operators** policy may reach the three destinations:
+
+![Access preview](../../.github/assets/access-preview.png)
+
+---
+
+## Cross-check with the CLI
+
+Everything above is what these commands assert without opening the dashboard:
+
+```bash
+./a51 status     # what is deployed, and where
+./a51 doctor     # every binding, domain, policy, and probes the live hosts
+```
+
+`doctor` specifically confirms the Workers and Pages bindings, the D1 schema,
+both R2 buckets, the Access application **and** that its destinations include
+both pages.dev entries: the apex and the wildcard, which cover different hosts.

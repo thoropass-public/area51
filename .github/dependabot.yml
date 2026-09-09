@@ -1,0 +1,24 @@
+version: 2
+
+updates:
+  # Runtime + dev dependencies (wrangler, postal-mime).
+  #
+  # This repo intentionally does not commit package-lock.json
+  # (docs/decisions.md), so Dependabot resolves the caret ranges in
+  # package.json and cannot see transitive dependencies. Version updates here
+  # therefore cover the two direct dependencies only; GitHub's Dependabot
+  # *alerts* remain the safety net for anything deeper.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Keeps the SHA-pinned actions in .github/workflows/ current. The repository
+  # requires SHA pinning, which trades tag drift for pins that never move on
+  # their own — so something has to move them, and this is it.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

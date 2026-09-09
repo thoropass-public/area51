@@ -34,13 +34,15 @@ jobs:
         with:
           node-version: '20'
 
-      # This step is what makes the whole job meaningful. package-lock.json is
-      # deliberately not committed (docs/decisions.md), and Trivy's npm scanner
-      # reads lockfiles, not package.json. Without installing first, Trivy walks
-      # a repo with no resolved dependency tree, finds nothing, and the gate
-      # passes green forever — worse than having no scanner, because it looks
-      # like coverage. Installing gives Trivy a real node_modules tree, which
-      # also means it sees transitive dependencies that Dependabot cannot.
+      # This step is what makes the whole job meaningful. Trivy's npm scanner
+      # reads a lockfile, not package.json, and package-lock.json is
+      # deliberately not committed here (docs/decisions.md). `npm install`
+      # generates that lockfile inside the runner, and that generated file is
+      # what Trivy then scans — so the scan covers the fully resolved tree,
+      # transitive dependencies included, which is precisely what Dependabot
+      # cannot see in this repo. Skip this step and Trivy has no lockfile to
+      # read, finds nothing, and the gate passes green forever — worse than
+      # having no scanner at all, because it looks like coverage.
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 

@@ -1,0 +1,91 @@
+name: Dependency scan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trivy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy:
+    name: Trivy (block CRITICAL, report HIGH/MEDIUM)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Needed to publish SARIF into the Security tab. Fork PRs are granted
+      # read-only regardless, which is why the upload step is conditional.
+      security-events: write
+    steps:
+      # Pinned to full SHAs: this repo has `sha_pinning_required` enabled, so a
+      # @v5 tag is rejected. Dependabot's github-actions ecosystem keeps these
+      # current.
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '20'
+
+      # This step is what makes the whole job meaningful. Trivy's npm scanner
+      # reads a lockfile, not package.json, and package-lock.json is
+      # deliberately not committed here (docs/decisions.md). `npm install`
+      # generates that lockfile inside the runner, and that generated file is
+      # what Trivy then scans — so the scan covers the fully resolved tree,
+      # transitive dependencies included, which is precisely what Dependabot
+      # cannot see in this repo. Skip this step and Trivy has no lockfile to
+      # read, finds nothing, and the gate passes green forever — worse than
+      # having no scanner at all, because it looks like coverage.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # Report first, gate second. If the CRITICAL gate ran first it would fail
+      # the job and the HIGH/MEDIUM findings would never reach the Security tab.
+      #
+      # `scanners: vuln` is deliberate: GitHub secret scanning (with push
+      # protection and validity checks) already covers secrets, and Trivy's
+      # secret scanner would only add duplicate, after-the-fact noise.
+      #
+      # Unfixed vulnerabilities are included here, because visibility is the
+      # point of this step even when there's nothing to upgrade to yet.
+      - name: Trivy — report CRITICAL/HIGH/MEDIUM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL,HIGH,MEDIUM
+          ignore-unfixed: false
+          exit-code: '0'
+          format: sarif
+          output: trivy-results.sarif
+          limit-severities-for-sarif: true
+
+      - name: Upload results to the Security tab
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      # The gate. Only CRITICAL blocks a merge, and only when a fix exists —
+      # `ignore-unfixed: true` is load-bearing here. Blocking on an unfixable
+      # CRITICAL would wedge every PR in the repo behind something nobody can
+      # action; those still show up as alerts via the report step above.
+      - name: Trivy — fail on fixable CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table

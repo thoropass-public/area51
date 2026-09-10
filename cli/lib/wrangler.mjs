@@ -3,7 +3,7 @@
 // Routing, Access, SQL) goes through the REST API in cloudflare.mjs, because
 // those calls need to be inspectable and idempotent rather than interactive.
 //
-// It used to install Worker secrets too. Nothing does any more: Autopilot
+// It used to install Worker secrets too. Nothing does anymore: Autopilot
 // authenticates against the D1 `users` table, so there is no secret to install
 // and a deploy is a pure code upload.
 //

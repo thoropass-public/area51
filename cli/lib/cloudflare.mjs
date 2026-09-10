@@ -271,7 +271,7 @@ export class Cloudflare {
     return { created: true, database: created };
   }
 
-  /** Run one SQL statement (optionally parameterised) against D1. */
+  /** Run one SQL statement (optionally parameterized) against D1. */
   async d1Query(accountId, databaseId, sql, params = []) {
     const result = await this.post(`/accounts/${accountId}/d1/database/${databaseId}/query`, { sql, params });
     return Array.isArray(result) ? result : [result];

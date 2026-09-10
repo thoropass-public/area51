@@ -4,19 +4,9 @@ export function json(data, init) {
   return Response.json(data, init);
 }
 
-export function errResp(message, status) {
-  return Response.json({ error: message }, { status });
-}
-
-export function withErrorHandler(handler) {
-  return async (context) => {
-    try {
-      return await handler(context);
-    } catch (err) {
-      console.error('api_error', err && err.message, err && err.stack);
-      return errResp('Internal error', 500);
-    }
-  };
+// `headers` carries the few cases that need one, such as `Allow` on a 405.
+export function errResp(message, status, headers) {
+  return Response.json({ error: message }, headers ? { status, headers } : { status });
 }
 
 // ---- Endpoint file uploads (FILES R2 binding) ----

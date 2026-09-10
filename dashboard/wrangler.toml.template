@@ -1,0 +1,88 @@
+# Template for dashboard/wrangler.toml.
+#
+# Dollar-brace placeholders are substituted from the repo-root .env every time you
+# run `./a51 deploy dashboard`. DO NOT edit dashboard/wrangler.toml directly. It
+# is a generated, gitignored artifact and will be overwritten.
+# Edit this template or .env instead.
+#
+# The dashboard used to be a Cloudflare Pages project, whose bindings lived only
+# in Cloudflare's API and had to be PATCHed into place by `./a51 setup` (and
+# repaired by `./a51 doctor --fix`) because there was nowhere in the repository
+# to declare them. They are declared here now, under version control, like every
+# other piece. See docs/decisions.md#the-dashboard-is-a-worker-not-a-pages-project.
+
+name = "${DASHBOARD_WORKER_NAME}"
+main = "src/index.js"
+compatibility_date = "2026-05-20"
+
+# No auto-generated public URLs. This is the setting that motivated the move off
+# Pages: a Pages project is reachable at its custom domain AND at
+# <project>.pages.dev AND at every *.pages.dev preview deployment, so the Access
+# application had to enumerate and guard all three or leave an unauthenticated
+# bypass. A Worker with these two flags off has exactly one hostname —
+# DASHBOARD_HOSTNAME — so there is no bypass to guard and no wildcard to keep in
+# an Access policy.
+workers_dev = false
+preview_urls = false
+
+# Ship source maps so a 500 from /api/* resolves to a real line number in
+# Workers Logs. Must stay above the first [table] header: a bare key after one
+# is parsed as a member of that table, not as a top-level setting.
+upload_source_maps = true
+
+# Persist Workers Logs so they stay queryable in the Cloudflare dashboard.
+# Pages Functions supported neither this nor source maps: a dashboard error used
+# to be a console.error into a void.
+[observability]
+enabled = true
+
+# ── Static assets ───────────────────────────────────────────────────────────
+#
+# `directory` is public/ and NOT the dashboard root, which matters: everything
+# under it is served to anyone who can reach the hostname. src/ must stay
+# outside it so the API's server-side code is never itself downloadable.
+#
+# `run_worker_first` is the cost control. Scoped to /api/*, the six static files
+# are served by Cloudflare's asset layer without invoking the Worker at all, and
+# static-asset requests are free and unlimited on both the Free and Paid plans.
+# Setting it to `true` — as most examples do — would make every page load, every
+# stylesheet and every .jsx fetch a billable Worker invocation for no gain.
+#
+# `not_found_handling = "none"` lets the asset layer 404 unknown paths, also
+# without invoking the Worker. The dashboard is one index.html with tab state,
+# not a client-side-routed SPA, so the "single-page-application" fallback would
+# be both wrong (it would answer 200 + index.html for a typo) and pointless.
+#
+# There is deliberately no `binding`: the Worker never serves an asset itself,
+# so it is given no handle with which to read one.
+[assets]
+directory = "./public"
+run_worker_first = ["/api/*"]
+not_found_handling = "none"
+
+# ── Bindings ────────────────────────────────────────────────────────────────
+
+# The shared D1 database: endpoints, requests, emails, blacklists, domains.
+# The dashboard is the only writer for read/starred state and the blacklists.
+[[d1_databases]]
+binding = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id = "${D1_DATABASE_ID}"
+
+# Captured email. Read-only from here: /api/emails/:id/raw streams the verbatim
+# .eml, which the browser parses client-side. There is no body column in D1, so
+# this bucket is the only source of a message body.
+[[r2_buckets]]
+binding = "EML"
+bucket_name = "${R2_BUCKET_NAME}"
+
+# Endpoint file uploads. The dashboard is the ONLY writer of this bucket: the
+# Black Holes worker reads it to serve a file-backed endpoint, and Autopilot has
+# no binding to it at all.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "${R2_FILES_BUCKET_NAME}"
+
+# No secrets and no [vars]. Access enforces who may reach this hostname at
+# Cloudflare's edge, from the operator email list projected out of the D1
+# `users` table, so the Worker itself has no credential to hold.

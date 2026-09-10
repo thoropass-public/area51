@@ -1,14 +1,13 @@
 import {
-  json, errResp, withErrorHandler,
-  MAX_UPLOAD_BYTES, FILE_ENDPOINT_STATUS,
+  json, errResp, MAX_UPLOAD_BYTES, FILE_ENDPOINT_STATUS,
   sanitizeContentType, sanitizeFilename, deleteEndpointFile,
-} from '../_shared.js';
+} from '../shared.js';
 
 // POST /api/endpoints/upload?uri=<uri>
 //
 // Creates or replaces a FILE-BACKED endpoint. The request body is the raw file
 // rather than multipart, so the bytes stream straight into R2 and never
-// materialize in the Function's memory:
+// materialize in the Worker's memory:
 //
 //   Content-Type: <the file's type>      → stored as the object's metadata and
 //                                          served back verbatim by the worker
@@ -26,15 +25,17 @@ import {
 // only AFTER the row has been repointed, so the endpoint is never briefly
 // pointing at a key that no longer exists.
 //
-// This route is a static sibling of the [uri] param route; Pages matches static
-// segments first, and real endpoint URIs are percent-encoded (they start with
-// "/"), so they can never collide with the literal path "upload".
-async function uploadEndpointFile({ request, env }) {
+// This route is a literal sibling of the /api/endpoints/:uri param route.
+// src/router.js settles literal paths before it considers a param route, so
+// this one always wins; and real endpoint URIs arrive percent-encoded (they
+// start with "/", so with "%2F"), meaning they could never collide with the
+// literal path "upload" in any case.
+export async function uploadEndpointFile({ request, env }) {
   if (!env.FILES) {
-    // `./a51 setup` attaches FILES to the Pages project (production AND
-    // preview) before the first upload, so a missing one means provisioning did
-    // not complete. That is a deploy-time fault, not a bad request, and
-    // `./a51 doctor --fix` re-attaches it.
+    // FILES is declared in dashboard/wrangler.toml.template and travels with
+    // the deploy, so a missing binding means the Worker was uploaded from a
+    // config that did not have it. That is a deploy-time fault, not a bad
+    // request; `./a51 deploy dashboard` re-renders the config and fixes it.
     console.error('endpoint_upload_binding_missing');
     return errResp('File storage is not configured on this deployment (missing FILES binding)', 500);
   }
@@ -93,5 +94,3 @@ async function uploadEndpointFile({ request, env }) {
 
   return json({ ok: true, uri, filename, content_type: contentType, size });
 }
-
-export const onRequestPost = withErrorHandler(uploadEndpointFile);

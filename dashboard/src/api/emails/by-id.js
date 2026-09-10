@@ -1,9 +1,9 @@
-import { json, errResp, withErrorHandler } from '../_shared.js';
+import { json, errResp } from '../shared.js';
 
 // Lean detail row: envelope metadata only. The body (plain-text AND HTML),
 // full headers, and attachment contents live only in the raw .eml in R2, which
 // is fetched and parsed on demand via /api/emails/<id>/raw when the modal opens.
-async function getEmail({ params, env }) {
+export async function getEmail({ params, env }) {
   const row = await env.DB.prepare(
     'SELECT id, ts, from_addr, to_addr, subject, attachment_count, read, starred FROM emails WHERE id = ?'
   ).bind(params.id).first();
@@ -15,7 +15,7 @@ async function getEmail({ params, env }) {
 // never writes these and Autopilot/MCP is read-only, so this PATCH is the sole
 // writer. Body may carry `read` and/or `starred` (booleans); only the keys
 // present are updated. Returns the updated {read, starred}.
-async function patchEmail({ params, request, env }) {
+export async function patchEmail({ params, request, env }) {
   let body;
   try { body = await request.json(); } catch { return errResp('Invalid JSON body', 400); }
   if (!body || typeof body !== 'object') return errResp('Invalid body', 400);
@@ -33,6 +33,3 @@ async function patchEmail({ params, request, env }) {
   if (!res) return errResp('Not found', 404);
   return json(res);
 }
-
-export const onRequestGet = withErrorHandler(getEmail);
-export const onRequestPatch = withErrorHandler(patchEmail);

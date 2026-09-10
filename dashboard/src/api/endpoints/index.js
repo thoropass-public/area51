@@ -1,6 +1,6 @@
-import { PAGE_SIZE, json, errResp, withErrorHandler, parseHeaderLines, deleteEndpointFile } from '../_shared.js';
+import { PAGE_SIZE, json, errResp, parseHeaderLines, deleteEndpointFile } from '../shared.js';
 
-async function listEndpoints({ request, env }) {
+export async function listEndpoints({ request, env }) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get('cursor');
   const searchTerms = url.searchParams.getAll('search').filter(Boolean);
@@ -39,7 +39,7 @@ async function listEndpoints({ request, env }) {
 // deleted. Silent rather than a 400, because the dashboard only reaches this
 // path from an explicit "remove file" or text edit, so refusing would just mean
 // a delete followed by a re-create.
-async function upsertEndpoint({ request, env }) {
+export async function upsertEndpoint({ request, env }) {
   let payload;
   try { payload = await request.json(); } catch { return errResp('Invalid JSON', 400); }
 
@@ -76,6 +76,3 @@ async function upsertEndpoint({ request, env }) {
 
   return json({ ok: true, replaced_file: !!previousKey });
 }
-
-export const onRequestGet = withErrorHandler(listEndpoints);
-export const onRequestPost = withErrorHandler(upsertEndpoint);

@@ -33,7 +33,7 @@ bucket_name = "${R2_BUCKET_NAME}"
 
 # Endpoint file uploads. READ-ONLY from this worker: when an endpoints row has
 # an r2_key, the fetch handler streams that object instead of the `body`
-# column. Writes happen only through the dashboard's Pages Functions.
+# column. Writes happen only through the dashboard Worker.
 [[r2_buckets]]
 binding = "FILES"
 bucket_name = "${R2_FILES_BUCKET_NAME}"

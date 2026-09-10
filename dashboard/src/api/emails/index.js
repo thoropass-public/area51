@@ -1,4 +1,4 @@
-import { PAGE_SIZE, json, errResp, withErrorHandler } from '../_shared.js';
+import { PAGE_SIZE, json, errResp } from '../shared.js';
 
 // Append the substring search + starred filter to a WHERE builder. Each search term
 // ORs across from_addr / to_addr / subject; multiple terms OR together. The
@@ -15,7 +15,7 @@ function appendFilter(searchTerms, starredOnly, conditions, params) {
   if (starredOnly) conditions.push('starred = 1');
 }
 
-async function listEmails({ request, env }) {
+export async function listEmails({ request, env }) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get('cursor');
 
@@ -60,7 +60,7 @@ async function listEmails({ request, env }) {
 // exactly what the (filtered) drill-in shows; with no filter it covers the
 // whole group across all recipients (including rows not currently loaded).
 // COALESCE matches NULL and '' subjects alike. Dashboard-only writer.
-async function markGroup({ request, env }) {
+export async function markGroup({ request, env }) {
   let body;
   try { body = await request.json(); } catch { return errResp('Invalid JSON', 400); }
   if (!body || typeof body !== 'object') return errResp('Invalid body', 400);
@@ -81,6 +81,3 @@ async function markGroup({ request, env }) {
   ).bind(read, ...whereParams).run();
   return json({ ok: true, updated: res.meta?.changes ?? 0 });
 }
-
-export const onRequestGet = withErrorHandler(listEmails);
-export const onRequestPatch = withErrorHandler(markGroup);

@@ -1,4 +1,4 @@
-import { json, errResp, withErrorHandler } from '../_shared.js';
+import { json, errResp } from '../shared.js';
 
 // Detail. For a file-backed row (r2_key set) the response carries a `file`
 // object instead of a meaningful body/headers/status to edit: the modal renders
@@ -6,7 +6,7 @@ import { json, errResp, withErrorHandler } from '../_shared.js';
 // from an R2 HEAD rather than duplicated D1 columns, so the object's own
 // metadata stays the single source of truth; if the object is gone the row is
 // reported with `missing: true` so the UI can say so plainly.
-async function getEndpoint({ params, env }) {
+export async function getEndpoint({ params, env }) {
   const uri = decodeURIComponent(params.uri);
   const row = await env.DB.prepare(
     'SELECT uri, status, headers, body, r2_key, filename FROM endpoints WHERE uri = ?'
@@ -36,7 +36,7 @@ async function getEndpoint({ params, env }) {
 // retry, which is visible in the UI. The reverse order would leave an orphaned
 // object with nothing pointing at it: an invisible storage leak, and the failure
 // mode the email pipeline is also built to avoid.
-async function deleteEndpoint({ params, env }) {
+export async function deleteEndpoint({ params, env }) {
   const uri = decodeURIComponent(params.uri);
   const row = await env.DB.prepare('SELECT r2_key FROM endpoints WHERE uri = ?').bind(uri).first();
   if (row && row.r2_key) {
@@ -48,6 +48,3 @@ async function deleteEndpoint({ params, env }) {
   if (!result.meta || result.meta.changes === 0) return errResp('Not found', 404);
   return json({ ok: true });
 }
-
-export const onRequestGet = withErrorHandler(getEndpoint);
-export const onRequestDelete = withErrorHandler(deleteEndpoint);

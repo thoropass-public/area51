@@ -1,14 +1,14 @@
-import { json, errResp, withErrorHandler } from '../../_shared.js';
-import { normalizeEmail, looksLikeEmail } from '../_shared.js';
+import { json, errResp } from '../../shared.js';
+import { normalizeEmail, looksLikeEmail } from '../shared.js';
 
-async function listEmails({ env }) {
+export async function listEmails({ env }) {
   const { results } = await env.DB.prepare(
     'SELECT email, ts, note FROM email_blacklist ORDER BY ts DESC'
   ).all();
   return json(results || []);
 }
 
-async function addEmail({ request, env }) {
+export async function addEmail({ request, env }) {
   let payload;
   try { payload = await request.json(); } catch { return errResp('Invalid JSON', 400); }
   const raw = (payload && payload.email) || '';
@@ -23,6 +23,3 @@ async function addEmail({ request, env }) {
   ).bind(email, ts, note).run();
   return json({ ok: true, email });
 }
-
-export const onRequestGet = withErrorHandler(listEmails);
-export const onRequestPost = withErrorHandler(addEmail);

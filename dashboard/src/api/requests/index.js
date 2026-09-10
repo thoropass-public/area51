@@ -1,6 +1,6 @@
-import { PAGE_SIZE, json, withErrorHandler } from '../_shared.js';
+import { PAGE_SIZE, json } from '../shared.js';
 
-async function listRequests({ request, env }) {
+export async function listRequests({ request, env }) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get('cursor');
   const searchTerms = url.searchParams.getAll('search').filter(Boolean);
@@ -24,5 +24,3 @@ async function listRequests({ request, env }) {
   const { results } = await env.DB.prepare(query).bind(...params).all();
   return json(results || []);
 }
-
-export const onRequestGet = withErrorHandler(listRequests);

@@ -6,6 +6,7 @@ pre-context.md
 workers/black-holes/wrangler.toml
 workers/autopilot/wrangler.toml
 workers/cleanup/wrangler.toml
+dashboard/wrangler.toml
 
 # Node
 node_modules/

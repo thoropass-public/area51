@@ -1,4 +1,4 @@
-import { json, withErrorHandler } from '../_shared.js';
+import { json } from '../shared.js';
 
 // Returns the configured black hole domain list to the frontend (Home orbit
 // chips). Source of truth is the D1 `domains` table, shared with the
@@ -9,7 +9,7 @@ import { json, withErrorHandler } from '../_shared.js';
 //
 // Defensive: never throws; returns an empty list on any error or malformed
 // row, which the frontend renders as "alien with no chips."
-async function getDomains({ env }) {
+export async function getDomains({ env }) {
   let rows;
   try {
     const res = await env.DB.prepare('SELECT domain, roles FROM domains ORDER BY domain ASC').all();
@@ -35,5 +35,3 @@ async function getDomains({ env }) {
 
   return json({ domains });
 }
-
-export const onRequestGet = withErrorHandler(getDomains);

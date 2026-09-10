@@ -724,3 +724,36 @@ declared once at the root and resolved upward at bundle time.
 **Why:** three near-identical manifests and three lock files were three things to
 keep in sync for one shared dependency and one shared tool. One `npm install` now
 sets up the whole repository.
+
+## Copyright is stated, no trademark is claimed
+
+`NOTICE` carries the Thoropass copyright line, the Apache-2.0 pointer and the
+third-party component list. It claims no trademarks, and an earlier paragraph
+asserting that "the AREA 51 name" and the brand artwork were trademarks of
+Thoropass, Inc. has been removed.
+
+**Why:** the two are unrelated and only one of them applies. Copyright arose
+automatically when the code was written and belongs to Thoropass as a work made
+for hire, and stating it is what makes the Apache-2.0 grant valid: a license
+gives away rights the licensor holds, so with no copyright there is nothing to
+grant and downstream users have no clear permission. Apache-2.0 also *requires*
+the notice to survive redistribution (§4(c), §4(d)).
+
+A trademark is different: it protects a name used to identify who makes
+something, and it has to be earned through use as a brand. "AREA 51" is a famous
+government facility and a piece of general culture with decades of prior use by
+everyone, Thoropass sells nothing under that name, and the term is not
+registrable. Asserting a mark that cannot be defended reads as overreach and
+achieves nothing.
+
+Nothing is lost by staying silent, because **Apache-2.0 §6 already denies any
+trademark grant** to the licensor's trade names, marks and product names. That
+protection comes with the license choice; restating it in `NOTICE` was redundant
+even where a real mark existed.
+
+**What it costs, stated plainly:** the brand artwork under
+`.github/assets/brand` is in an Apache-2.0 repository, so a fork may
+redistribute the alien mark and the lockups along with the code. That is
+accepted rather than overlooked. If it ever needs to change, carve the directory
+out with an explicit note in `NOTICE` naming its own terms, rather than
+reintroducing a blanket trademark claim over the project name.

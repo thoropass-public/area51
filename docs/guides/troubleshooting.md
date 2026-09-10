@@ -6,9 +6,10 @@ Start here:
 ./a51 doctor
 ```
 
-It checks the schema, both buckets, all three Workers, every black hole's Custom
-Domain and mail routing, the Pages bindings on both environments, the Access
-application and its policy, then probes the live hostnames. Most of the table
+It checks the schema, both buckets, all four Workers and the bindings that
+reached them, every black hole's Custom Domain and mail routing, the dashboard's
+Custom Domain, the Access application and its policy, then probes the live
+hostnames. Most of the table
 below is something `doctor` will name for you, and `--fix` repairs a good part of
 it. What each check actually asserts is documented in
 [reference/cli → doctor](../reference/cli.md#doctor).
@@ -58,7 +59,7 @@ it. What each check actually asserts is documented in
 | `<host> cannot capture mail until <zone> does` | You asked for `mail` on a subdomain whose zone apex is not a mail black hole. The catch-all that delivers mail is zone-scoped and only exists once the apex has it | Add the apex first: `./a51 black-holes add <zone> http,mail`, then re-run the subdomain |
 | Mail to a subdomain bounces after `black-hole add … mail` reported success | DNS for the newly enabled name can take a minute to propagate | Wait, then retry. `./a51 doctor` confirms the zone catch-all still points at the catcher |
 | Sender gets a bounce saying *Address not accepted* | The `From:` address is on `email_blacklist` | Remove it in Settings; up to 60 minutes to propagate |
-| A row exists but the body will not load | The `EML` binding is missing on Pages, or the object is gone | `./a51 doctor`; check `npx wrangler r2 object get <bucket> emails/<id>.eml` |
+| A row exists but the body will not load | The `EML` binding is missing on the dashboard worker, or the object is gone | `./a51 doctor`; check `npx wrangler r2 object get <bucket> emails/<id>.eml` |
 | Messages land in the fallback inbox instead of the dashboard | Capture failed; look for `email_capture_failed` | The tail line carries the real error. Usually a missing R2 binding or an R2 outage |
 | Nothing in the fallback inbox either, on a failed capture | `FALLBACK_ADDRESS` is empty or unverified | `./a51 doctor` reports verification state; click Cloudflare's verification link |
 | `email_parse_failed` in the logs | postal-mime could not parse the message | Non-fatal: the raw `.eml` is stored and the dashboard parses it itself. Only `subject` / `attachment_count` are affected |
@@ -67,19 +68,21 @@ it. What each check actually asserts is documented in
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Setup: `could not create the Pages project … [8000000] An unknown error occurred` | Creating a Pages project *with* bindings in one API call is rejected on some accounts | Fixed. Setup now creates the project bare, then attaches bindings by PATCH. Re-run `./a51 setup` |
-| Dashboard serves nothing / 404 after setup, even though it deployed | Wrangler created the project as a fallback with the wrong production branch, so the deploy landed as a *preview* | Re-run `./a51 setup`, which pins `production_branch = main`, attaches bindings and redeploys to production |
-| Dashboard host won't resolve; DNS points at `<name>.pages.dev` but the project is `<name>-xxxx.pages.dev` | The `*.pages.dev` name collided globally and Cloudflare suffixed it | Re-run `./a51 setup`, which reads the project's real subdomain and repoints the CNAME automatically |
-| `/api/*` returns 500, or HTML instead of JSON | The D1 binding is missing on the Pages project | `./a51 doctor --fix` then `./a51 deploy dashboard` |
-| Uploading a file to an endpoint returns 500 | The `FILES` binding is missing on Pages | Same fix. Bindings must exist on **Production and Preview** |
-| `/api/emails/<id>/raw` returns 500 | The `EML` binding is missing on Pages | Same fix, and note this breaks *every* email body, not just Download Raw |
+| Upgrading from v1.0.x: setup says `<host> is already held by something else` | The old Pages project still holds `DASHBOARD_HOSTNAME`. The dashboard is a Worker now, and Cloudflare will not put a Custom Domain on a name another product owns | Detach the custom domain from the Pages project (Workers & Pages → *project* → Custom domains), then re-run `./a51 setup`. Delete the project once the worker serves the name. See the v1.1.0 release notes |
+| Upgrading from v1.0.x: `deploy` or `doctor` complains about `DASHBOARD_WORKER_NAME` | It replaced `PAGES_PROJECT_NAME`, which is no longer read | Add `DASHBOARD_WORKER_NAME=area51-dashboard` to `.env`, or run `./a51 setup`, which writes the default |
+| `/api/*` returns 500, or HTML instead of JSON | The `DB` binding did not reach the worker | `./a51 doctor` names the missing binding; `./a51 deploy dashboard` re-renders the config and re-uploads. The bindings are declared in `dashboard/wrangler.toml.template`, so check `.env` if it recurs |
+| Uploading a file to an endpoint returns 500 | The `FILES` binding did not reach the worker | Same fix |
+| `/api/emails/<id>/raw` returns 500 | The `EML` binding did not reach the worker | Same fix, and note this breaks *every* email body, not just Download Raw |
+| `/api/*` returns 404 for a route you just added | The handler exists but is not in the `ROUTES` table in `dashboard/src/index.js`. Routing is not file-based any more, so a handler nothing routes to is unreachable | Add it to the table, then run `node dashboard/src/router.test.mjs` |
+| A route reaches the *wrong* handler | A new route shadows an existing one | `node dashboard/src/router.test.mjs` — it reads the real route table and names the collision. This is the one class of dashboard bug that `doctor` cannot see, because nothing throws |
+| Static files 404 but `/api/*` works | Something is under `dashboard/src/` that belongs in `dashboard/public/`, or vice versa. Only `public/` is served | Move the file. Never put server code in `public/`: everything there is downloadable |
 | Opening the dashboard shows no Access challenge | No Access application, or it targets a different hostname | `./a51 users sync` |
-| The dashboard opens with **no login** at its `*.pages.dev` URL (but the custom domain asks for one) | The Access app guards only the custom domain, leaving the pages.dev URL an unauthenticated bypass | `./a51 doctor --fix` (or `./a51 users sync`) adds `*.<project>.pages.dev` to the app's destinations |
 | A long-idle tab errors once, then works after a manual reload | The Access session expired | Expected: the app auto-reloads once ([dashboard.md](../internals/dashboard.md#expired-session-handling)). Raise `ACCESS_SESSION_DURATION` to make it rarer |
-| The tab reloads repeatedly | Something other than our API is answering `/api/*` | The 15 s cooldown caps this, so a loop means the API is genuinely unreachable, so check the Pages deployment and bindings |
+| The tab reloads repeatedly | Something other than our API is answering `/api/*` | The 15 s cooldown caps this, so a loop means the API is genuinely unreachable, so check that the worker is deployed and its bindings arrived (`./a51 doctor`) |
 | Search misses matches | `LIKE '%term%'` is exact-substring, not fuzzy | Try a shorter or different substring |
+| Search stops returning results part-way through an engagement | On the free tier, D1 allows 5 M rows read per day, and a leading-wildcard `LIKE` cannot use an index — so each search scans the whole table. Against 200 K requests that is ~25 searches/day | Narrow the search terms, lower `CLEANUP_REQUESTS_KEEP`, or move to Workers Paid (25 B rows/month included). See [operations → quotas](operations.md#quotas-and-cost) |
 | Timestamps look wrong | Rows store UTC; the UI renders in the browser's timezone | Check the machine's timezone |
-| A code change is not visible | Browser cache, or the deploy went to a different project | Hard-refresh; confirm `PAGES_PROJECT_NAME` |
+| A code change is not visible | Browser cache, or the deploy went to a different worker | Hard-refresh; confirm `DASHBOARD_WORKER_NAME` |
 | The endpoint copy button toasts an error | No default host selected | Pick an `http`-role host on the Home tab |
 
 ## Autopilot
@@ -113,5 +116,5 @@ A51_DEBUG=1 ./a51 setup                   # stack traces from the CLI
 npx wrangler tail area51-black-holes      # live worker logs
 ```
 
-Cloudflare-side: Workers & Pages → *worker* → Logs (persisted), D1 → *database* →
-Metrics, and the Pages project's per-deployment logs for Functions.
+Cloudflare-side: Workers & Pages → *worker* → Logs (persisted, for all four
+workers including the dashboard) and D1 → *database* → Metrics.

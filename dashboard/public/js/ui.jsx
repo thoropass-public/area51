@@ -215,7 +215,7 @@ const API = {
     apiFetch(`/api/blacklist/emails/${encodeURIComponent(email)}`, { method: 'DELETE' }),
 };
 
-// Email normalizer mirrors the worker + Pages Function logic. Accepts either
+// Email normalizer mirrors the catcher + dashboard API logic. Accepts either
 // bare "addr@host" or "Display <addr@host>" form; returns lowercase addr.
 function normalizeEmail(v) {
   const s = String(v || '').trim();

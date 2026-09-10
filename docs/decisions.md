@@ -433,38 +433,112 @@ The cost is a hand-written API client (`cli/lib/cloudflare.mjs`) and a dependenc
 on request shapes Cloudflare could change. It is small, dependency-free, and
 `A51_API_BASE` makes it testable against a mock.
 
-## Pages bindings are set before the first upload, via create-then-patch
+## The dashboard is a Worker, not a Pages project
 
-The project ends up with its D1 and R2 bindings on both the production and preview
-configurations *before* the first upload, and its `production_branch` pinned to
-`main` (the branch `./a51 deploy` uploads to).
+The dashboard is a Worker with static assets (`dashboard/wrangler.toml.template`):
+`public/` holds the six static files, `src/` holds the API, and `[assets]
+run_worker_first = ["/api/*"]` decides which of the two answers a request. It was
+a Cloudflare Pages project with Pages Functions until v1.1.0.
 
-**Why:** the manual flow (deploy, discover every `/api/*` call returns 500, add
-three bindings in the dashboard for two environments, redeploy) was the single most
-error-prone step in the old setup, and forgetting the preview environment produced
-failures that only showed up later. Doing it over the API in the right order
-removes the class of problem.
+**Why:** one hostname instead of three, and that is a security property rather
+than a tidiness one.
 
-**Why create-then-patch, not create-with-bindings:** creating the project and its
-`deployment_configs` in a *single* `POST` is rejected on some accounts with a
-generic `[8000000] An unknown error occurred`, while a bare create (name +
-`production_branch`) succeeds, which is why wrangler could make the project when
-the API couldn't. So `ensurePagesProject` creates minimally, then `PATCH`es the
-bindings. The guarantee (bindings present before the upload) is unchanged; only
-the call sequence is. `./a51 deploy dashboard` re-asserts the bindings and branch
-every time, so a project someone edited by hand, or one wrangler created bare as
-a fallback, repairs itself.
+A Pages project answers on its custom domain **and** `<project>.pages.dev` **and**
+every preview deployment under `*.<project>.pages.dev`. Cloudflare Access is
+enforced per hostname at the edge, so guarding only `DASHBOARD_HOSTNAME` left the
+`pages.dev` URLs an **unauthenticated bypass** onto every captured request and
+email. The old `ensureAccess` therefore read the project back, discovered its real
+(possibly globally suffixed) subdomain, and wrote three destinations; `doctor` had
+a dedicated check that *failed the deployment* if either extra one went missing,
+and `verify-deployment.md` had a section teaching operators to eyeball all three.
 
-**Two failure modes this also closes:**
-- **Wrong production branch.** If the API create ever fails outright, wrangler
-  creates the project with its production branch defaulted to the local git branch
-  and deploys to `main`, a *preview*, so the custom domain serves nothing. Setup
-  now pins `production_branch = main` on the patch and redeploys, and treats a
-  failed create as "attach bindings + redeploy," not a dead end.
-- **Wrong DNS target.** The `*.pages.dev` subdomain is global; a common name like
-  `area51` collides and Cloudflare hands back a suffixed one (`area51-xxxx.pages.dev`).
-  `ensurePagesDomain` reads the project's *real* subdomain instead of guessing
-  `<name>.pages.dev`, and repoints a stale Pages CNAME to it automatically.
+A Worker with `workers_dev = false` and `preview_urls = false` has exactly one
+hostname. There is no second URL to enumerate, keep in sync, or leave open. The
+Access app has one destination because there is only one thing to guard.
+
+Cloudflare also now recommends Workers over Pages for new projects, and ships new
+features only there — but that was the tiebreaker, not the reason.
+
+**What it deleted.** Four workarounds that existed solely because Pages behaved
+the way it did:
+
+- **Bindings had nowhere to live.** A Pages project's D1 and R2 bindings exist
+  only in Cloudflare's API, so `setup` had to `PATCH` them on — onto *both* the
+  production and preview deployment configs, before the first upload, or every
+  `/api/*` call 500d for a missing `DB`. And creating a project *with*
+  `deployment_configs` in one `POST` is rejected on some accounts with a generic
+  `[8000000] An unknown error occurred`, so it had to be create-then-patch.
+  `doctor --fix` re-applied them to repair hand edits. They are declared in
+  `dashboard/wrangler.toml.template` now, under version control, and travel with
+  the upload like every other worker's.
+- **`production_branch` had to be pinned.** If the API create failed, wrangler
+  made the project with its production branch defaulted to the local git branch,
+  so `./a51 deploy` landed on `main` as a *preview* and the custom domain served
+  nothing. `doctor` checked for this.
+- **The `*.pages.dev` subdomain is a global namespace.** A common name like
+  `area51` collides, and Cloudflare hands back a suffixed one
+  (`area51-xxxx.pages.dev`). Anything pointing at a guessed `<name>.pages.dev`
+  pointed at a host that was not ours, so `ensurePagesDomain` had to read the real
+  subdomain and repoint stale CNAMEs, and `doctor` had to check the CNAME target.
+- **No observability at all.** Pages Functions support neither Workers Logs,
+  Logpush, Tail Workers, nor source maps. A 500 from `/api/endpoints/upload` was a
+  `console.error` into a void. The worker enables `[observability]` and
+  `upload_source_maps`.
+
+**What it costs.** Pages derived the route table from the shape of the
+`functions/` directory — `[id]` for a dynamic segment, `onRequestGet` for the
+method — and resolved match precedence invisibly. A Worker is one `fetch`
+handler, so that table is now written down in `src/index.js` and matched by
+`src/router.js`. Adding an endpoint is two edits instead of one, and precedence
+is something code has to get right. That is a real, permanent cost; it is smaller
+than the four items above.
+
+**Cost on the Cloudflare bill: unchanged.** Static-asset requests are free and
+unlimited on both plans and do not count as Worker invocations, and Pages
+Functions were billed on the same Workers meter as any other worker. The billable
+surface is the same set of `/api/*` calls either way. This is why
+`run_worker_first` is scoped to `["/api/*"]` and not set to `true`: `true` — which
+is what most examples show — would make every page load, stylesheet and `.jsx`
+fetch a billable invocation for nothing. `not_found_handling = "none"` likewise
+lets the asset layer 404 unknown paths without invoking the worker.
+
+**What was deliberately NOT done: folding the API into Autopilot.** It looks like
+an obvious consolidation — one worker, one binding set, shared D1 helpers, both
+are REST over the same database. It must not happen. Autopilot has **no `FILES`
+binding on purpose** and is fenced to `/-/*`; the dashboard writes `FILES` and
+manages endpoints at any URI. Merging them would hand any Autopilot key holder
+the ability to read, replace or delete a payload a human staged. See
+[Autopilot is a separate worker, bounded to `/-/*`](#autopilot-is-a-separate-worker-bounded-to--).
+
+**Undoing it** means restoring all four workarounds above, and re-teaching Access
+to guard three hostnames — including the wildcard, which does not match the apex,
+so both extra destinations are needed and each is separately forgettable.
+
+## One test file, for route precedence, and only that
+
+`dashboard/src/router.test.mjs` is the only test file in the repository. Plain
+node, no dependencies, no framework: `node dashboard/src/router.test.mjs`.
+
+**Why an exception to "no test suite":** `./a51 doctor` works as the acceptance
+test because nearly everything here fails *loudly* — a missing binding 500s, an
+unbound hostname answers 530, a broken worker will not deploy. Route precedence is
+the one thing that does not. Two routes can match one path (`/api/endpoints/upload`
+matches both the literal route and `/api/endpoints/:uri`), and picking the wrong
+one throws nothing, deploys fine, and leaves `doctor` reporting a healthy
+dashboard: the request simply reaches the wrong handler. In that specific case it
+would run a D1 lookup for an endpoint named `"upload"` and answer a plausible
+404. Pages resolved this for free and invisibly; now it is code, and the first
+draft of `router.js` got it wrong in exactly that way.
+
+**Why it cannot rot:** it parses the `ROUTES` table out of `src/index.js` rather
+than restating it, so a route added there is covered here automatically, and a
+renamed table fails the run loudly instead of silently testing nothing.
+
+**Scope discipline:** it asserts precedence, parameter capture (endpoint URIs
+arrive percent-encoded, and `%2F` must stay inside one segment), and 404-vs-405.
+It does not test handlers, D1, or R2 — those fail loudly and `doctor` covers them.
+Turning this into a general test suite is a different decision from the one made
+here.
 
 ## Cloudflare Access is part of setup, not an afterthought
 

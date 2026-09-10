@@ -1,8 +1,13 @@
 # Architecture
 
-Everything runs on one Cloudflare account. There are three Workers, one Pages
-project, one D1 database and two R2 buckets. No origin server, no container, no
-long-lived process.
+Everything runs on one Cloudflare account. There are four Workers, one D1
+database and two R2 buckets. No origin server, no container, no long-lived
+process.
+
+The dashboard is one of the four. It was a Cloudflare Pages project until v1.1.0;
+it is a Worker with static assets now, which is what gives it a single hostname
+for Cloudflare Access to guard
+([decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project)).
 
 ![AREA 51 architecture](../../.github/assets/architecture.png)
 
@@ -11,19 +16,24 @@ long-lived process.
 
 | Piece | Implementation | Responsibility |
 |---|---|---|
-| **AREA 51** (dashboard) | Cloudflare Pages project (`PAGES_PROJECT_NAME`) | Static React UI plus Pages Functions that serve the JSON API. The only writer of endpoint definitions, blacklists and per-email read/starred state. |
+| **AREA 51** (dashboard) | a Worker with static assets (`DASHBOARD_WORKER_NAME`) on its own Custom Domain | Static React UI from `public/`, plus the JSON API from `src/`, which only `/api/*` reaches. The only writer of endpoint definitions, blacklists and per-email read/starred state. |
 | **Black Holes** (catcher) | one Worker (`WORKER_NAME`), bound by Custom Domain to every black hole | Serves endpoint responses; logs every request; captures every inbound email. Domain-agnostic: it does not know or care which black hole a request arrived on. |
 | **Autopilot** (agent interface) | a second Worker (`AGENT_WORKER_NAME`) on its own Custom Domain | Key-authenticated REST + MCP server. Recent-capture reads and CRUD confined to the `/-/*` endpoint namespace. |
 | **Cleanup** (retention) | a third Worker (`CLEANUP_WORKER_NAME`), cron trigger only, no domain | Daily: trims `requests` to the newest N rows, deletes non-starred `emails` older than M days along with their `.eml` objects. |
-| **D1 database** | binding `DB` on all three Workers and on Pages | Seven tables. Metadata only, so no message bodies and no uploaded bytes. |
-| **R2: captured email** | binding `EML` (worker, autopilot, cleanup, Pages) | One verbatim `.eml` per captured message at `emails/<id>.eml`. |
-| **R2: endpoint files** | binding `FILES` (worker + Pages only) | One object per file-backed endpoint, keyed by a random UUID. |
+| **D1 database** | binding `DB` on all four Workers | Seven tables. Metadata only, so no message bodies and no uploaded bytes. |
+| **R2: captured email** | binding `EML` on all four Workers | One verbatim `.eml` per captured message at `emails/<id>.eml`. |
+| **R2: endpoint files** | binding `FILES` (catcher + dashboard only) | One object per file-backed endpoint, keyed by a random UUID. The dashboard is the only writer; the catcher reads; Autopilot has no binding to it at all. |
 | **Email Routing** | per mail-enabled zone | A catch-all rule that hands every inbound message to the catcher's `email()` handler. |
 | **Cloudflare Access** | Zero Trust app on the dashboard hostname | The dashboard's only authentication. |
 
-Three Workers and the Pages project are deployed **independently** and share
-state exclusively through D1 and R2. There is no service binding, no queue and
-no RPC between them.
+All four Workers are deployed **independently** and share state exclusively
+through D1 and R2. There is no service binding, no queue and no RPC between them.
+
+That independence is deliberate for the dashboard and Autopilot specifically.
+They are both REST APIs over the same database and look like candidates for
+merging; they must stay apart, because Autopilot has no `FILES` binding on
+purpose and is fenced to `/-/*`, while the dashboard writes `FILES` and manages
+any URI.
 
 ## HTTP capture flow
 
@@ -97,12 +107,20 @@ operator ──► https://<dashboard>
                 │
                 ├─ Cloudflare Access challenge (one-time PIN by email)
                 ▼
-             Pages
-                ├─ /, /index.html, /styles.css, /js/*.jsx   → static files
-                └─ /api/*                                    → Pages Functions
-                        ├─ endpoints  GET · POST · GET/[uri] · DELETE/[uri] · POST /upload
-                        ├─ requests   GET · GET/[id]
-                        ├─ emails     GET · PATCH · GET/[id] · PATCH/[id] · GET/[id]/raw
+      dashboard Worker
+                │
+                │  run_worker_first = ["/api/*"] decides which side answers
+                │
+                ├─ /, /index.html, /styles.css, /js/*.jsx   → public/ via the
+                │                                             asset layer; the
+                │                                             Worker is never
+                │                                             invoked, and these
+                │                                             requests are free
+                └─ /api/*                                    → src/index.js
+                        ├─ router.js: literal paths beat :param routes
+                        ├─ endpoints  GET · POST · GET/:uri · DELETE/:uri · POST /upload
+                        ├─ requests   GET · GET/:id
+                        ├─ emails     GET · PATCH · GET/:id · PATCH/:id · GET/:id/raw
                         ├─ blacklist  GET · POST · DELETE  (ips, emails)
                         └─ config     GET /domains
                         │

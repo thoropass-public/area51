@@ -9,11 +9,11 @@ every exit code, see [reference/cli](../reference/cli.md).
 ## Deploying
 
 ```bash
-./a51 deploy all             # everything: three workers, the dashboard, the schema
+./a51 deploy all             # everything: four workers (dashboard included), the schema
 ./a51 deploy black-holes     # the catcher
 ./a51 deploy autopilot       # the agent worker
 ./a51 deploy cleanup         # the retention worker (re-registers its cron)
-./a51 deploy dashboard       # re-asserts Pages bindings, then uploads
+./a51 deploy dashboard       # src/ as the worker, public/ as its static assets
 ./a51 deploy schema          # re-apply db/schema.sql (idempotent)
 ```
 
@@ -25,8 +25,8 @@ Deploys are independent. Shipping the dashboard does not touch the catcher, and 
 schema addition does not require redeploying anything (unless code reads the new
 column).
 
-`git push` deploys nothing. There is no CI integration and no Pages Git build:
-uploads happen from your machine, through the CLI.
+`git push` deploys nothing. There is no CI integration and no Git-connected
+build: uploads happen from your machine, through the CLI.
 
 ## Adding and removing black holes
 
@@ -128,17 +128,21 @@ npx wrangler tail area51-black-holes --format=json | jq 'select(.event=="email_c
 ```
 
 Those are the default service names; if you changed `WORKER_NAME`,
-`AGENT_WORKER_NAME` or `CLEANUP_WORKER_NAME` in `.env`, `./a51 status` prints the
-ones actually deployed. Pages Functions are separate: they log to
-the Pages project's own stream, under Workers & Pages → *project* → Deployments →
-*deployment* → Logs.
+`AGENT_WORKER_NAME`, `CLEANUP_WORKER_NAME` or `DASHBOARD_WORKER_NAME` in `.env`,
+`./a51 status` prints the ones actually deployed.
+
+The dashboard is in the same place as the rest — `wrangler tail area51-dashboard`,
+or Workers & Pages → *worker* → Logs — and that is new. As a Pages project it had
+no Workers Logs, no Logpush, no Tail Workers and no source maps; a failing
+`/api/*` call left nothing to read anywhere. Its config now sets
+`upload_source_maps = true`, so a 500 resolves to a real line number.
 
 ## Health checks
 
 ```bash
 ./a51 status          # configuration + what is deployed
 ./a51 doctor          # verify every binding, domain and policy; probe the live hosts
-./a51 doctor --fix    # re-apply schema, Pages bindings, domain bindings, Access policy
+./a51 doctor --fix    # re-apply schema, domain bindings, Access policy
 ```
 
 Run `doctor` after any change you did not make through the CLI, after a failed
@@ -230,15 +234,15 @@ Access → *your app* if that matters.
 
 ## Renaming things
 
-`WORKER_NAME`, `AGENT_WORKER_NAME`, `CLEANUP_WORKER_NAME`, `PAGES_PROJECT_NAME`,
-`D1_DATABASE_NAME` and both bucket names are Cloudflare identities. Changing one in
-`.env` does **not** rename anything:
+`WORKER_NAME`, `AGENT_WORKER_NAME`, `CLEANUP_WORKER_NAME`,
+`DASHBOARD_WORKER_NAME`, `D1_DATABASE_NAME` and both bucket names are Cloudflare
+identities. Changing one in `.env` does **not** rename anything:
 
-- **A Worker.** The next deploy creates a *new* Worker. The old one keeps running
-  and keeps its Custom Domains, so both are live and one of them is stale. Rebind
-  the domains (`./a51 black-holes add …`) and delete the old Worker in the dashboard.
-- **The Pages project.** The next deploy creates a new project with a new
-  `*.pages.dev` subdomain; the custom domain stays with the old one until moved.
+- **A Worker**, the dashboard included. The next deploy creates a *new* Worker.
+  The old one keeps running and keeps its Custom Domains, so both are live and one
+  of them is stale. Rebind the domains (`./a51 setup` for the dashboard and
+  Autopilot, `./a51 black-holes add …` for a catcher) and delete the old Worker in
+  the dashboard.
 - **The database or a bucket.** You get a *new empty* one. The old data is still
   there, still billed, and nothing points at it. Migrate deliberately or not at all.
 
@@ -255,15 +259,20 @@ Typical pentest volumes sit inside Cloudflare's free tier. The limits that matte
 | D1 writes | 100 K rows/day | one row per captured request and per captured email |
 | R2 storage | 10 GB | captured `.eml` (with attachments) and endpoint uploads |
 | R2 egress | free | serving payloads and raw-message downloads |
-| Workers requests | 100 K/day | every target request, every dashboard API call, every agent call |
-| Pages builds | n/a | direct upload, no builds |
+| Workers requests | 100 K/day | every target request, every `/api/*` dashboard call, every agent call |
+| Static assets | free, unlimited | the dashboard's HTML, CSS, `.jsx` and favicon — these do **not** count as Worker requests |
 
 Notes:
 
 - **The request log is the storage risk**, not email: bodies are stored inline in
   D1. The cleanup worker's `CLEANUP_REQUESTS_KEEP` is the lever.
 - **Search is a full table scan** (`LIKE '%term%'`), and reads are billed per row
-  scanned. Prefer narrower terms on large tables.
+  *scanned*, not returned. A leading wildcard cannot use an index, so one search
+  reads the whole table: against 200 K captured requests that is 200 K row reads
+  per search, and the free tier's 5 M rows/day allows roughly 25 of them before
+  D1 starts refusing queries. On Workers Paid the 25 B rows/month included makes
+  this a non-issue. Prefer narrower terms on large tables, and keep
+  `CLEANUP_REQUESTS_KEEP` sane.
 - **No row counts anywhere in the UI** for exactly this reason
   ([decisions.md](../decisions.md#no-row-counts-anywhere-in-the-ui)).
 - Usage lives in the Cloudflare dashboard: D1 → *database* → Metrics, R2 → *bucket*,
@@ -275,17 +284,15 @@ Notes:
 ./a51 destroy
 ```
 
-Two gates. The first (`REMOVE`) deletes the three Workers, the Pages project, the
-dashboard DNS record and the Access application, all rebuildable from this
-repository. The second (`DELETE-DATA`) deletes the database and both buckets,
+Two gates. The first (`REMOVE`) deletes the four Workers, the dashboard DNS
+record and the Access application, all rebuildable from this repository. The second (`DELETE-DATA`) deletes the database and both buckets,
 which is permanent. Answering no to the second leaves your captures intact and
 lets `./a51 setup` rebuild on top of them.
 
-**No manual dashboard steps.** `destroy` handles the two cases Cloudflare refuses
-to do implicitly, so the whole teardown stays one command:
+**No manual dashboard steps.** Deleting a Worker takes its Custom Domains and
+their DNS records with it, so there is nothing to detach first. That leaves one
+case Cloudflare refuses to do implicitly:
 
-- **Pages custom domains** are detached before the project is deleted (Cloudflare
-  will not delete a project that still has one, `[8000028]`).
 - **Non-empty R2 buckets** are emptied before deletion (R2 refuses to delete a
   bucket with objects, `[10008]`). Emptying happens only inside the `DELETE-DATA`
   gate. It lists the objects over R2's S3 API using credentials derived from your

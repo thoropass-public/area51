@@ -112,7 +112,7 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
 
 // Black Holes (domains bound to the Black Holes worker) live in the D1
 // `domains` table and are served to the frontend by the /api/config/domains
-// Pages Function. To edit them, write to D1 directly (no redeploy needed; the
+// dashboard API. To edit them, write to D1 directly (no redeploy needed; the
 // next page load reads the new value):
 //   wrangler d1 execute area51 --remote --command \
 //     "INSERT OR REPLACE INTO domains (domain, roles) VALUES ('<host>', '[\"http\",\"mail\"]')"

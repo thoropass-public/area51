@@ -95,10 +95,10 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 
 | Scope | Permission | Needed for |
 |---|---|---|
-| Account | **Workers Scripts** · Edit | deploying the three Workers |
+| Account | **Workers Scripts** · Edit | deploying the four Workers (the dashboard is one of them) |
 | Account | **D1** · Edit | creating the database, applying the schema, all SQL the CLI runs |
 | Account | **Workers R2 Storage** · Edit | creating both buckets, deleting objects during a purge |
-| Account | **Cloudflare Pages** · Edit | creating the Pages project, its bindings and its custom domain, and detaching a *foreign* project's custom domain when it holds a hostname a black hole is taking over |
+| Account | **Cloudflare Pages** · Edit | detaching a Pages project's custom domain when it holds a hostname a black hole is taking over. AREA 51 creates no Pages project of its own — the dashboard has been a Worker since v1.1.0 — but a domain worth taking over often has someone else's Pages site on it, and without this the takeover degrades to a manual dashboard step |
 | Account | **Account Settings** · Read | discovering the account id |
 | Account | **Access: Apps and Policies** · Edit | the Access application in front of the dashboard |
 | Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organization and enabling one-time PIN login |
@@ -106,8 +106,8 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Account | **Email Routing Addresses** · Edit | registering the fallback inbox as a destination |
 | Zone | **Zone** · Read | resolving hostnames to zones |
 | Zone | **Zone Settings** · Edit | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss; see the warning below. |
-| Zone | **DNS** · Edit | the dashboard's CNAME record, and clearing an address record that is in the way of a confirmed takeover |
-| Zone | **Workers Routes** · Edit | binding black hole / Autopilot hostnames to Workers |
+| Zone | **DNS** · Edit | clearing an address record that is in the way of a confirmed takeover. Cloudflare writes the records for a Worker Custom Domain itself |
+| Zone | **Workers Routes** · Edit | binding the black hole, dashboard and Autopilot hostnames to their Workers |
 | Zone | **Email Routing Rules** · Edit | setting the catch-all rule that points inbound mail at the worker |
 
 That is **fourteen** permissions: nine Account-scoped, five Zone-scoped.
@@ -220,8 +220,8 @@ zone, and setup uses it as-is instead of deriving one.
 ## What setup does, step by step
 
 Each step below lists the API call it makes and the equivalent manual action, in
-case you need to finish it by hand. The CLI counts the three Worker deploys
-separately, so its `[n/12]` progress markers run slightly ahead of the ten
+case you need to finish it by hand. The CLI counts the four Worker deploys
+separately, so its `[n/13]` progress markers run slightly ahead of the ten
 headings here.
 
 ### 1. Credentials
@@ -310,8 +310,11 @@ Prints exactly what will be created, then asks once. `--dry-run` stops here.
 
 ### 6. Workers
 
-For each Worker: renders `wrangler.toml` from `wrangler.toml.template` + `.env`,
-then `wrangler deploy` from that directory.
+For each of the four Workers — catcher, Autopilot, cleanup, dashboard — renders
+`wrangler.toml` from `wrangler.toml.template` + `.env`, then `wrangler deploy`
+from that directory. The dashboard is no different from the rest: `src/` is its
+code and `public/` its static assets, both declared in its template alongside the
+D1 and R2 bindings.
 
 No secrets are installed. Autopilot authenticates every call against the `users`
 table in D1, so operator keys travel with the database rather than with a deploy.
@@ -320,7 +323,7 @@ That is what makes `./a51 users add` take effect with no redeploy at all.
 The cleanup Worker's cron trigger is registered by the deploy itself, so there is
 nothing else to configure.
 
-*Manual equivalent:* `./a51 deploy black-holes` / `autopilot` / `cleanup`.
+*Manual equivalent:* `./a51 deploy black-holes` / `autopilot` / `cleanup` / `dashboard`.
 
 ### 7. Black hole hostname
 
@@ -348,28 +351,25 @@ zone → Email → Email Routing → Get started · Routing rules → Catch-all 
 
 Same Custom Domain call, pointed at the Autopilot Worker.
 
-### 9. Dashboard
+### 9. Dashboard hostname
 
-- Creates the Pages project **bare** (name + `production_branch = main`), then
-  **PATCHes the bindings** onto it: `d1_databases.DB`, `r2_buckets.EML`,
-  `r2_buckets.FILES`, for both the production and preview configurations, before
-  the first upload. That ordering avoids the classic "every `/api/*` call returns
-  500 until you add the binding and redeploy" trap. (Create-then-patch, rather
-  than one create-with-bindings call, because the combined call is rejected on
-  some accounts with `[8000000]`; see
-  [decisions.md](../decisions.md#pages-bindings-are-set-before-the-first-upload-via-create-then-patch).)
-- `wrangler pages deploy .` from `dashboard/`. If the API create had failed and
-  wrangler created the project bare as a fallback, setup re-attaches the bindings
-  and redeploys so the live deployment carries them.
-- `POST /pages/projects/{p}/domains` for the dashboard hostname, plus a proxied
-  `CNAME` to the project's **real** `*.pages.dev` subdomain (which Cloudflare may
-  suffix, e.g. `area51-xxxx.pages.dev`, when the name is globally taken). A stale
-  Pages CNAME is repointed automatically; an unrelated record is left alone with a
-  warning.
+The dashboard is deployed with the other three Workers in step 6; the only thing
+left here is its Custom Domain, which is the same call Autopilot's hostname uses.
+Cloudflare writes and manages the DNS record itself.
 
-*Manual equivalent:* Pages → project → Settings → Bindings (D1 `DB`, R2 `EML`,
-R2 `FILES`, on Production **and** Preview) → Custom domains → *Set up a custom
-domain* → redeploy.
+Its D1 and R2 bindings (`DB`, `EML`, `FILES`) are declared in
+`dashboard/wrangler.toml.template` and travel with the upload, so there is
+nothing to attach over the API and no ordering to get right.
+
+This step was considerably larger when the dashboard was a Pages project — a bare
+create, a bindings `PATCH` onto two deployment configs, an upload, a possible
+re-patch-and-re-upload, then a custom domain plus a hand-managed CNAME pointing at
+a subdomain Cloudflare may have suffixed. See
+[decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project) for
+what each of those was working around.
+
+*Manual equivalent:* Workers & Pages → *worker* → Settings → Domains & Routes →
+Add → Custom Domain → the dashboard hostname.
 
 ### 10. Cloudflare Access
 
@@ -387,20 +387,23 @@ domain* → redeploy.
 - Creates or updates a `self_hosted` application with one allow policy built from
   the `users` table, `session_duration` from `ACCESS_SESSION_DURATION`, and
   `auto_redirect_to_identity` so users skip the login-method chooser.
-- **Guards the pages.dev URL too, not just the custom domain.** A Cloudflare Pages
-  site is reachable at *both* its custom domain **and** its `*.pages.dev` URL: the
-  apex (`<project>.pages.dev`) and every preview deployment
-  (`main.<project>.pages.dev`, `<hash>.<project>.pages.dev`). If Access only
-  covered the custom domain, that pages.dev URL would be an **unauthenticated
-  bypass** straight into the dashboard. So the app's `destinations` include the
-  custom host **and** `<subdomain>.pages.dev` **and** `*.<subdomain>.pages.dev`.
-  (The API's `destinations` array replaced the deprecated `self_hosted_domains`.)
-  `./a51 doctor` flags it as a failure if **either** pages.dev destination is ever
-  missing.
+- **One destination: `DASHBOARD_HOSTNAME`.** The dashboard Worker sets
+  `workers_dev = false` and `preview_urls = false`, so that is the only hostname
+  it answers on, and guarding it guards everything. (The API's `destinations`
+  array replaced the deprecated `self_hosted_domains`.)
+
+  This is the reason the dashboard is a Worker. A Cloudflare Pages site is
+  reachable at its custom domain **and** `<project>.pages.dev` **and** every
+  preview deployment (`main.<project>.pages.dev`, `<hash>.<project>.pages.dev`).
+  Access is enforced per hostname, so covering only the custom domain left those
+  an **unauthenticated bypass** straight into every captured request and email.
+  Setup used to read the project back, discover its real subdomain, and write
+  three destinations; `doctor` failed the deployment if either extra one went
+  missing. None of that is needed now, and none of it can be forgotten.
 
 *Manual equivalent:* Zero Trust → Access → Applications → *Add an application* →
-Self-hosted → add the dashboard hostname **and** `*.<project>.pages.dev` as public
-hostname destinations → policy *Allow* with an Emails or Email domain rule.
+Self-hosted → add the dashboard hostname as a public hostname destination →
+policy *Allow* with an Emails or Email domain rule.
 
 ---
 
@@ -412,20 +415,19 @@ hostname destinations → policy *Allow* with an Emails or Email domain rule.
 ```
 
 `doctor` is the real acceptance test. It checks the schema (including columns
-added by later releases), both buckets, all three Workers **and the bindings that
+added by later releases), both buckets, all four Workers **and the bindings that
 actually reached them**, the operator list and whether Access enforces exactly
 it, every black hole's Custom Domain and mail routing (including that a subdomain
-mail black hole has MX records of its own), the Pages bindings on both
-environments, and the Access application and its policy. Then it makes live
-requests:
+mail black hole has MX records of its own), the dashboard's Custom Domain, and
+the Access application and its policy. Then it makes live requests:
 
 - the black hole answers `404` on an unknown path,
 - Autopilot answers `401` with no key, and `401` (not `503`) to a bogus one,
   which proves it can reach D1 to check keys at all,
 - the dashboard redirects to the Access login rather than serving content.
 
-`./a51 doctor --fix` re-applies the schema, repairs Pages bindings, re-binds
-black hole hostnames and re-applies the Access policy.
+`./a51 doctor --fix` re-applies the schema, re-binds black hole hostnames and
+re-applies the Access policy.
 
 Then, in order:
 

@@ -336,7 +336,7 @@ function EndpointRow({ row, active, matches, onOpen }) {
 }
 
 // Product cap on uploads, checked here so an oversize file never leaves the
-// browser. The Pages Function re-checks it against Content-Length.
+// browser. The upload handler re-checks it against Content-Length.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {

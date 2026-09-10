@@ -168,8 +168,8 @@ whole interaction, self-hosted:
 - One **API token**. The exact permission list is in
   [getting-started](docs/guides/getting-started.md#api-token).
 
-Everything else is created for you: the database, storage, three Workers, the
-dashboard, DNS, TLS, mail routing and the access policy.
+Everything else is created for you: the database, storage, four Workers (the
+dashboard is one), DNS, TLS, mail routing and the access policy.
 
 ## Getting started
 
@@ -185,9 +185,9 @@ cp .env.example .env        # paste your API token
 ```
 
 `setup` asks which domain to use, confirms that it may take that domain over,
-then provisions in order: database and schema → storage → the three Workers →
-your black hole and its mail catch-all → the dashboard with its bindings already
-attached → DNS → the access policy. The domain becomes the black hole itself, so
+then provisions in order: database and schema → storage → the four Workers →
+your black hole and its mail catch-all → the dashboard and agent hostnames →
+the access policy. The domain becomes the black hole itself, so
 `https://your-domain/anything` and `anything@your-domain` are both captured, and
 the dashboard and agent server are set up alongside it. Every step is idempotent,
 so it is also the command you re-run after changing anything.

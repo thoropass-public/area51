@@ -176,7 +176,7 @@ effect on the next call with **no redeploy**, exactly like `domains`.
 ## R2: captured email
 
 Bucket `R2_BUCKET_NAME`, bound as `EML` on the catcher, Autopilot, the cleanup
-worker and Pages. One object per message:
+catcher, Autopilot, cleanup and the dashboard. One object per message:
 
 ```
 emails/<uuid>.eml      Content-Type: message/rfc822
@@ -194,7 +194,7 @@ unreachable object.
 
 ## R2: endpoint files
 
-Bucket `R2_FILES_BUCKET_NAME`, bound as `FILES` on the catcher (read) and Pages
+Bucket `R2_FILES_BUCKET_NAME`, bound as `FILES` on the catcher (read) and the dashboard
 (write + delete). One object per file-backed endpoint, keyed by a **random
 UUID**, not derived from the URI, so replacing a file writes a fresh key and
 deletes the old one, with no read-your-write window and no percent-encoding

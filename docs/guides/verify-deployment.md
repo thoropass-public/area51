@@ -16,6 +16,11 @@ Everything below was provisioned by a single **Custom token** (My Profile → AP
 Tokens → Create Token). A correct token carries exactly these **fourteen**
 permissions: nine Account-scoped, five Zone-scoped.
 
+*Cloudflare Pages · Edit* is still among them even though nothing here creates a
+Pages project: it is what lets a confirmed takeover detach a Pages project's
+custom domain when one holds a hostname a black hole needs
+([getting-started](getting-started.md#api-token)).
+
 ![Cloudflare API token permissions](../../.github/assets/cf-token-permissions.png)
 
 - **Account** · Workers Scripts, D1, Workers R2 Storage, Cloudflare Pages,
@@ -29,19 +34,24 @@ permissions: nine Account-scoped, five Zone-scoped.
 
 ## Workers & Pages
 
-The three Workers and the Pages project, all deployed:
+All four Workers, deployed. There is no Pages project: the dashboard has been a
+Worker with static assets since v1.1.0
+([why](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project)).
 
 ![Workers & Pages overview](../../.github/assets/workers-and-pages.png)
 
 - **area51-black-holes** is the public catcher (HTTP + email).
 - **area51-autopilot** is the agent-facing REST + MCP server, on its own hostname.
 - **area51-cleanup** is the retention worker; **no active routes** (cron only).
-- **area51** is the dashboard, a Pages project served at `area51-xxxx.pages.dev`
-  ( *+ 1 other domain* = the custom `area51.<zone>` domain). The `-xxxx` suffix is
-  Cloudflare disambiguating a globally-taken `*.pages.dev` name. Expected, and
-  the reason Access must also guard the pages.dev URL (below). Yours will carry a
-  different suffix; the screenshots on this page show one real assignment, so read
-  `area51-xxxx` wherever they show a concrete one.
+- **area51-dashboard** is the dashboard, on the single custom domain
+  `area51.<zone>` and **nothing else** — no `*.workers.dev` route and no preview
+  URLs, because its config sets `workers_dev = false` and `preview_urls = false`.
+  One hostname is the whole point: it is the only thing Access has to guard.
+
+> **Screenshots on this page predate v1.1.0** and still show the dashboard as a
+> Pages project (`area51-xxxx.pages.dev`) with three Access destinations. The
+> text describes the current state; treat the images as illustrative of layout,
+> not of the hostname list. They will be retaken.
 
 
 ---
@@ -77,14 +87,12 @@ There is a second bucket, **area51-files**, for file-backed endpoint uploads
 ## Cloudflare Access (Zero Trust)
 
 Access is the dashboard's **only** authentication. These three views confirm it
-is configured correctly, including that the `*.pages.dev` URL is guarded, so the
-dashboard can't be reached unauthenticated by its Pages URL.
+is configured correctly.
 
 ### The application
 
 A self-hosted application, **AREA 51 dashboard**, with an **AREA 51 operators**
-allow policy. Note *+ 2 other domains* under Destinations, because the app protects more
-than just the custom hostname:
+allow policy. Destinations lists exactly one hostname:
 
 ![Access application](../../.github/assets/access-application.png)
 
@@ -99,25 +107,29 @@ one-time PIN and in:
 
 ![Access allow policy](../../.github/assets/access-policy.png)
 
-### Destinations, and the closed pages.dev bypass
+### Destinations
 
-The important one. The application guards **three** public hostnames:
-
-1. `area51.<zone>`, the custom dashboard domain
-2. `area51-xxxx.pages.dev`, the Pages **apex** URL
-3. `*.area51-xxxx.pages.dev`, every **preview / branch** deployment URL
+One public hostname destination: `area51.<zone>`, the dashboard's Custom Domain.
 
 ![Access destinations](../../.github/assets/access-destinations.png)
 
-If only the custom domain were listed, anyone with the `*.pages.dev` URL could
-reach the dashboard with **no login**. `./a51 setup` and `./a51 users sync` add all
-three automatically, and `./a51 doctor` fails if **either** pages.dev destination is
-ever missing.
+**This used to be the most important check on the page, and it is now trivial —
+which was the point of the migration.** A Cloudflare Pages project answers on its
+custom domain *and* `<project>.pages.dev` *and* every `*.pages.dev` preview
+deployment. Access is enforced per hostname, so an app listing only the custom
+domain left the rest reachable with **no login**, straight into every captured
+request and email. The application therefore had to guard three hostnames — and
+the wildcard does not match the apex, so both extras were needed and each was
+separately forgettable. `doctor` had a check whose only job was to fail the
+deployment if either went missing.
+
+The dashboard Worker answers on one name. There is no second URL to enumerate, no
+wildcard to remember, and no bypass to close.
 
 ### Preview
 
 The end-to-end summary: **all authenticated users** matching the **AREA 51
-operators** policy may reach the three destinations:
+operators** policy may reach the destination:
 
 ![Access preview](../../.github/assets/access-preview.png)
 
@@ -132,6 +144,6 @@ Everything above is what these commands assert without opening the dashboard:
 ./a51 doctor     # every binding, domain, policy, and probes the live hosts
 ```
 
-`doctor` specifically confirms the Workers and Pages bindings, the D1 schema,
-both R2 buckets, the Access application **and** that its destinations include
-both pages.dev entries: the apex and the wildcard, which cover different hosts.
+`doctor` specifically confirms all four Workers' bindings (the dashboard's `DB`,
+`EML` and `FILES` among them), the D1 schema, both R2 buckets, the dashboard's
+Custom Domain, and the Access application with its allow policy.

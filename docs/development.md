@@ -35,14 +35,15 @@ Use a throwaway zone for this, not the one carrying an engagement.
 - **Inbound email.** The `email()` handler is only ever invoked by Cloudflare
   Email Routing. Nothing on your machine can trigger it, so every email-capture
   change has to be deployed and exercised with a real message.
-- **Cloudflare Access.** The local Pages server has no edge auth, so the
+- **Cloudflare Access.** A local dev server has no edge auth, so the
   expired-session reload path only reproduces against a deployment.
 
 **What a local server did give you,** for the record, in case someone wants to
-bring it back: a reload loop for the dashboard's JSX and Functions, against an
-empty local D1 and R2. Worth knowing that `wrangler pages dev` has no `--remote`
-flag, so that loop could never see real captured data. That is what made it weak
-enough to drop.
+bring it back: a reload loop for the dashboard's JSX and its API, against an
+empty local D1 and R2, which could never see real captured data. That is what
+made it weak enough to drop. Note that the dashboard is a Worker with static
+assets now, so the relevant command would be `wrangler dev` from `dashboard/`,
+not the `wrangler pages dev` this paragraph used to name.
 
 **Exercising the cleanup worker.** It has no `fetch` handler, so its only trigger
 is the cron. To act on retention now, use `./a51 purge`, which does the same work
@@ -67,9 +68,11 @@ worker's Logs in the Cloudflare dashboard.
 | `workers/black-holes/src/index.js` | HTTP + email capture ([black-holes.md](internals/black-holes.md)) |
 | `workers/autopilot/src/index.js` | REST + MCP for agents ([autopilot.md](internals/autopilot.md)) |
 | `workers/cleanup/src/index.js` | Scheduled retention ([cleanup.md](internals/cleanup.md)) |
-| `dashboard/js/*.jsx` | Frontend ([dashboard.md](internals/dashboard.md)) |
-| `dashboard/functions/api/**` | The dashboard's JSON API ([api.md](reference/api.md)) |
-| `dashboard/functions/api/_shared.js` | `PAGE_SIZE`, `MAX_UPLOAD_BYTES`, `withErrorHandler`, `json` / `errResp` |
+| `dashboard/public/js/*.jsx` | Frontend ([dashboard.md](internals/dashboard.md)) |
+| `dashboard/src/index.js` | The dashboard Worker: entry, `ROUTES` table, one `try/catch` |
+| `dashboard/src/router.js` | Route matching (literal beats `:param`); `router.test.mjs` pins it |
+| `dashboard/src/api/**` | The dashboard's JSON API handlers ([api.md](reference/api.md)) |
+| `dashboard/src/api/shared.js` | `PAGE_SIZE`, `MAX_UPLOAD_BYTES`, `json` / `errResp` |
 | `docs/guides/` | Task-oriented documentation |
 | `docs/reference/` | CLI, `.env`, API and schema lookup tables |
 | `docs/internals/` | One page per runtime piece |
@@ -87,10 +90,19 @@ worker's Logs in the Cloudflare dashboard.
 - Two-store writes go object-first, row-second, with a compensating delete on
   failure. A visible broken row beats an invisible orphaned object.
 
-**Pages Functions**
+**The dashboard API** (`dashboard/src/`)
 
-- Named exports (`onRequestGet`, `onRequestPost`, …), each wrapped in
-  `withErrorHandler` from `_shared.js`.
+- Handlers are plain named exports taking `{ request, env, ctx, params }`. The
+  export's name and the file's location mean nothing to routing — a handler is
+  reachable only if it is in the `ROUTES` table in `src/index.js`.
+- Do **not** add per-handler error wrapping. `src/index.js` applies one
+  `try/catch` to every route.
+- `params` values arrive percent-encoded, exactly as they did under Pages.
+  Decode them in the handler.
+- Run `node dashboard/src/router.test.mjs` after touching `router.js` or the
+  route table.
+- Anything server-side belongs in `src/`, never `public/` — everything under
+  `public/` is served to anyone who can reach the host.
 - Bind SQL parameters. Validate input explicitly and return `400` with a message a
   human can act on.
 - Keep list payloads narrow; fetch detail on open.
@@ -166,10 +178,21 @@ command, so error handling and the `A51_API_BASE` test override keep working.
 
 ## Testing
 
-There is no test suite in the repository. What exists instead:
+There is no test suite in the repository, with one deliberate exception. What
+exists instead:
 
 - **`./a51 doctor`** is the acceptance test for a deployment: bindings, domains,
   routing, policies, plus live probes of all three hostnames.
+- **`node dashboard/src/router.test.mjs`** — the exception, and the only test
+  file here. Plain node, no dependencies, no framework. It pins the dashboard's
+  API route precedence, which is the one behavior in this repository that fails
+  *silently*: Cloudflare Pages used to resolve which route won when two matched,
+  invisibly and for free, and `dashboard/src/router.js` has to do it itself now.
+  Get it wrong and nothing throws, nothing fails to deploy, and `doctor` sees a
+  healthy dashboard — the request just reaches the wrong handler and returns a
+  believable 404. It parses the route table out of `src/index.js`, so a route
+  added there is covered automatically. Run it after touching the router or that
+  table. See [decisions.md](decisions.md#one-test-file-for-route-precedence-and-only-that).
 - **`./a51 setup --dry-run`** resolves configuration and prints the plan without
   touching Cloudflare.
 - **Smoke tests** per component: [black-holes.md](internals/black-holes.md#deploying-and-testing),

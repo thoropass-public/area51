@@ -19,7 +19,7 @@ database and two R2 buckets, and a CLI provisions and deploys them:
 | Black Holes worker | `workers/black-holes/` | Public catcher: serves endpoints, logs requests, captures email |
 | Autopilot worker | `workers/autopilot/` | Key-auth REST + MCP server for agents, fenced to `/-/*` |
 | Cleanup worker | `workers/cleanup/` | Cron-only retention |
-| Dashboard | `dashboard/` | Cloudflare Pages (React + `/api/*` Functions), behind Access |
+| Dashboard worker | `dashboard/` | Worker with static assets: React UI from `public/`, `/api/*` from `src/`, behind Access |
 | CLI | `cli/` (`./a51`) | Provisions and deploys everything |
 
 Full map: [docs/internals/architecture.md](docs/internals/architecture.md). Data model:
@@ -44,7 +44,7 @@ full reference with per-step manual fallbacks is [docs/guides/getting-started.md
 ```bash
 npm install                 # wrangler + postal-mime
 cp .env.example .env        # paste CLOUDFLARE_API_TOKEN, then run setup
-./a51 setup                 # provisions D1, R2, 3 Workers, Pages, DNS, mail, Access (idempotent)
+./a51 setup                 # provisions D1, R2, 4 Workers, DNS, mail, Access (idempotent)
 ./a51 doctor                # acceptance test: checks every binding, probes live hosts
 ```
 
@@ -79,6 +79,13 @@ zones*). All fourteen are required: the primary black hole always carries the
 `mail` role, so the Email Routing permissions and Zone Settings are never
 optional at setup time.
 
+`Cloudflare Pages:Edit` looks like a leftover — nothing here creates a Pages
+project any more, since the dashboard became a Worker. It is not: it is what lets
+a confirmed takeover **detach a Pages project's custom domain** when one holds a
+hostname a black hole needs, and a domain worth taking over very often has
+someone else's Pages site on it. Removing it degrades that takeover to a manual
+dashboard step.
+
 Four traps account for almost every "permission is set but still denied":
 - **The operator email list needs `Account · Zero Trust:Edit`**, NOT Access: Apps
   and Policies. Zero Trust lists live under the Gateway resource tree, so a token
@@ -93,7 +100,7 @@ Four traps account for almost every "permission is set but still denied":
 
 If a step still fails, it prints the exact dashboard click-path and continues
 (exit `2`); fix the cause and re-run `./a51 setup`. `./a51 doctor --fix` repairs
-schema, Pages bindings, domain bindings and the Access policy.
+schema, domain bindings and the Access policy.
 
 ## Invariants: do not violate these
 
@@ -131,12 +138,35 @@ schema, Pages bindings, domain bindings and the Access policy.
    documenting precedence in decisions.md.
 
 6. **No frontend build step.** React, ReactDOM and Babel come from a CDN; JSX is
-   transpiled in the browser. The three `dashboard/js/*.jsx` files share globals
-   on `window` (no modules). Don't introduce a bundler, imports, or a package
-   step for the frontend without revisiting that decision. Deploys are pure file
-   uploads.
+   transpiled in the browser. The three `dashboard/public/js/*.jsx` files share
+   globals on `window` (no modules). Don't introduce a bundler, imports, or a
+   package step for the frontend without revisiting that decision. Deploys are
+   pure file uploads — moving the dashboard onto Workers static assets did not
+   change that.
 
-7. **Operators live in D1, and a key is shown once.** The `users` table is the
+   Two rules come with the `public/` ÷ `src/` split, and both matter:
+   - **Everything in `public/` is served** to anyone who can reach the hostname.
+     `[assets] directory` points there. Server-side code goes in `src/`, never
+     `public/`.
+   - **`[assets] run_worker_first` stays scoped to `["/api/*"]`.** Setting it to
+     `true` makes every static request a billable Worker invocation; scoped, the
+     asset layer serves them free and unlimited without entering the Worker. The
+     Worker gets no `assets` `binding` either, because it never serves an asset.
+
+7. **Dashboard routing is an explicit table, and literal paths win.** Pages
+   derived routes from the `functions/` directory and resolved precedence for
+   free. `dashboard/src/index.js` now holds the `ROUTES` table and
+   `dashboard/src/router.js` matches it. Two properties must hold: a **literal
+   path is settled before any `:param` route, including when the method does not
+   match** (that answers 405, it does not fall through — otherwise
+   `GET /api/endpoints/upload` does a D1 lookup for an endpoint named "upload");
+   and **matching splits the raw `url.pathname` by segment**, never `URLPattern`,
+   which canonicalizes the path and would decode the `%2F` that every endpoint
+   URI arrives with. This is the one thing here that breaks *silently*, so it has
+   the repo's only test file. Adding a route means editing the table and running
+   `node dashboard/src/router.test.mjs`.
+
+8. **Operators live in D1, and a key is shown once.** The `users` table is the
    single source of truth for *both* doors, and the only thing `./a51 users`
    writes. Autopilot reads `key_hash` live. Cloudflare Access cannot read D1,
    because its policies are enforced at Cloudflare's edge, so the `email` column
@@ -161,7 +191,7 @@ schema, Pages bindings, domain bindings and the Access policy.
    - Managing the list needs `Account · Zero Trust:Edit`, which is a *different*
      permission from `Access: Apps and Policies:Edit`.
 
-8. **`.env` is the only state.** No lock file, no state file, nothing in a home
+9. **`.env` is the only state.** No lock file, no state file, nothing in a home
    dir. ("Lock file" here means a *deployment*-state file, Terraform-style. It
    has nothing to do with `package-lock.json`, which is gitignored for its own
    separate reason.) The CLI reads and *writes back* to `.env`, with surgical
@@ -220,6 +250,13 @@ schema, Pages bindings, domain bindings and the Access policy.
   and Autopilot keys together). `./a51 <cmd> --help` for each.
 - **Syntax-check CLI edits:** `node --check <file>` (the CLI is plain ESM, no
   build). There is no test suite; `./a51 doctor` is how a deployment is verified.
+  **One deliberate exception:** `node dashboard/src/router.test.mjs` pins the
+  dashboard's route precedence, because that is the one behavior here that breaks
+  *silently* — a mis-resolved route runs the wrong handler and answers a
+  plausible 404, which no binding check or live probe can see. Run it after
+  touching `dashboard/src/router.js` or the `ROUTES` table. Don't generalize it
+  into a suite without revisiting
+  [decisions.md](docs/decisions.md#one-test-file-for-route-precedence-and-only-that).
 - **One `package.json` at the root.** Workers have no manifests of their own;
   `postal-mime` and `wrangler` are declared once and resolved at bundle time.
 - **`wrangler.toml` files are generated** from `*.template` + `.env` at deploy

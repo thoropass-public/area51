@@ -6,14 +6,21 @@
 //
 // The token is where installs fail, so the list is shown at the exact moment an
 // operator needs it (when pasting the token), not just linked.
+//
+// `Cloudflare Pages` looks like a leftover now that nothing here creates a Pages
+// project. It is not. `releaseHostname` in provision.mjs detaches a Pages
+// project's custom domain when a confirmed takeover needs the name, and a domain
+// worth taking over is very often exactly that. Without it, a takeover blocked by
+// a Pages project degrades to a manual dashboard step. Read-only would not do:
+// the detach is a write.
 
 import { plain, color } from './log.mjs';
 
 export function printTokenPermissions() {
-  plain(`  ${color.bold('API token')} ${color.dim('— 13 permissions · My Profile → API Tokens → Create Token → Custom token')}`);
+  plain(`  ${color.bold('API token')} ${color.dim('— 14 permissions · My Profile → API Tokens → Create Token → Custom token')}`);
   plain('');
   plain(`    ${color.bold('Account scope')}`);
-  plain(`      ${color.bold('Edit')}   Workers Scripts · D1 · Workers R2 Storage`);
+  plain(`      ${color.bold('Edit')}   Workers Scripts · D1 · Workers R2 Storage · Cloudflare Pages`);
   plain(`             Access: Apps and Policies · Access: Orgs, IdPs and Groups · Email Routing Addresses`);
   plain(`             Zero Trust`);
   plain(`      ${color.bold('Read')}   Account Settings`);

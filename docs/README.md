@@ -37,7 +37,7 @@ Task-oriented. Read top to bottom the first time; skim by heading afterwards.
 | Document | Covers |
 |---|---|
 | [getting-started](guides/getting-started.md) | Prerequisites, the API token and its exact permissions, hostname layout, what `./a51 setup` does at each step **and the manual dashboard equivalent for every one of them**, then verification |
-| [verify-deployment](guides/verify-deployment.md) | What a healthy deployment looks like in the Cloudflare dashboard, screenshot by screenshot: Workers, D1, R2, and the Access application including the closed `*.pages.dev` bypass |
+| [verify-deployment](guides/verify-deployment.md) | What a healthy deployment looks like in the Cloudflare dashboard, screenshot by screenshot: the four Workers, D1, R2, and the Access application on its single hostname |
 | [usage](guides/usage.md) | The engagement playbooks: blind SSRF, response control and redirects, XXE exfiltration, blind XSS beacons, email-driven flows, OAuth `redirect_uri` interception, payload hosting, agent-driven testing, noise control, evidence and clean-up |
 | [operations](guides/operations.md) | Day-two: deploying changes, adding and removing black holes, purging, retention, reading logs, health checks, key rotation, quotas and cost, renaming things, teardown |
 | [troubleshooting](guides/troubleshooting.md) | Symptom → probable cause → fix, grouped by subsystem. Start with `./a51 doctor`, since most rows here are something it names for you |

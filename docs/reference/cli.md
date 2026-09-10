@@ -28,7 +28,7 @@ inspects, repairs and tears down.
 | `!` | worth reading, not a failure |
 | `✗` | this step did not work; the fix is printed underneath |
 
-Numbered phases show progress as `[3/12]` in `setup`, which is the only command
+Numbered phases show progress as `[3/13]` in `setup`, which is the only command
 that declares a step total; elsewhere they are a bare `[3]`. Wrangler's own output is captured and
 replaced by one line per upload with its duration; the full log appears only when
 an upload **fails**, or when you pass `--verbose`.
@@ -73,8 +73,9 @@ API token, a rejected token, no account, or an unresolvable zone.
 ```
 
 Provisions and deploys everything: D1 database and schema, both R2 buckets, the
-three Workers, the black hole's Custom Domain and mail catch-all, the Pages
-project with its bindings, DNS, and the Cloudflare Access application.
+four Workers (the dashboard is one of them), the black hole's Custom Domain and
+mail catch-all, the dashboard and Autopilot Custom Domains, DNS, and the
+Cloudflare Access application.
 
 It asks for the **zone**, a confirmation that the zone may be taken over, the
 fallback inbox, and your own email address as the first operator. Most answers
@@ -115,7 +116,7 @@ Uploads code that is already provisioned. Defaults to `all`.
 | `black-holes` | Render `wrangler.toml` from the template + `.env`, then `wrangler deploy` |
 | `autopilot` | Render `wrangler.toml` and deploy. There is no secret to install, because it authenticates against the D1 `users` table |
 | `cleanup` | Deploy, which re-registers the cron trigger from `CLEANUP_CRON` |
-| `dashboard` | Re-assert the Pages D1/R2 bindings, then upload `dashboard/` |
+| `dashboard` | Render `wrangler.toml` and deploy `dashboard/` — `src/` as the Worker, `public/` as its static assets. Its D1/R2 bindings are in the template, so they travel with the upload |
 | `schema` | Re-apply `db/schema.sql` (idempotent; never drops data) |
 
 A configuration change and a code change ship the same way, since the Worker
@@ -149,17 +150,16 @@ The acceptance test. It works through six sections in this order, then probes:
 1. **Configuration**: `.env` completeness, token validity.
 2. **Storage**: the database, its seven tables and the late-added columns, both
    buckets.
-3. **Workers**: all three, **and the bindings that actually reached them**. The
-   ones each must have, and the one Autopilot and Cleanup must *not*. A `FILES`
-   binding on either is a failure, because it would let them reach the uploads
-   bucket ([invariant 3](../../CLAUDE.md)).
+3. **Workers**: all four, the dashboard included, **and the bindings that
+   actually reached them**. The ones each must have, and the one Autopilot and
+   Cleanup must *not*. A `FILES` binding on either is a failure, because it would
+   let them reach the uploads bucket ([invariant 3](../../CLAUDE.md)).
 4. **Black holes**: every one's Custom Domain and mail catch-all, **plus MX
    records of its own for any subdomain that captures mail**.
-5. **Dashboard**: the Pages project's bindings on production **and** preview,
-   and its custom domain.
+5. **Dashboard**: that `DASHBOARD_HOSTNAME` is a Custom Domain on the dashboard
+   worker. Its bindings were covered in step 3, with the other three.
 6. **Access control**: the operator list and whether Cloudflare Access enforces
-   exactly it, the application, its allow policy, and that its destinations
-   cover the `*.pages.dev` URL.
+   exactly it, the application, and its allow policy.
 
 Then it probes the live hosts from your machine:
 
@@ -170,7 +170,7 @@ Then it probes the live hosts from your machine:
 
 | Flag | Effect |
 |---|---|
-| `--fix` | Re-apply what is safe to re-apply: the schema, Pages bindings and production branch, the dashboard CNAME, black hole domain bindings, and the Access application, policy and destinations |
+| `--fix` | Re-apply what is safe to re-apply: the schema, black hole domain bindings, and the Access application, policy and destinations |
 
 Read-only without `--fix`. Exit `1` if anything failed. The live probes always
 run, because they are the only checks that see what the API cannot: DNS that has
@@ -278,8 +278,11 @@ re-pushes the Access allow-list derived from it. That is also why there is no
 
 `add` and `rotate-key` also manage the Access application itself when needed:
 the Zero Trust organization, the One-time PIN login method, the application, its
-allow policy, and its destinations (custom domain **plus** the `*.pages.dev`
-URLs, so there is no unauthenticated bypass).
+allow policy, and its destination. There is exactly one destination —
+`DASHBOARD_HOSTNAME` — because the dashboard worker has `workers_dev` and
+`preview_urls` off and answers on no other name. As a Pages project it also
+answered on `<project>.pages.dev` and every `*.pages.dev` preview, so all three
+had to be listed or the rest were an unauthenticated bypass.
 
 ### Keys
 
@@ -357,7 +360,7 @@ Unattended retention is the cleanup worker's job
 
 Two gates, each needing a typed word rather than a y/N:
 
-1. Type `REMOVE`. Deletes the three Workers, the Pages project, the dashboard
+1. Type `REMOVE`. Deletes the four Workers, the dashboard
    DNS record and the Access application. All rebuildable from this repository;
    captured data untouched.
 2. Type `DELETE-DATA`. Deletes the D1 database and both R2 buckets, emptying

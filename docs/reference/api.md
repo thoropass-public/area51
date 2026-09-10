@@ -1,10 +1,14 @@
 # Dashboard HTTP API
 
-Base path `https://<dashboard-host>/api/`, served by Pages Functions in
-`dashboard/functions/api/`. It is consumed **same-origin** by the dashboard
-frontend and by nothing else: there is no CORS header, no API key, and no
-versioning. Authentication is entirely Cloudflare Access at the edge, so a request
-that reaches a Function has already been authorized.
+Base path `https://<dashboard-host>/api/`, served by the dashboard Worker from
+`dashboard/src/api/`, with the route table in `dashboard/src/index.js`. It is
+consumed **same-origin** by the dashboard frontend and by nothing else: there is
+no CORS header, no API key, and no versioning. Authentication is entirely
+Cloudflare Access at the edge, so a request that reaches a handler has already
+been authorized.
+
+`[assets] run_worker_first = ["/api/*"]` is what routes these paths to the Worker
+at all; everything else on the host is served from `public/` without invoking it.
 
 Autopilot's agent-facing API is a **separate** surface on a separate worker with
 its own auth; see [autopilot.md](../internals/autopilot.md).
@@ -16,14 +20,14 @@ its own auth; see [autopilot.md](../internals/autopilot.md).
 - **Errors:** `{error: "message"}` with `400` (bad input), `404`
   (`{error: "Not found"}`), `411` / `413` (upload size), or `500`
   (`{error: "Internal error"}`). Every handler is wrapped in `withErrorHandler`
-  (`functions/api/_shared.js`), which logs the real error via `console.error` and
+  (one `try/catch` in `src/index.js`), which logs the real error via `console.error` and
   returns the generic 500.
 - **Pagination:** cursor-based. Page size is fixed at **50** (`PAGE_SIZE` in
   `_shared.js`). The cursor is the natural sort key of the last row returned:
   `uri` for endpoints (ascending), `ts` for requests and emails (descending).
   Pass it as `?cursor=`. "Has more" is inferred client-side from
   `results.length === PAGE_SIZE`, but the client cannot import `PAGE_SIZE` (no
-  build step), so `dashboard/js/tabs.jsx` hardcodes `50` in each has-more test and
+  build step), so `dashboard/public/js/tabs.jsx` hardcodes `50` in each has-more test and
   in `DISPLAY_TARGET`. The two copies must be changed together.
 - **Search:** `?search=` may be **repeated**. Terms are ORed inside a
   parenthesized group, which is ANDed with the cursor. Matching is
@@ -39,11 +43,14 @@ its own auth; see [autopilot.md](../internals/autopilot.md).
 | `GET` | `/api/endpoints` | List. Params: `cursor` (last `uri`), `search` (repeatable, matches `uri`). Returns `[{uri, status, filename}]` sorted ascending by `uri`; a non-null `filename` means the row is file-backed (`r2_key` never leaves the server). |
 | `POST` | `/api/endpoints` | Upsert a **text** endpoint. Body `{uri, status, headers, body}`. `headers` is a line-separated string (`Key: Value\n…`) parsed to a JSON object server-side. Validates that `uri` starts with `/` and `status` is an integer 100–599. If the URI is currently file-backed this **converts it back to text**: `r2_key`/`filename` are cleared and the object is deleted (response carries `replaced_file: true`). |
 | `POST` | `/api/endpoints/upload?uri=<uri>` | Upsert a **file-backed** endpoint. The request **body is the raw file** (not multipart) so it streams into R2; `Content-Type` is the file's type and `X-Filename` is the URI-encoded display name. Takes no status/headers/body, since the server owns all three. `400` on a bad URI, `411` without `Content-Length`, `413` over 25 MB, `500` if the `FILES` binding is missing. A failed row write deletes the new object; the previous object is deleted only after the row is repointed. |
-| `GET` | `/api/endpoints/[uri]` | Detail; `uri` is URL-encoded in the path. Carries `file`: `null` for a text endpoint, else `{filename, content_type, size, missing}` where `content_type`/`size` come from an R2 `head()` and `missing: true` means the row outlived its object. |
-| `DELETE` | `/api/endpoints/[uri]` | Delete. `404` if nothing was deleted. For a file-backed row the object is deleted **first**, then the row, so a failed object delete leaves a visible row to retry rather than an orphan. |
+| `GET` | `/api/endpoints/:uri` | Detail; `uri` is URL-encoded in the path. Carries `file`: `null` for a text endpoint, else `{filename, content_type, size, missing}` where `content_type`/`size` come from an R2 `head()` and `missing: true` means the row outlived its object. |
+| `DELETE` | `/api/endpoints/:uri` | Delete. `404` if nothing was deleted. For a file-backed row the object is deleted **first**, then the row, so a failed object delete leaves a visible row to retry rather than an orphan. |
 
-`/api/endpoints/upload` is a static route, so Pages matches it before the
-`[uri]` parameter route; real URIs arrive percent-encoded and cannot collide.
+`/api/endpoints/upload` is a **literal** route, and `src/router.js` settles
+literal paths before it considers `:uri` — including when the path is declared
+but the method is not, which answers `405` rather than falling through. Real
+endpoint URIs arrive percent-encoded (so a leading `%2F`) and could not collide
+with the literal string `upload` in any case. `router.test.mjs` pins this.
 
 ## Requests
 
@@ -97,15 +104,23 @@ Deliberately asymmetric:
 
 ## Adding a route
 
-1. Create the file under `dashboard/functions/api/…`. Pages routing is
-   file-based: `functions/api/foo/[id].js` serves `/api/foo/:id`, and
-   `export async function onRequestGet/Post/Patch/Delete(context)` picks the
-   method.
-2. Wrap the handler in `withErrorHandler` from `../_shared.js` and use its `json`
-   / `errResp` helpers so error shapes stay uniform.
-3. Validate input explicitly. Never interpolate user input into SQL. Bind it.
+1. Create the file under `dashboard/src/api/…` and `export` the handler by
+   name. It receives `{ request, env, ctx, params }`; `params` holds the dynamic
+   segments, still percent-encoded, so decode them yourself.
+2. Add it to the `ROUTES` table in `dashboard/src/index.js` as
+   `['METHOD', '/api/path/:param', handler]`. Routing is **not** file-based any
+   more — the file's location and the export's name mean nothing to the router,
+   so a handler that is not in that table is simply unreachable. Position in the
+   list does not matter: literal paths always beat `:param` routes.
+3. Do **not** wrap the handler in error handling. `src/index.js` applies one
+   `try/catch` around every route, so a handler cannot forget it. Use the `json`
+   / `errResp` helpers from `../shared.js` so error shapes stay uniform.
+4. Run `node dashboard/src/router.test.mjs`. It reads the `ROUTES` table out of
+   `index.js`, so your new route is covered automatically — and a route that
+   shadows an existing one fails there rather than silently in production.
+5. Validate input explicitly. Never interpolate user input into SQL. Bind it.
    The one place a table name is interpolated (historically, in purge) validated
    against an allow-list first; that pattern is required if you ever need it
    again.
-4. Add the route to this document, and to `API` in `dashboard/js/ui.jsx` if the
-   frontend calls it.
+6. Add the route to this document, and to `API` in `dashboard/public/js/ui.jsx`
+   if the frontend calls it.

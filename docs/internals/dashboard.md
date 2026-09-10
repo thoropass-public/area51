@@ -1,12 +1,18 @@
 # The dashboard
 
-A static site plus Pages Functions, both deployed from `dashboard/`. This is what
-an operator opens in a browser: configure endpoints, read captures, manage
-blacklists.
+A Worker with static assets, deployed from `dashboard/`. This is what an operator
+opens in a browser: configure endpoints, read captures, manage blacklists.
+
+It was a Cloudflare Pages project with Pages Functions until v1.1.0. The move was
+about hostnames, not hosting: a Pages project answers on its custom domain *and*
+`<project>.pages.dev` *and* every `*.pages.dev` preview, all of which Cloudflare
+Access had to be told to guard separately or leave open. This Worker sets
+`workers_dev = false` and `preview_urls = false`, so it answers on exactly one
+name. See [decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project).
 
 ## No build step
 
-`dashboard/index.html` loads React, ReactDOM and Babel-standalone from a CDN, then
+`dashboard/public/index.html` loads React, ReactDOM and Babel-standalone from a CDN, then
 loads three JSX files with `<script type="text/babel">`. Babel transpiles them in
 the browser on page load. There is no bundler, no `node_modules` for the frontend,
 and deploying is a pure file upload.
@@ -44,15 +50,60 @@ middle of a value. This is display only: **Download raw** serves the stored
 
 ```
 dashboard/
-├── index.html          CDN script tags, theme bootstrap, mount point
-├── styles.css          the whole design system (dense, dark-first, theme-aware)
-├── favicon.svg
-├── js/
-│   ├── ui.jsx          API client, toasts, modals, confirm, pins, formatting, icons
-│   ├── tabs.jsx        Endpoints / Requests / Emails tabs and their modals
-│   └── app.jsx         shell: App, TopBar, Home, Settings; mounts to #root
-└── functions/api/      the JSON API (see api.md)
+├── wrangler.toml.template   name, bindings, [assets] routing (generated → wrangler.toml)
+├── public/                  EVERYTHING HERE IS PUBLIC — served to anyone who reaches the host
+│   ├── index.html           CDN script tags, theme bootstrap, mount point
+│   ├── styles.css           the whole design system (dense, dark-first, theme-aware)
+│   ├── favicon.svg
+│   └── js/
+│       ├── ui.jsx           API client, toasts, modals, confirm, pins, formatting, icons
+│       ├── tabs.jsx         Endpoints / Requests / Emails tabs and their modals
+│       └── app.jsx          shell: App, TopBar, Home, Settings; mounts to #root
+└── src/                     server side; never served
+    ├── index.js             the Worker: entry, guard, route table, one try/catch
+    ├── router.js            the matcher (literal-beats-param, raw-pathname segments)
+    ├── router.test.mjs      the repo's only test file — precedence fails silently
+    └── api/                 the JSON API handlers (see api.md)
 ```
+
+The `public/` ÷ `src/` split is load-bearing, not cosmetic. `[assets] directory`
+points at `public/`, and everything under it is downloadable by anyone who can
+reach the hostname. Server-side code must stay outside it.
+
+**Which of the two answers a request** is decided by one line in
+`wrangler.toml.template`:
+
+```toml
+run_worker_first = ["/api/*"]
+```
+
+Only `/api/*` invokes `src/`. The six files in `public/` are served by
+Cloudflare's asset layer, never entering the Worker — which is also why they cost
+nothing: static-asset requests are free and unlimited. Setting
+`run_worker_first = true` would make every page load a billable invocation.
+`not_found_handling = "none"` 404s unknown paths the same way.
+
+### Routing
+
+Pages derived the route table from the directory tree: `functions/api/emails/[id].js`
+became `/api/emails/:id`, and the export name (`onRequestGet`) chose the method.
+A Worker is a single `fetch` handler, so that table is written out in
+`src/index.js` and matched by `src/router.js`. Two properties are deliberate:
+
+- **A literal path beats a parameter route, whatever the method.**
+  `/api/endpoints/upload` matches both the literal route and `/api/endpoints/:uri`.
+  Literal paths are held in a separate table and settled first, *including* when
+  the path is declared but the method is not — that answers 405 rather than
+  falling through. Order within `ROUTES` cannot affect this.
+- **Matching splits the raw `url.pathname` by segment.** No `URLPattern`, no
+  regex. Endpoint URIs arrive percent-encoded (`/-/callback` →
+  `%2F-%2Fcallback`), and `URLPattern` canonicalizes the pathname it matches,
+  which risks decoding that `%2F` back into a separator and splitting one
+  parameter across two segments.
+
+`router.test.mjs` pins both. It is the only test file in the repository because
+this is the only behavior here that breaks *silently* — see
+[decisions.md](../decisions.md#one-test-file-for-route-precedence-and-only-that).
 
 `index.html` also applies the saved theme **synchronously** before React paints,
 to avoid a flash of the wrong theme; both it and `App` write
@@ -237,13 +288,21 @@ Known trade-off: the reload discards unsaved modal state. Raising
 ## Deploying and developing
 
 ```bash
-./a51 deploy dashboard      # confirms the Pages bindings, then uploads
+./a51 deploy dashboard          # renders wrangler.toml from .env, then uploads
+node dashboard/src/router.test.mjs   # after touching router.js or the ROUTES table
 ```
 
-`deploy dashboard` re-asserts the D1 and R2 bindings on the Pages project before
-uploading, so a project whose bindings were removed in the dashboard repairs
-itself on the next deploy.
+`deploy dashboard` renders `wrangler.toml` from the template plus `.env` and runs
+`wrangler deploy`, exactly like the other three workers. The D1 and R2 bindings
+are declared in the template, so they travel with the upload; there is nothing to
+attach over the API first. (As a Pages project they lived only in Cloudflare's
+API, had to be `PATCH`ed onto both the production and preview configs before the
+first upload, and were re-asserted on every deploy to repair hand edits.)
 
 Because there is no build step, editing a `.jsx` file and redeploying is the whole
-loop. There is no local server, and a Pages upload takes a few seconds.
-Hard-refresh to get past the browser cache.
+loop. There is no local server, and an upload takes a few seconds. Hard-refresh
+to get past the browser cache.
+
+A 500 from `/api/*` is now debuggable: `[observability]` and
+`upload_source_maps` are on, so the error and a real line number land in Workers
+Logs. Pages Functions supported neither.

@@ -20,7 +20,7 @@ change requires:
 | Path | Values | To apply a change |
 |---|---|---|
 | **Rendered into `wrangler.toml`** at deploy time (bindings, `[vars]`, cron) | `WORKER_NAME`, `D1_*`, `R2_*`, `FALLBACK_ADDRESS`, `CLEANUP_*`, `AGENT_WORKER_NAME` | `./a51 deploy <target>` |
-| **Set on Cloudflare via the API** (project settings, DNS, policies) | hostnames, `ACCESS_*`, `BLACK_HOLE_ROLES`, Pages bindings | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 users` |
+| **Set on Cloudflare via the API** (DNS, Custom Domains, policies) | hostnames, `ACCESS_*`, `BLACK_HOLE_ROLES` | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 users` |
 | **Used only by the CLI on your machine** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE` | nothing to deploy |
 
 No key appears in this file, including your own. Every operator's key is shown
@@ -90,7 +90,7 @@ real inbox can serve both fields.
 |---|---|---|
 | `BLACK_HOLE_HOSTNAME` | the zone apex | **Derived, never prompted.** `./a51 setup` always sets this to `CLOUDFLARE_ZONE` and overwrites what is here: the apex is what puts the zone's mail catch-all in place, so nothing on the zone can capture mail until it is a black hole ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)). Additional black holes, including mail on a subdomain, are added with `./a51 black-holes add`, not here. |
 | `BLACK_HOLE_ROLES` | `http,mail` | **Derived, never prompted.** Always both. `mail` enables Email Routing **for the whole zone** and points its catch-all at the catcher. Per-host roles still apply to extra black holes via `./a51 black-holes add <host> <roles>`. |
-| `DASHBOARD_HOSTNAME` | `area51.<zone>` | The Pages custom domain, protected by Access. Derived from the zone when blank; **set it here to override**, including onto another zone. Setup uses an existing value as-is and never prompts. Changing it means the old hostname keeps serving until you remove it in Pages, and the Access app follows the new name only after `./a51 setup`. |
+| `DASHBOARD_HOSTNAME` | `area51.<zone>` | The dashboard Worker's Custom Domain, protected by Access. It is the **only** hostname the dashboard answers on (`workers_dev` and `preview_urls` are both off), which is why the Access app needs just one destination. Derived from the zone when blank; **set it here to override**, including onto another zone. Setup uses an existing value as-is and never prompts. Changing it means the old hostname keeps serving until you detach it from the worker, and the Access app follows the new name only after `./a51 setup`. |
 | `AUTOPILOT_HOSTNAME` | `autopilot.<zone>` | The MCP / REST host. Same derive-or-override rule as above. Changing it invalidates every agent's registration. |
 
 If either hostname already holds a DNS record that belongs to something other
@@ -131,7 +131,7 @@ deliberately or not at all.
 | `WORKER_NAME` | `area51-black-holes` | The catcher's Cloudflare service name. |
 | `AGENT_WORKER_NAME` | `area51-autopilot` | Autopilot's service name. |
 | `CLEANUP_WORKER_NAME` | `area51-cleanup` | The retention worker's service name. |
-| `PAGES_PROJECT_NAME` | `area51` | Pages project name; also its `*.pages.dev` subdomain. |
+| `DASHBOARD_WORKER_NAME` | `area51-dashboard` | The dashboard Worker's service name. Replaced `PAGES_PROJECT_NAME` in v1.1.0; the old key is no longer read. |
 
 Renaming any of these creates a **new** Worker or project on the next deploy and
 leaves the old one running, still bound to its domains. See
@@ -170,22 +170,26 @@ it lives:
 
 | Constant | Value | Where |
 |---|---|---|
-| API page size | 50 rows | `dashboard/functions/api/_shared.js` (`PAGE_SIZE`) **and** `dashboard/js/tabs.jsx`, which repeats the literal `50` (`DISPLAY_TARGET`, and each `r.length === 50` has-more test). The frontend cannot import the constant, because there is no build step, so **both must change together**; changing only the server value leaves *Load more* silently broken |
-| Endpoint upload limit | 25 MB | `dashboard/functions/api/_shared.js` (`MAX_UPLOAD_BYTES`) |
+| API page size | 50 rows | `dashboard/src/api/shared.js` (`PAGE_SIZE`) **and** `dashboard/public/js/tabs.jsx`, which repeats the literal `50` (`DISPLAY_TARGET`, and each `r.length === 50` has-more test). The frontend cannot import the constant, because there is no build step, so **both must change together**; changing only the server value leaves *Load more* silently broken |
+| Endpoint upload limit | 25 MB | `dashboard/src/api/shared.js` (`MAX_UPLOAD_BYTES`) |
 | Blacklist edge-cache TTL | 60 minutes | `workers/black-holes/src/index.js` |
 | Autopilot read window | 60 minutes | `workers/autopilot/src/index.js` (`WINDOW_MINUTES`) |
 | Autopilot URI namespace | `/-/` | `workers/autopilot/src/index.js` (`AUTOPILOT_PREFIX`) |
 | Auth header | `Authorization: Bearer <key_id>_<secret>` | Autopilot worker |
-| Compatibility date | `2026-05-20` | the three `wrangler.toml.template` files **and** `cli/lib/provision.mjs` (`PAGES_COMPATIBILITY_DATE`). Keep all four in step |
+| Compatibility date | `2026-05-20` | the four `wrangler.toml.template` files. Keep all four in step |
 
 **The compatibility date lives in four files, and all four must stay in step.**
-The three Workers get theirs from their own `wrangler.toml.template`. Pages
-Functions get theirs from the project's deployment config, which the CLI sets, so
-that one lives in `provision.mjs`, not in a file you can edit, and
-`./a51 deploy dashboard` **overwrites** the live value with it every time. They
-were out of sync once (Pages raised by hand in the dashboard, the workers
-untouched) and a `deploy dashboard` would have silently rolled Pages back
-nineteen months.
+Each Worker gets it from its own `wrangler.toml.template`, the dashboard
+included.
+
+This used to be worse. As a Pages project the dashboard took its compatibility
+date from the project's deployment config, which is not a file anyone can edit —
+so the CLI held a fourth copy in `provision.mjs` as `PAGES_COMPATIBILITY_DATE`
+and `./a51 deploy dashboard` **overwrote** the live value with it on every
+deploy. The two were out of sync once (Pages raised by hand in the Cloudflare
+dashboard, the workers untouched), and a deploy would have silently rolled it
+back nineteen months. Four templates that a reviewer can diff is strictly
+better than three templates plus one value buried in provisioning code.
 
 A compatibility date does **not** gate security patches: Cloudflare patches the
 runtime regardless and supports old dates indefinitely. It gates behavioral flags

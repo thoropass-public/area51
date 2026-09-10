@@ -1,0 +1,62 @@
+# Response headers for the dashboard's STATIC ASSETS.
+#
+# Cloudflare's asset layer applies these itself, so they cost no Worker
+# invocation. Two consequences worth knowing:
+#
+#   * They do NOT apply to /api/* responses, which this Worker generates. Those
+#     are JSON consumed same-origin by the page next to them, and carry no
+#     markup for a browser to misinterpret.
+#   * This file is served to nobody. `_headers` and `_redirects` are consumed at
+#     deploy time and are not themselves published as assets.
+#
+# This is defence in depth, not a fix for a known hole. Both places the
+# dashboard renders attacker-controlled content already handle it: a captured
+# email's HTML body goes into `<iframe sandbox="" srcdoc>` (opaque origin, no
+# scripts, no forms), and a captured request body is escaped before
+# `highlightJson` wraps it in spans.
+
+/*
+  # Clickjacking. This is the highest-value rule here and the one with no
+  # trade-off: nothing should ever frame an operator's console. frame-ancestors
+  # is the modern control; X-Frame-Options is kept for older browsers that
+  # ignore it.
+  X-Frame-Options: DENY
+
+  # No MIME sniffing. The .jsx files are served with a type browsers do not
+  # execute directly (Babel fetches and compiles them), and sniffing is exactly
+  # the behaviour that could change that.
+  X-Content-Type-Options: nosniff
+
+  # A dashboard URL can carry nothing sensitive in its path, but it does
+  # identify the deployment — and therefore an engagement. Send no referrer.
+  Referrer-Policy: no-referrer
+
+  # None of these are used. Denying them removes the prompt as much as the
+  # capability.
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+
+  # Content-Security-Policy.
+  #
+  # 'unsafe-eval' and 'unsafe-inline' in script-src are FORCED, not sloppy: JSX
+  # is transpiled in the browser by Babel-standalone, which compiles with
+  # Function(), and index.html carries an inline script that applies the saved
+  # theme before React paints. Removing either means introducing a build step,
+  # which is a decision this project has made deliberately the other way
+  # (decisions.md#no-build-pipeline-for-the-frontend). Tightening these two is
+  # the single thing a bundler would buy, and it is not worth a bundler.
+  #
+  # What the policy still buys, with those two in place:
+  #   * script origins are PINNED. Injected markup cannot pull code from a host
+  #     that is not unpkg or esm.sh.
+  #   * object-src 'none' kills plugin embedding.
+  #   * base-uri 'self' stops a <base> tag rewriting every relative URL.
+  #   * form-action 'none' — the dashboard posts via fetch, never a form, so a
+  #     form injected into the page has nowhere to send to.
+  #   * frame-ancestors 'none' duplicates X-Frame-Options for modern browsers.
+  #
+  # frame-src 'self' is what permits the sandboxed srcdoc iframe the email
+  # viewer mounts. Removing it breaks HTML email display.
+  #
+  # connect-src includes esm.sh because postal-mime is imported as an ES module
+  # and resolves its own dependencies from there at runtime.
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://esm.sh; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'

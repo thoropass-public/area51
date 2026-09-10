@@ -17,18 +17,48 @@ loads three JSX files with `<script type="text/babel">`. Babel transpiles them i
 the browser on page load. There is no bundler, no `node_modules` for the frontend,
 and deploying is a pure file upload.
 
-`index.html` loads React and ReactDOM's **development** builds
-(`react.development.js`, `react-dom.development.js`), not the minified production
-ones, so the browser console keeps React's warnings. That is useful with no build
-step and no type checking, and it is much of the payload below. Switching to
-`.production.min.js` is the obvious win if first load ever matters; nothing else
-depends on the dev builds.
+`index.html` loads React and ReactDOM's **production** builds
+(`react.production.min.js`, `react-dom.production.min.js`). It used to load the
+development builds so the browser console kept React's runtime warnings, which
+is worth something with no build step and no type checking — but it cost roughly
+1.1 MB on every page load of a console an operator opens and leaves open all day.
+Nothing in the app depends on the dev builds; swap the two script tags back
+locally when you want the warnings.
 
-The cost is ~3 MB of JavaScript on first load and no tree-shaking or type
-checking. For a tool a handful of people open and leave open, that trade is worth
-it ([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)). Because
+Babel-standalone is still the bulk of what remains (~2.8 MB), and it still
+transpiles ~116 KB of JSX in the browser on every load. No tree-shaking, no type
+checking. For a tool a handful of people use, that trade is worth it
+([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)). Because
 Babel-standalone does not resolve modules, every shared symbol is published on
 `window`, which is why `ui.jsx` assigns its exports to globals.
+
+## Response headers
+
+`public/_headers` sets `Content-Security-Policy`, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and a
+`Permissions-Policy` on every static asset. Cloudflare's asset layer applies
+them, so they cost no Worker invocation, and the file is consumed at deploy time
+rather than published. They do **not** apply to `/api/*`, which the Worker
+generates.
+
+This is defence in depth, not a fix. Both places the dashboard renders
+attacker-controlled content already handle it: a captured email's HTML body goes
+into `<iframe sandbox="" srcdoc>` (opaque origin, no scripts, no forms), and a
+captured request body is HTML-escaped before `highlightJson` wraps tokens in
+spans.
+
+The CSP carries `'unsafe-inline'` and `'unsafe-eval'` in `script-src`, and that
+is forced rather than sloppy: Babel-standalone compiles JSX with `Function()`,
+and `index.html` has an
+inline script that applies the saved theme before React paints. Tightening those
+two is the one thing a bundler would buy, and it is not worth a bundler. What the
+policy still buys with them in place is script-origin pinning (injected markup
+cannot pull code from a host that is not unpkg or esm.sh), `object-src 'none'`,
+`base-uri 'self'`, `form-action 'none'` (the dashboard posts via `fetch`, never a
+form) and `frame-ancestors 'none'`.
+
+`frame-src 'self'` is what permits the email viewer's sandboxed `srcdoc` iframe.
+Removing it breaks HTML email display.
 
 `postal-mime` is the one exception: it is imported as an ES module from a CDN and
 published as `window.PostalMime`, used to parse raw `.eml` in the browser.
@@ -52,6 +82,7 @@ middle of a value. This is display only: **Download raw** serves the stored
 dashboard/
 ├── wrangler.toml.template   name, bindings, [assets] routing (generated → wrangler.toml)
 ├── public/                  EVERYTHING HERE IS PUBLIC — served to anyone who reaches the host
+│   ├── _headers             CSP + security headers, applied by the asset layer (not served)
 │   ├── index.html           CDN script tags, theme bootstrap, mount point
 │   ├── styles.css           the whole design system (dense, dark-first, theme-aware)
 │   ├── favicon.svg

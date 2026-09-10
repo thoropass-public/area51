@@ -29,8 +29,15 @@
 <body>
   <div id="root"></div>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+  <!-- PRODUCTION builds, deliberately. The development builds keep React's
+       runtime warnings in the console, which is worth something with no build
+       step and no type checking — but they cost ~1.1 MB on every page load, on
+       a console an operator opens and leaves open all day. The warnings are
+       recoverable when you want them: swap these two back to
+       react.development.js / react-dom.development.js locally. Nothing in the
+       app depends on the dev builds. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 
   <!-- postal-mime: parses the raw .eml client-side; the email modal fetches and

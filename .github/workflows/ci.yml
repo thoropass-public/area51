@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   checks:
-    name: Syntax + dependency audit
+    name: Syntax, router, layout, dependency audit
     runs-on: ubuntu-latest
     steps:
       # Actions are pinned to full commit SHAs because the repository has
@@ -37,17 +37,46 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      # CONTRIBUTING.md: "There is no test suite... syntax-check with
-      # `node --check <file>`". This applies that rule to every module in the
-      # repo instead of only the file being edited, which is the most a CI run
-      # can honestly assert about a project that deploys to your own Cloudflare
-      # account and has no shared instance to test against.
+      # CONTRIBUTING.md: syntax-check with `node --check <file>`. This applies
+      # that rule to every module in the repo instead of only the file being
+      # edited. There is no test suite beyond the one file checked in the next
+      # step, so for a project that deploys to your own Cloudflare account and
+      # has no shared instance to test against, these three steps are the most
+      # a CI run can honestly assert.
       - name: Parse every JS module
         run: |
           find . -type f \( -name '*.mjs' -o -name '*.js' \) \
             -not -path './node_modules/*' \
             -not -path './.git/*' \
             -print0 | xargs -0 -n1 node --check
+
+      # The repository's only test. Route precedence is the one behaviour here
+      # that fails SILENTLY: a mis-resolved route throws nothing, deploys fine,
+      # and leaves `./a51 doctor` reporting a healthy dashboard, so neither the
+      # syntax check above nor the acceptance test on a live deployment can see
+      # it. Documented in docs/decisions.md#one-test-file-for-route-precedence-and-only-that.
+      #
+      # It reads the ROUTES table out of dashboard/src/index.js, so a route
+      # added there is covered here with no change to this file.
+      - name: Verify dashboard route precedence
+        run: node dashboard/src/router.test.mjs
+
+      # dashboard/public/ is the [assets] directory: every file under it is
+      # downloadable by anyone who can reach the dashboard hostname. Server-side
+      # code belongs in dashboard/src/. A binding reference under public/ means
+      # something was put on the wrong side of that line, and the cost of
+      # noticing late is publishing the API's source.
+      #
+      # Greps for the binding names rather than trying to classify files, because
+      # a binding is the one thing server code cannot do without and page code
+      # can never legitimately have.
+      - name: Check no server code is publicly served
+        run: |
+          if grep -rn -e 'env\.DB' -e 'env\.EML' -e 'env\.FILES' dashboard/public/; then
+            echo "::error::Found a Cloudflare binding referenced under dashboard/public/, which is served publicly. Server-side code belongs in dashboard/src/."
+            exit 1
+          fi
+          echo "no binding references under dashboard/public/"
 
       # Advisory only. Dependabot alerts + security updates are the enforcing
       # mechanism for dependency vulnerabilities; failing unrelated PRs on a

@@ -100,9 +100,15 @@ worker's Logs in the Cloudflare dashboard.
 - `params` values arrive percent-encoded, exactly as they did under Pages.
   Decode them in the handler.
 - Run `node dashboard/src/router.test.mjs` after touching `router.js` or the
-  route table.
+  route table. CI runs it too, so a shadowed route fails the check rather than
+  reaching a deployment.
 - Anything server-side belongs in `src/`, never `public/` — everything under
-  `public/` is served to anyone who can reach the host.
+  `public/` is served to anyone who can reach the host. CI greps `public/` for
+  Cloudflare binding references and fails if it finds one, since a binding is
+  the one thing server code cannot do without.
+- Security headers for the static side live in `public/_headers`, applied by
+  Cloudflare's asset layer. They do **not** cover `/api/*`; set anything a JSON
+  response needs in the handler.
 - Bind SQL parameters. Validate input explicitly and return `400` with a message a
   human can act on.
 - Keep list payloads narrow; fetch detail on open.

@@ -52,6 +52,19 @@ function normalizeEmail(v) {
   return (m ? m[1] : s).toLowerCase();
 }
 
+// Collapse the whitespace that header folding leaves behind. postal-mime 3.x
+// unfolds per RFC 5322, which removes the CRLF but keeps the whitespace run
+// that followed it, so a Subject wrapped by the sender's MTA now arrives
+// carrying tabs and multi-space runs where 2.x had already collapsed them.
+// This matters because the stored subject is the email list's grouping key
+// (rows sharing an exact from+subject pair collapse into one group): leaving
+// the folding whitespace in would split otherwise-identical messages into
+// separate groups, and would differ from every row captured before the
+// upgrade. The raw .eml in R2 is untouched and stays the source of truth.
+function collapseFolding(v) {
+  return String(v || '').replace(/\s+/g, ' ').trim();
+}
+
 // Load a blacklist (IPs or emails) from D1 with a 60-minute edge cache
 // (BLACKLIST_CACHE_TTL_SECONDS above is the knob). Returns a
 // JS Set for O(1) membership. The cache key is fixed per list so all worker
@@ -258,9 +271,10 @@ async function handleEmail(message, env, ctx) {
       }
     }
 
-    const subject = (parsed && parsed.subject) ||
+    const subject = collapseFolding(
+                    (parsed && parsed.subject) ||
                     (parsed && parsed.headers && (parsed.headers.find(h => h.key && h.key.toLowerCase() === 'subject') || {}).value) ||
-                    '';
+                    '');
     const attachmentCount = parsed && parsed.attachments ? parsed.attachments.length : 0;
 
     // All-or-nothing: both writes must land. Either throwing sends us to the

@@ -22,7 +22,7 @@
     "a51": "node cli/a51.mjs"
   },
   "dependencies": {
-    "postal-mime": "^2.4.3"
+    "postal-mime": "^3.0.0"
   },
   "devDependencies": {
     "wrangler": "^4.42.0"

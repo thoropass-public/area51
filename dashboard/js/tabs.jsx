@@ -1490,8 +1490,14 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
                     <span className="caret"><Icon.chevron/></span>
                     Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {body.parsed.headers.length}</span>
                   </summary>
+                  {/* Whitespace runs are collapsed for display. postal-mime 3.x unfolds
+                      per RFC 5322, keeping the whitespace that folding introduced, so
+                      long values (Received, DKIM-Signature, ARC-*) would otherwise render
+                      with tabs and 8-space gaps mid-value. One header still occupies one
+                      line either way; "Download raw" serves the untouched .eml for anyone
+                      who needs the bytes as they arrived. */}
                   <pre className="code-block">
-                    {body.parsed.headers.map((h) => `${h.key}: ${decodeMimeWord(h.value)}`).join("\n")}
+                    {body.parsed.headers.map((h) => `${h.key}: ${decodeMimeWord(h.value).replace(/\s+/g, " ").trim()}`).join("\n")}
                   </pre>
                 </details>
               </div>

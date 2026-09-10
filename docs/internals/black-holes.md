@@ -78,6 +78,12 @@ re-throws.
    `attachment_count`. **No body is extracted:** bodies live only in the raw
    `.eml`. A parse failure logs `email_parse_failed` and is *non-fatal*: the
    object is still stored, so the dashboard's own parse still renders everything.
+   The subject goes through `collapseFolding()` before it is stored, which
+   squeezes every whitespace run down to a single space. postal-mime 3.x keeps
+   the whitespace that header folding introduced, and the stored subject is the
+   email list's grouping key, so an un-normalized value would split identical
+   messages into separate groups and disagree with every row captured before the
+   upgrade (see [decisions.md](../decisions.md#the-stored-subject-is-normalized-before-it-reaches-d1)).
 4. `fromAddr = parsed.from.address`, the `From:` header. **The email blacklist
    gates on this value and only this value.** On a hit: log
    `email_rejected_blacklist`, `message.setReject('Address not accepted')`,

@@ -704,7 +704,7 @@ The lock file is not committed. `npm install` regenerates it locally.
 review, merge or keep in sync in a project with exactly two direct dependencies.
 
 **What it costs, stated plainly:** installs are not reproducible. Both
-dependencies are caret-ranged (`postal-mime: ^2.4.3`, `wrangler: ^4.42.0`), so two
+dependencies are caret-ranged (`postal-mime: ^3.0.0`, `wrangler: ^4.42.0`), so two
 `npm install` runs weeks apart can resolve different minor or patch versions,
 including of `wrangler`, which bundles and uploads the Workers, and
 `postal-mime`, which parses attacker-controlled email inside the catcher. If a
@@ -757,3 +757,34 @@ redistribute the alien mark and the lockups along with the code. That is
 accepted rather than overlooked. If it ever needs to change, carve the directory
 out with an explicit note in `NOTICE` naming its own terms, rather than
 reintroducing a blanket trademark claim over the project name.
+
+## The stored subject is normalized before it reaches D1
+
+`handleEmail` runs the parsed subject through `collapseFolding()`, which reduces
+every whitespace run to a single space, before writing it to the `emails` row.
+The raw `.eml` in R2 is never touched.
+
+**Why:** postal-mime 3.0.0 changed how folded headers unfold. Per RFC 5322 it now
+removes the CRLF but *keeps* the whitespace that followed it, where 2.x had
+collapsed every run to one space. A subject wrapped by the sender's MTA therefore
+started arriving with embedded tabs and multi-space runs.
+
+That would have been cosmetic anywhere else, but the stored subject is the email
+list's **grouping key**: rows sharing an exact `(from_addr, subject)` pair collapse
+into one group, and the same string is passed to `setGroupRead` and
+`listEmailGroup`. Storing the folding whitespace would have split otherwise
+identical messages into separate groups and, worse, split them *across the upgrade
+boundary*, because every row captured under 2.x holds the collapsed form.
+Normalizing on write makes a message captured before and after the bump produce a
+byte-identical key, so the upgrade is invisible to grouping.
+
+The same reasoning drives the display-side collapse in the dashboard's headers
+block ([dashboard.md](internals/dashboard.md)), for a different reason: there it
+is only legibility, since Cloudflare's own `Received` and `ARC-*` headers fold
+with tabs and long space runs.
+
+**What it costs:** a subject whose *original* whitespace was meaningful — two
+spaces the sender actually typed — is stored collapsed. Header folding is
+indistinguishable from intentional whitespace once the CRLF is gone, so no parser
+can tell them apart, and the raw `.eml` remains the source of truth for anyone who
+needs the exact bytes.

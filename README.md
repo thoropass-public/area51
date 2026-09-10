@@ -229,7 +229,7 @@ than opening a public issue.
 
 ## License and attribution
 
-AREA 51 is **© Copyright 2026 Thoropass, Inc.**, licensed and released under the **[Apache License 2.0](LICENSE)**.
+All work in this repository is **© Copyright 2026 Thoropass, Inc.**, licensed and released under the **[Apache License 2.0](LICENSE)**.
 See [NOTICE](NOTICE) for third-party components.
 
 Built with ❤️ by the Pentest Team at **[Thoropass](https://thoropass.com)**.

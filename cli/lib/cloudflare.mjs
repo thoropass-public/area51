@@ -328,6 +328,11 @@ export class Cloudflare {
   }
 
   // ── Pages ──────────────────────────────────────────────────────────────────
+  //
+  // AREA 51 does not create Pages projects any more — the dashboard is a Worker
+  // with static assets. What survives here is what `releaseHostname` needs: a
+  // hostname worth taking over is very often held by a Pages project, including
+  // this dashboard's own on any deployment built before the move.
 
   /**
    * Every Pages project on the account. Each one carries its own `domains`
@@ -338,39 +343,10 @@ export class Cloudflare {
     return this.getAll(`/accounts/${accountId}/pages/projects`);
   }
 
-  async getPagesProject(accountId, name) {
-    try {
-      return await this.get(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}`);
-    } catch (err) {
-      if (err.status === 404) return null;
-      throw err;
-    }
-  }
-
-  createPagesProject(accountId, body) {
-    return this.post(`/accounts/${accountId}/pages/projects`, body);
-  }
-
-  patchPagesProject(accountId, name, body) {
-    return this.patch(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}`, body);
-  }
-
-  deletePagesProject(accountId, name) {
-    return this.delete(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}`);
-  }
-
-  listPagesDomains(accountId, name) {
-    return this.getAll(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/domains`);
-  }
-
-  addPagesDomain(accountId, name, domain) {
-    return this.post(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/domains`, { name: domain });
-  }
-
   /**
-   * Detach a custom domain from a Pages project. Cloudflare refuses to delete a
-   * project while any custom domain is still attached ([8000028]), so `destroy`
-   * calls this for every domain before deleting the project.
+   * Detach a custom domain from a Pages project. Cloudflare manages the DNS
+   * record for such a domain, so this removes the record too — which is why the
+   * owning product is asked to give the name up before any DNS is touched.
    */
   deletePagesDomain(accountId, name, domain) {
     return this.delete(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/domains/${encodeURIComponent(domain)}`);

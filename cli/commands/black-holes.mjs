@@ -6,8 +6,8 @@
 // dashboard and Autopilot know it exists). This command keeps them in step.
 //
 // The D1 table is still called `domains`; only the command was renamed. Renaming
-// the table would mean a migration plus edits in all three workers, the Pages
-// Functions and the dashboard, for nothing an operator can see.
+// the table would mean a migration plus edits in all four workers and the
+// dashboard frontend, for nothing an operator can see.
 
 import { loadContext, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import { step, ok, warn, skip, plain, heading, color, resetSteps, die, info, table, sym, hint } from '../lib/log.mjs';

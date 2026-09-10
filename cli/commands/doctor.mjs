@@ -1,6 +1,6 @@
 // `./a51 doctor` checks every moving part of a deployment and says exactly what
 // is wrong and how to fix it. `--fix` re-applies the things that are safe to
-// re-apply (schema, Pages bindings, domain bindings, Access policy).
+// re-apply (schema, domain bindings, Access policy).
 //
 // Read-only by default. The live probes at the end hit the deployed hostnames
 // from this machine, so they also catch DNS and certificate problems that the
@@ -8,7 +8,7 @@
 
 import { loadContext, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import { heading, section, plain, color, info, hint, summary, sym } from '../lib/log.mjs';
-import { applySchema, ensurePagesProject, ensurePagesDomain, ensureBlackHole, pagesBindings } from '../lib/provision.mjs';
+import { applySchema, ensureBlackHole } from '../lib/provision.mjs';
 import { listUsers, syncOperators } from '../lib/users.mjs';
 
 const REQUIRED_TABLES = ['domains', 'email_blacklist', 'emails', 'endpoints', 'ip_blacklist', 'requests', 'users'];
@@ -76,7 +76,7 @@ export async function run(args) {
 
   // ── configuration ─────────────────────────────────────────────────────────
   section('Configuration');
-  const required = ['CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'D1_DATABASE_NAME', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'WORKER_NAME', 'AGENT_WORKER_NAME', 'CLEANUP_WORKER_NAME', 'PAGES_PROJECT_NAME', 'DASHBOARD_HOSTNAME', 'AUTOPILOT_HOSTNAME'];
+  const required = ['CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'D1_DATABASE_NAME', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'WORKER_NAME', 'AGENT_WORKER_NAME', 'CLEANUP_WORKER_NAME', 'DASHBOARD_WORKER_NAME', 'DASHBOARD_HOSTNAME', 'AUTOPILOT_HOSTNAME'];
   const missing = required.filter((k) => !env[k]);
   if (missing.length) r.fail(`.env is missing ${missing.join(', ')}`, 'Run `./a51 setup` — it fills these in as it provisions.');
   else r.ok('.env has every value the deploy needs');
@@ -157,6 +157,12 @@ export async function run(args) {
     { target: 'black-holes', label: 'Black Holes', name: env.WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
     { target: 'autopilot', label: 'Autopilot', name: env.AGENT_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
     { target: 'cleanup', label: 'Cleanup', name: env.CLEANUP_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
+    // The dashboard writes the FILES bucket — it is the only thing that does —
+    // so it needs the binding the other two are forbidden. As a Pages project it
+    // could not be checked here at all: its bindings lived in the Pages API, on
+    // two separate deployment configs, and verifying them took a bespoke check
+    // of its own.
+    { target: 'dashboard', label: 'Dashboard', name: env.DASHBOARD_WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
   ];
   for (const check of WORKER_CHECKS) {
     if (!check.name) continue;
@@ -280,73 +286,29 @@ export async function run(args) {
   }
 
   // ── dashboard ─────────────────────────────────────────────────────────────
+  // The worker and its bindings were checked with the other three above. All
+  // that is left is the hostname, and Cloudflare manages the DNS record behind a
+  // Custom Domain, so there is no record to verify separately.
+  //
+  // Four checks used to live here and went with the Pages project: bindings on
+  // the production config, bindings on the preview config, `production_branch ==
+  // main` (a Pages deploy silently lands as a preview otherwise), and whether the
+  // dashboard CNAME pointed at the project's real — possibly globally suffixed —
+  // *.pages.dev subdomain.
   section('Dashboard');
-  const project = await cf.getPagesProject(accountId, env.PAGES_PROJECT_NAME);
-  if (!project) {
-    r.fail(`Pages project "${env.PAGES_PROJECT_NAME}" does not exist`, 'Run `./a51 setup`.');
-  } else {
-    r.ok(`Pages project ${project.name} (${project.subdomain})`);
-    const want = pagesBindings(env);
-    for (const target of ['production', 'preview']) {
-      const cfg = (project.deployment_configs && project.deployment_configs[target]) || {};
-      const problems = [];
-      if (!cfg.d1_databases || !cfg.d1_databases.DB || cfg.d1_databases.DB.id !== want.d1_databases.DB.id) problems.push('DB (D1)');
-      for (const binding of ['EML', 'FILES']) {
-        const got = cfg.r2_buckets && cfg.r2_buckets[binding];
-        if (!got || got.name !== want.r2_buckets[binding].name) problems.push(`${binding} (R2)`);
-      }
-      if (problems.length) {
-        if (fix) {
-          await repair(r, `could not repair ${target} bindings`,
-            () => ensurePagesProject(cf, accountId, env, followUps),
-            `${target} bindings repaired — redeploy with \`./a51 deploy dashboard\``);
-        } else {
-          r.fail(`${target} bindings missing or wrong: ${problems.join(', ')}`, 'Run `./a51 doctor --fix` then `./a51 deploy dashboard`. Without these, /api/* returns 500.');
-        }
-      } else {
-        r.ok(`${target} bindings: DB, EML, FILES`);
-      }
-    }
+  if (env.DASHBOARD_WORKER_NAME && env.DASHBOARD_HOSTNAME) {
     try {
-      const domains = (await cf.listPagesDomains(accountId, env.PAGES_PROJECT_NAME)) || [];
-      const match = domains.find((d) => d.name === env.DASHBOARD_HOSTNAME);
-      if (match) r.ok(`custom domain ${match.name} (${match.status || 'active'})`);
-      else r.fail(`${env.DASHBOARD_HOSTNAME} is not attached to the Pages project`, 'Run `./a51 setup`.');
-    } catch (err) {
-      r.warn(`could not list Pages custom domains: ${err.message}`);
-    }
-
-    // Production branch. A mismatch means the branch `deploy` uploads to (main)
-    // is NOT the one the custom domain serves, so the dashboard renders empty.
-    if (project.production_branch && project.production_branch !== 'main') {
-      if (fix) {
-        await repair(r, 'could not reset the production branch',
-          () => ensurePagesProject(cf, accountId, env, followUps),
-          `production branch was "${project.production_branch}" — reset to main; redeploy with \`./a51 deploy dashboard\``);
+      const bound = (await cf.listWorkerDomains(accountId, env.DASHBOARD_WORKER_NAME)) || [];
+      if (bound.some((d) => d.hostname === env.DASHBOARD_HOSTNAME)) {
+        r.ok(`${env.DASHBOARD_HOSTNAME} → Custom Domain on ${env.DASHBOARD_WORKER_NAME}`);
       } else {
-        r.fail(`Pages production branch is "${project.production_branch}", not main — the custom domain serves an empty production`, 'Run `./a51 doctor --fix`, then `./a51 deploy dashboard`.');
-      }
-    }
-
-    // DNS target. The dashboard CNAME must point at the project's REAL subdomain
-    // (Cloudflare suffixes it on a global name collision, e.g. area51-xxxx.pages.dev),
-    // not a guessed `<name>.pages.dev`.
-    try {
-      const zone = await zoneForHostname(cf, accountId, env.DASHBOARD_HOSTNAME);
-      const record = zone && (await cf.findDnsRecord(zone.id, env.DASHBOARD_HOSTNAME));
-      if (record && record.type === 'CNAME' && project.subdomain && record.content !== project.subdomain) {
-        if (fix) {
-          await repair(r, 'could not repoint the dashboard CNAME',
-            () => ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps),
-            `DNS repointed to ${project.subdomain} (was ${record.content})`);
-        } else {
-          r.fail(`dashboard DNS points at ${record.content}, but the Pages subdomain is ${project.subdomain}`, 'Run `./a51 doctor --fix` — it repoints the CNAME.');
-        }
-      } else if (record && record.type === 'CNAME' && record.content === project.subdomain) {
-        r.ok(`DNS → ${project.subdomain}`);
+        r.fail(
+          `${env.DASHBOARD_HOSTNAME} is not a Custom Domain on ${env.DASHBOARD_WORKER_NAME}`,
+          'Run `./a51 setup` to bind it. If setup reports the name as occupied, something else still holds it — a Pages project from before the dashboard became a worker, most likely.',
+        );
       }
     } catch (err) {
-      r.warn(`could not check the dashboard DNS record: ${err.message}`);
+      r.warn(`could not list Custom Domains for ${env.DASHBOARD_WORKER_NAME}: ${err.message}`, 'The token needs Zone · Workers Routes:Edit.');
     }
   }
 
@@ -454,29 +416,13 @@ export async function run(args) {
         }
       }
 
-      // The dashboard is also reachable at the project's *.pages.dev URL. If the
-      // Access app's destinations don't cover it, that URL is an unauthenticated
-      // bypass, and one of the most important things to catch here.
-      if (project && project.subdomain) {
-        const uris = (app.destinations || []).map((d) => d.uri || '');
-        // BOTH are required, and they cover different hosts: the bare subdomain is
-        // the production URL, `*.<sub>` is every preview and branch deployment. A
-        // wildcard does not match the apex, so accepting either one on its own
-        // would report "no bypass" while one of the two was wide open.
-        const apex = uris.includes(project.subdomain);
-        const wild = uris.includes(`*.${project.subdomain}`);
-        const guarded = apex && wild;
-        if (guarded) {
-          r.ok(`Access also guards the pages.dev URL (${project.subdomain} and *.${project.subdomain}) — no bypass`);
-        } else if (fix && allowed.length) {
-          await repair(r, 'could not add the pages.dev URL to the Access app',
-            () => syncOperators(cf, accountId, env, { followUps, force: true }),
-            `added the pages.dev URL (${project.subdomain}) to the Access app`);
-        } else {
-          const gap = [!apex && project.subdomain, !wild && `*.${project.subdomain}`].filter(Boolean).join(' and ');
-          r.fail(`the Access app does not cover ${gap} — the dashboard is reachable UNAUTHENTICATED at that pages.dev URL`, 'Run `./a51 doctor --fix` (or `./a51 users sync`) to add it.');
-        }
-      }
+      // There is deliberately no *.pages.dev bypass check here any more. A Pages
+      // project answered on its custom domain AND <project>.pages.dev AND every
+      // *.pages.dev preview deployment, so this file used to assert the Access
+      // app listed all three and FAILED the deployment if either extra one went
+      // missing. The dashboard worker sets workers_dev = false and
+      // preview_urls = false, so DASHBOARD_HOSTNAME is the only name it answers
+      // on — there is no second URL that could be left unauthenticated.
     }
   } catch (err) {
     r.warn(`could not check Cloudflare Access: ${err.message}`, 'The token needs Account · Access: Apps and Policies:Edit to read this.');
@@ -534,11 +480,11 @@ export async function run(args) {
 
   if (env.DASHBOARD_HOSTNAME) {
     const res = await probe(`https://${env.DASHBOARD_HOSTNAME}/`);
-    if (!res.ok) r.fail(`https://${env.DASHBOARD_HOSTNAME} did not respond: ${res.error}`, 'DNS or the Pages custom domain may still be provisioning.');
+    if (!res.ok) r.fail(`https://${env.DASHBOARD_HOSTNAME} did not respond: ${res.error}`, 'DNS or the worker Custom Domain may still be provisioning.');
     else if ([301, 302, 303, 307, 308].includes(res.status) && /cloudflareaccess\.com/.test(res.location)) r.ok('the dashboard redirects to the Cloudflare Access login (protected)');
     else if (res.status === 200 && /cloudflareaccess/.test(res.body)) r.ok('the dashboard is behind Cloudflare Access');
     else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Add an operator (`./a51 users add`), then run `./a51 users sync`.');
-    else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed (Pages project or its custom domain is missing)`, 'Run `./a51 setup` to (re)create the project and attach the custom domain.');
+    else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy dashboard`, then `./a51 setup` to (re)bind the hostname.');
     else r.warn(`the dashboard answered ${res.status}`);
   }
 
@@ -565,8 +511,8 @@ function summarize(r) {
   if (!r.fails.length && !r.warns.length) {
     info(color.dim('Everything checks out.'));
   } else if (r.fails.length) {
-    info(color.dim('`./a51 doctor --fix` repairs the schema, Pages bindings, black hole'));
-    info(color.dim('bindings and the Access policy. The rest need the fix printed above.'));
+    info(color.dim('`./a51 doctor --fix` repairs the schema, black hole bindings and the'));
+    info(color.dim('Access policy. The rest need the fix printed above.'));
   }
   plain('');
 }

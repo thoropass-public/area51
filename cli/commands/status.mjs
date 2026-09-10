@@ -134,6 +134,7 @@ async function printWorkers(cf, accountId, env) {
     ['black holes', env.WORKER_NAME],
     ['autopilot', env.AGENT_WORKER_NAME],
     ['cleanup', env.CLEANUP_WORKER_NAME],
+    ['dashboard', env.DASHBOARD_WORKER_NAME],
   ];
   for (const [label, name] of targets) {
     if (!name) {

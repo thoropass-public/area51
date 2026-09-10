@@ -9,22 +9,21 @@
 //   * storage before workers,  because a worker whose D1 id is empty won't deploy
 //   * worker before catch-all, because Email Routing refuses to target a worker
 //                              that does not exist yet
-//   * bindings before upload,  because the Pages project is created WITH its
-//                              D1/R2 bindings, so the first deployment already works
+//   * code before hostnames,   because a Custom Domain cannot be bound to a
+//                              worker that has not been uploaded yet
 
 import { loadEnv, saveEnv, ensureEnvFile, envPath } from '../lib/env.mjs';
 import { Cloudflare } from '../lib/cloudflare.mjs';
-import { step, ok, skip, warn, info, plain, heading, color, resetSteps, die, setStepTotal, hint, detail, summary } from '../lib/log.mjs';
+import { step, ok, skip, warn, plain, heading, color, resetSteps, die, setStepTotal, hint } from '../lib/log.mjs';
 import { ask, confirm, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
-  ensurePagesProject, ensurePagesDomain, authFixHint,
+  ensureWorkerHostname,
   inspectZoneTakeover, describeTakeover, findHostnameConflict, attempt,
 } from '../lib/provision.mjs';
-import { isAuthError } from '../lib/cloudflare.mjs';
 import { printTokenPermissions } from '../lib/permissions.mjs';
-import { deployWorker, deployPages, wranglerBin, WORKER_TARGETS } from '../lib/wrangler.mjs';
+import { deployWorker, wranglerBin, WORKER_TARGETS } from '../lib/wrangler.mjs';
 import { listUsers, upsertUser, normalizeEmail, mcpRegisterLines, syncOperators, allowListFrom } from '../lib/users.mjs';
 
 const DEFAULTS = {
@@ -34,7 +33,7 @@ const DEFAULTS = {
   WORKER_NAME: 'area51-black-holes',
   AGENT_WORKER_NAME: 'area51-autopilot',
   CLEANUP_WORKER_NAME: 'area51-cleanup',
-  PAGES_PROJECT_NAME: 'area51',
+  DASHBOARD_WORKER_NAME: 'area51-dashboard',
   BLACK_HOLE_ROLES: 'http,mail',
   ACCESS_SESSION_DURATION: '24h',
   CLEANUP_REQUESTS_KEEP: '1000',
@@ -52,7 +51,7 @@ export async function run(args) {
   const dryRun = flags.has('--dry-run');
 
   heading('AREA 51 setup');
-  plain(color.dim('Provisions D1, R2, three Workers, the Pages dashboard, DNS, Email Routing'));
+  plain(color.dim('Provisions D1, R2, four Workers (dashboard included), DNS, Email Routing'));
   plain(color.dim('and Cloudflare Access on your own Cloudflare account. Safe to re-run.'));
 
   if (ensureEnvFile()) {
@@ -66,9 +65,9 @@ export async function run(args) {
 
   // ── 1. credentials ────────────────────────────────────────────────────────
   resetSteps();
-  // Twelve numbered steps, so each header can say [3/12] and a reader can tell
+  // Thirteen numbered steps, so each header can say [3/13] and a reader can tell
   // how much is left. Keep this in step with the step() calls below.
-  setStepTotal(12);
+  setStepTotal(13);
   step('Cloudflare credentials');
 
   if (!env.CLOUDFLARE_API_TOKEN) {
@@ -238,7 +237,7 @@ export async function run(args) {
     WORKER_NAME: env.WORKER_NAME,
     AGENT_WORKER_NAME: env.AGENT_WORKER_NAME,
     CLEANUP_WORKER_NAME: env.CLEANUP_WORKER_NAME,
-    PAGES_PROJECT_NAME: env.PAGES_PROJECT_NAME,
+    DASHBOARD_WORKER_NAME: env.DASHBOARD_WORKER_NAME,
     CLEANUP_REQUESTS_KEEP: env.CLEANUP_REQUESTS_KEEP,
     CLEANUP_EMAIL_MAX_AGE_DAYS: env.CLEANUP_EMAIL_MAX_AGE_DAYS,
     CLEANUP_CRON: env.CLEANUP_CRON,
@@ -252,7 +251,7 @@ export async function run(args) {
     `Worker             ${env.WORKER_NAME} → https://${env.BLACK_HOLE_HOSTNAME}  [${roles.join(', ')}]`,
     `Worker             ${env.AGENT_WORKER_NAME} → https://${env.AUTOPILOT_HOSTNAME}`,
     `Worker             ${env.CLEANUP_WORKER_NAME} (cron ${env.CLEANUP_CRON}, no domain)`,
-    `Pages project      ${env.PAGES_PROJECT_NAME} → https://${env.DASHBOARD_HOSTNAME}`,
+    `Worker             ${env.DASHBOARD_WORKER_NAME} → https://${env.DASHBOARD_HOSTNAME}`,
     `Email Routing      *@${zoneName} → ${env.WORKER_NAME}`,
     `Cloudflare Access  ${env.DASHBOARD_HOSTNAME} for ${firstOperator || existingOperators.map((u) => u.email).join(', ')}`,
     `Operator           ${firstOperator ? `${firstOperator} ${color.dim('(+ an Autopilot key, shown once at the end)')}` : color.dim('unchanged')}`,
@@ -386,6 +385,19 @@ export async function run(args) {
     followUps.push({ label: `${env.CLEANUP_WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy cleanup`. Without it, nothing trims old data.' });
   }
 
+  step(`Deploy ${WORKER_TARGETS.dashboard.label}`);
+  // Its D1 and R2 bindings are declared in dashboard/wrangler.toml.template and
+  // travel with this upload. As a Pages project they existed only in
+  // Cloudflare's API and had to be PATCHed on BEFORE the first upload, or every
+  // /api/* call 500d for a missing DB binding — which is why this used to be a
+  // create-then-patch-then-upload-then-maybe-patch-and-reupload dance instead of
+  // one line.
+  if (skipUploads) {
+    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+  } else if (!deployWorker('dashboard', env).ok) {
+    followUps.push({ label: `${env.DASHBOARD_WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy dashboard`.' });
+  }
+
   // ── 7. hostnames ──────────────────────────────────────────────────────────
   step('Black hole hostname');
   await attempt(
@@ -408,71 +420,30 @@ export async function run(args) {
     );
   }
 
+  // Both derived hostnames bind the same way: a Custom Domain on their worker,
+  // with Cloudflare managing the DNS record. Neither is ever seized — see
+  // ensureWorkerHostname.
   step('Autopilot hostname');
-  const autopilotZone = autopilotHostFree ? await zoneForHostname(cf, accountId, env.AUTOPILOT_HOSTNAME) : null;
   if (!autopilotHostFree) {
     skip(`${env.AUTOPILOT_HOSTNAME} skipped — a foreign DNS record is in the way (see follow-ups)`);
-  } else if (!autopilotZone) {
-    followUps.push({ label: `no zone found for ${env.AUTOPILOT_HOSTNAME}`, detail: 'Add the domain to this Cloudflare account, then re-run `./a51 setup`.' });
   } else {
-    try {
-      await cf.attachWorkerDomain(accountId, {
-        hostname: env.AUTOPILOT_HOSTNAME,
-        service: env.AGENT_WORKER_NAME,
-        zoneId: autopilotZone.id,
-      });
-      ok(`${color.bold(env.AUTOPILOT_HOSTNAME)} → Custom Domain on ${env.AGENT_WORKER_NAME}`);
-    } catch (err) {
-      const manual = `Bind it by hand: dashboard → Workers & Pages → ${env.AGENT_WORKER_NAME} → Settings → Domains & Routes → Add → Custom Domain.`;
-      followUps.push({
-        label: `could not bind ${env.AUTOPILOT_HOSTNAME} to ${env.AGENT_WORKER_NAME}: ${err.message}`,
-        detail: isAuthError(err)
-          ? authFixHint(`Zone · Workers Routes:Edit on ${autopilotZone.name}`, { zone: autopilotZone.name, extra: manual })
-          : manual,
-      });
-    }
+    await ensureWorkerHostname(cf, accountId, {
+      hostname: env.AUTOPILOT_HOSTNAME,
+      workerName: env.AGENT_WORKER_NAME,
+      followUps,
+    });
   }
 
-  // ── 8. dashboard ──────────────────────────────────────────────────────────
-  step('Dashboard (Cloudflare Pages)');
-  let project = (await attempt(
-    followUps,
-    `could not create or configure the Pages project ${env.PAGES_PROJECT_NAME}`,
-    () => ensurePagesProject(cf, accountId, env, followUps),
-  )).value || null;
-  const bindingsReady = !!project;   // API create + bindings PATCH succeeded
-  if (skipUploads) {
-    skip(canUpload ? 'upload skipped — no database id to bind' : 'upload skipped — wrangler is not installed');
-  } else if (!deployPages(env).ok) {
-    followUps.push({ label: 'the dashboard failed to upload', detail: 'Fix the error above, then run `./a51 deploy dashboard`.' });
-  }
-  if (!bindingsReady) {
-    // The API create failed entirely, so `wrangler pages deploy` created a bare
-    // project with no D1/R2 bindings, and its production branch defaulted to the
-    // local git branch. Attach the bindings + pin the branch now that the project
-    // exists, then redeploy so THIS deployment actually carries them; otherwise
-    // every /api/* call 500s for a missing DB binding.
-    const repaired = (await attempt(
-      followUps,
-      `could not attach bindings to ${env.PAGES_PROJECT_NAME} on the second attempt`,
-      () => ensurePagesProject(cf, accountId, env, followUps),
-    )).value || null;
-    if (repaired) {
-      project = repaired;
-      if (!skipUploads) {
-        info('re-deploying the dashboard now that its D1/R2 bindings are attached…');
-        deployPages(env);
-      }
-    }
-  }
-  if (dashboardHostFree) {
-    await attempt(
-      followUps,
-      `could not attach ${env.DASHBOARD_HOSTNAME} to the Pages project`,
-      () => ensurePagesDomain(cf, accountId, env, env.DASHBOARD_HOSTNAME, project, followUps),
-    );
-  } else {
+  // ── 8. dashboard hostname ─────────────────────────────────────────────────
+  step('Dashboard hostname');
+  if (!dashboardHostFree) {
     skip(`${env.DASHBOARD_HOSTNAME} skipped — a foreign DNS record is in the way (see follow-ups)`);
+  } else {
+    await ensureWorkerHostname(cf, accountId, {
+      hostname: env.DASHBOARD_HOSTNAME,
+      workerName: env.DASHBOARD_WORKER_NAME,
+      followUps,
+    });
   }
 
   // ── 9. access ─────────────────────────────────────────────────────────────
@@ -577,33 +548,29 @@ async function confirmZoneTakeover(cf, zone, env, { dryRun = false } = {}) {
  * opaque Cloudflare error part-way through provisioning, with half a deployment
  * already built.
  *
- * Ownership is tested FIRST, and against the Workers / Pages APIs rather than
- * DNS, so re-running against a live deployment stays a no-op: the record found
- * at area51.<zone> on the second run is the one the first run created. Without
- * that test this check would refuse every deployment it had ever built.
+ * Ownership is tested FIRST, and against the Workers API rather than DNS, so
+ * re-running against a live deployment stays a no-op: the record found at
+ * area51.<zone> on the second run is the one the first run created. Without that
+ * test this check would refuse every deployment it had ever built.
  *
  * The apex is deliberately not checked. Replacing the record there is the
  * documented intent of the takeover confirmed above, not a collision.
  */
 async function findDerivedHostnameConflicts(cf, accountId, zone, env) {
+  // Both are Custom Domains on a worker, so both ask the same question. When the
+  // dashboard was a Pages project this list needed two different ownership
+  // tests against two different APIs.
   const checks = [
-    {
-      key: 'DASHBOARD_HOSTNAME',
-      hostname: env.DASHBOARD_HOSTNAME,
-      isOurs: async () => {
-        const domains = (await cf.listPagesDomains(accountId, env.PAGES_PROJECT_NAME)) || [];
-        return domains.some((d) => d.name === env.DASHBOARD_HOSTNAME);
-      },
+    ['DASHBOARD_HOSTNAME', env.DASHBOARD_HOSTNAME, env.DASHBOARD_WORKER_NAME],
+    ['AUTOPILOT_HOSTNAME', env.AUTOPILOT_HOSTNAME, env.AGENT_WORKER_NAME],
+  ].map(([key, hostname, workerName]) => ({
+    key,
+    hostname,
+    isOurs: async () => {
+      const bound = (await cf.listWorkerDomains(accountId, workerName)) || [];
+      return bound.some((d) => d.hostname === hostname);
     },
-    {
-      key: 'AUTOPILOT_HOSTNAME',
-      hostname: env.AUTOPILOT_HOSTNAME,
-      isOurs: async () => {
-        const bound = (await cf.listWorkerDomains(accountId, env.AGENT_WORKER_NAME)) || [];
-        return bound.some((d) => d.hostname === env.AUTOPILOT_HOSTNAME);
-      },
-    },
-  ];
+  }));
 
   const conflicts = [];
   for (const check of checks) {

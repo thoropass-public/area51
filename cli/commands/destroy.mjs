@@ -1,7 +1,7 @@
 // `./a51 destroy` tears the deployment down again.
 //
-// Split into two gates on purpose. The first removes compute (workers, the Pages
-// project, the Access application, and Email Routing) which is fully rebuildable
+// Split into two gates on purpose. The first removes compute (the four workers,
+// the Access application, and Email Routing) which is fully rebuildable
 // from this repo. The second removes storage (the D1 database and both R2
 // buckets) which destroys every captured request, email and staged endpoint,
 // permanently.
@@ -17,7 +17,18 @@ import { typeToConfirm, confirm, closePrompts } from '../lib/prompt.mjs';
 import { deriveR2Credentials, listR2ObjectKeys } from '../lib/r2s3.mjs';
 import { ACCESS_LIST_NAME } from '../lib/provision.mjs';
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * The workers this deployment owns, in .env order. The dashboard is one of them
+ * now: it used to be a Pages project, which took a wholly separate teardown
+ * (detach every custom domain, then retry the project delete until Cloudflare
+ * stopped answering [8000028]).
+ */
+const WORKER_NAMES = (env) => [
+  env.WORKER_NAME,
+  env.AGENT_WORKER_NAME,
+  env.CLEANUP_WORKER_NAME,
+  env.DASHBOARD_WORKER_NAME,
+].filter(Boolean);
 
 /**
  * Disable Email Routing on every zone this deployment enabled it for, which also
@@ -102,13 +113,13 @@ export async function run() {
   heading(color.red('Destroy this AREA 51 deployment'));
   plain('');
   plain(`  account    ${accountId}`);
-  plain(`  workers    ${[env.WORKER_NAME, env.AGENT_WORKER_NAME, env.CLEANUP_WORKER_NAME].filter(Boolean).join(', ')}`);
-  plain(`  pages      ${env.PAGES_PROJECT_NAME} (${env.DASHBOARD_HOSTNAME})`);
+  plain(`  workers    ${WORKER_NAMES(env).join(', ')}`);
+  plain(`  dashboard  ${env.DASHBOARD_WORKER_NAME} (${env.DASHBOARD_HOSTNAME})`);
   plain(`  database   ${env.D1_DATABASE_NAME} ${color.dim(env.D1_DATABASE_ID || '')}`);
   plain(`  buckets    ${env.R2_BUCKET_NAME}, ${env.R2_FILES_BUCKET_NAME}`);
   plain('');
 
-  if (!(await typeToConfirm('REMOVE', 'Step 1 of 2 — this deletes the three Workers, the Pages project, the dashboard DNS record and the Access application.\nCaptured data is NOT touched by this step.'))) {
+  if (!(await typeToConfirm('REMOVE', 'Step 1 of 2 — this deletes the four Workers, the dashboard DNS record and the Access application.\nCaptured data is NOT touched by this step.'))) {
     plain('  Canceled. Nothing was changed.');
     closePrompts();
     return 1;
@@ -116,7 +127,7 @@ export async function run() {
 
   // ── compute ───────────────────────────────────────────────────────────────
   plain('');
-  for (const name of [env.WORKER_NAME, env.AGENT_WORKER_NAME, env.CLEANUP_WORKER_NAME].filter(Boolean)) {
+  for (const name of WORKER_NAMES(env)) {
     try {
       const script = await cf.getWorkerSettings(accountId, name);
       if (!script) {
@@ -130,45 +141,10 @@ export async function run() {
     }
   }
 
-  try {
-    const project = await cf.getPagesProject(accountId, env.PAGES_PROJECT_NAME);
-    if (!project) {
-      skip(`Pages project ${env.PAGES_PROJECT_NAME} does not exist`);
-    } else {
-      // Cloudflare refuses to delete a project while any custom domain is still
-      // attached ([8000028]). Detach every one first, so there is no manual
-      // dashboard step.
-      let domains = [];
-      try { domains = (await cf.listPagesDomains(accountId, env.PAGES_PROJECT_NAME)) || []; }
-      catch (err) { warn(`could not list the Pages custom domains: ${err.message}`); }
-      for (const d of domains) {
-        try {
-          await cf.deletePagesDomain(accountId, env.PAGES_PROJECT_NAME, d.name);
-          ok(`removed custom domain ${d.name} from ${env.PAGES_PROJECT_NAME}`);
-        } catch (err) {
-          warn(`could not remove custom domain ${d.name}: ${err.message}`);
-        }
-      }
-      // The detach can take a moment to register; retry the project delete a few
-      // times before giving up so the whole thing stays one command.
-      let lastErr = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await cf.deletePagesProject(accountId, env.PAGES_PROJECT_NAME);
-          ok(`deleted Pages project ${env.PAGES_PROJECT_NAME}`);
-          lastErr = null;
-          break;
-        } catch (err) {
-          lastErr = err;
-          if (attempt < 2) await sleep(2000);
-        }
-      }
-      if (lastErr) throw lastErr;
-    }
-  } catch (err) {
-    warn(`could not delete the Pages project: ${err.message}`);
-  }
-
+  // Deleting a worker takes its Custom Domains and the DNS records Cloudflare
+  // manages for them with it, so this is a sweep for a leftover rather than the
+  // main event — a record from an older deployment, or one a failed delete above
+  // left behind.
   if (env.DASHBOARD_HOSTNAME) {
     try {
       const zone = await zoneForHostname(cf, accountId, env.DASHBOARD_HOSTNAME);

@@ -1,6 +1,5 @@
 // `./a51 deploy [target]` pushes code. Provisioning stays in `setup`; this
-// command only uploads what is already provisioned (plus the one thing that
-// must travel with a deploy: the Pages bindings).
+// command only uploads what is already provisioned.
 //
 // Targets are independent, and `deploy all` is the common case, so each one runs
 // in its own try/catch: a schema error must not stop the workers from shipping,
@@ -9,8 +8,8 @@
 
 import { loadContext } from '../lib/context.mjs';
 import { step, heading, plain, color, resetSteps, die } from '../lib/log.mjs';
-import { deployWorker, deployPages, requireWrangler, WORKER_TARGETS } from '../lib/wrangler.mjs';
-import { ensurePagesProject, applySchema } from '../lib/provision.mjs';
+import { deployWorker, requireWrangler, WORKER_TARGETS } from '../lib/wrangler.mjs';
+import { applySchema } from '../lib/provision.mjs';
 
 const TARGETS = ['black-holes', 'autopilot', 'cleanup', 'dashboard', 'schema'];
 
@@ -59,26 +58,20 @@ export async function run(args) {
 }
 
 async function deployTarget(t, cf, accountId, env, failed) {
-  {
-    if (t === 'dashboard') {
-      step('Dashboard (Cloudflare Pages)');
-      const followUps = [];
-      await ensurePagesProject(cf, accountId, env, followUps);
-      followUps.forEach((f) => failed.push(f.label));
-      if (!deployPages(env).ok) failed.push('dashboard upload');
-      return;
-    }
-
-    if (t === 'schema') {
-      step('D1 schema');
-      await applySchema(cf, accountId, env.D1_DATABASE_ID);
-      return;
-    }
-
-    // Autopilot has no secret to install: it authenticates every call against
-    // the D1 users table, so operator keys travel with the database and
-    // `./a51 users add` takes effect with no deploy at all.
-    step(WORKER_TARGETS[t].label);
-    if (!deployWorker(t, env).ok) failed.push(`${t} deploy`);
+  if (t === 'schema') {
+    step('D1 schema');
+    await applySchema(cf, accountId, env.D1_DATABASE_ID);
+    return;
   }
+
+  // Every remaining target, the dashboard included, is a worker whose bindings
+  // are declared in its own wrangler.toml.template. There is nothing to attach
+  // over the API before uploading, which is what the dashboard's old Pages
+  // branch existed to do.
+  //
+  // Autopilot has no secret to install either: it authenticates every call
+  // against the D1 users table, so operator keys travel with the database and
+  // `./a51 users add` takes effect with no deploy at all.
+  step(WORKER_TARGETS[t].label);
+  if (!deployWorker(t, env).ok) failed.push(`${t} deploy`);
 }

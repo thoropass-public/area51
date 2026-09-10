@@ -179,7 +179,6 @@ export async function syncOperators(cf, accountId, env, { followUps = [], previo
       operatorCount: emails.length,
       sessionDuration: env.ACCESS_SESSION_DURATION || '24h',
       teamName: env.ACCESS_TEAM_NAME || env.CLOUDFLARE_ZONE?.replace(/\./g, '-') || 'area51',
-      pagesProjectName: env.PAGES_PROJECT_NAME,
       followUps,
     });
   } else {

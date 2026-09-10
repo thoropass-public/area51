@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Nothing here needs write access. Kept explicit so a future step can't
+# silently inherit a broader token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Syntax + dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to full commit SHAs because the repository has
+      # `sha_pinning_required` turned on: a tag like @v5 is rejected. Dependabot
+      # keeps these pins current (see .github/dependabot.yml) — without it they
+      # go stale silently.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+
+      # `npm ci` is not an option: package-lock.json is deliberately not
+      # committed (docs/decisions.md), so the ranges resolve fresh here.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # CONTRIBUTING.md: "There is no test suite... syntax-check with
+      # `node --check <file>`". This applies that rule to every module in the
+      # repo instead of only the file being edited, which is the most a CI run
+      # can honestly assert about a project that deploys to your own Cloudflare
+      # account and has no shared instance to test against.
+      - name: Parse every JS module
+        run: |
+          find . -type f \( -name '*.mjs' -o -name '*.js' \) \
+            -not -path './node_modules/*' \
+            -not -path './.git/*' \
+            -print0 | xargs -0 -n1 node --check
+
+      # Advisory only. Dependabot alerts + security updates are the enforcing
+      # mechanism for dependency vulnerabilities; failing unrelated PRs on a
+      # transitive advisory nobody can action would just train people to ignore
+      # a red check. Left visible so a regression still shows up in the log.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true

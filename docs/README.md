@@ -26,6 +26,7 @@ Plus two cross-cutting documents everyone reads eventually:
 | **Deploying it for the first time** | [guides/getting-started](guides/getting-started.md) → [guides/verify-deployment](guides/verify-deployment.md) |
 | **Running an engagement with it** | [guides/usage](guides/usage.md) → [reference/cli](reference/cli.md) |
 | **Operating it day to day** | [guides/operations](guides/operations.md) → [reference/configuration](reference/configuration.md) → [guides/troubleshooting](guides/troubleshooting.md) |
+| **Upgrading an existing deployment** | [guides/upgrading](guides/upgrading.md) → [guides/verify-deployment](guides/verify-deployment.md) |
 | **Wiring it into an AI agent** | [guides/usage → hand it to an agent](guides/usage.md#hand-the-engagement-to-an-agent) → [internals/autopilot](internals/autopilot.md) |
 | **Taking over the codebase** | [internals/architecture](internals/architecture.md) → [development](development.md) → [decisions](decisions.md) |
 | **Reviewing it before you trust it** | [internals/architecture](internals/architecture.md) → [reference/database](reference/database.md) → [decisions](decisions.md) |
@@ -41,6 +42,7 @@ Task-oriented. Read top to bottom the first time; skim by heading afterwards.
 | [usage](guides/usage.md) | The engagement playbooks: blind SSRF, response control and redirects, XXE exfiltration, blind XSS beacons, email-driven flows, OAuth `redirect_uri` interception, payload hosting, agent-driven testing, noise control, evidence and clean-up |
 | [operations](guides/operations.md) | Day-two: deploying changes, adding and removing black holes, purging, retention, reading logs, health checks, key rotation, quotas and cost, renaming things, teardown |
 | [troubleshooting](guides/troubleshooting.md) | Symptom → probable cause → fix, grouped by subsystem. Start with `./a51 doctor`, since most rows here are something it names for you |
+| [upgrading](guides/upgrading.md) | Version to version, for the upgrades that need more than `git pull`. Currently v1.0.0 → v1.1.0: the dashboard moving off Pages, the schema migration, and the two steps `doctor` cannot verify for you |
 
 ## Reference
 

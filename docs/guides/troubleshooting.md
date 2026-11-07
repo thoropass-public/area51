@@ -66,6 +66,9 @@ it. What each check actually asserts is documented in
 
 ## Dashboard
 
+The `Upgrading from v1.0.x` rows below are the symptoms. The whole path, in
+order, is [guides/upgrading](upgrading.md).
+
 | Symptom | Cause | Fix |
 |---|---|---|
 | Upgrading from v1.0.x: setup reports `<host> already has a DNS record that is not part of this deployment` | The old Pages project still holds `DASHBOARD_HOSTNAME`, through the CNAME Cloudflare manages for it. The dashboard is a Worker now, and Cloudflare will not put a Custom Domain on a name another product owns | Detach it at its owner (Workers & Pages → *project* → Custom domains), **not** in DNS. Deleting a managed record leaves the project still claiming the name. Then re-run `./a51 setup`, and delete the project once the worker serves the host |

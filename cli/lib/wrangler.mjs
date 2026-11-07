@@ -58,7 +58,7 @@ export const WORKER_TARGETS = {
     dir: 'workers/cleanup',
     label: 'Cleanup worker (scheduled retention)',
     serviceKey: 'CLEANUP_WORKER_NAME',
-    vars: ['CLEANUP_WORKER_NAME', 'D1_DATABASE_NAME', 'D1_DATABASE_ID', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'CLEANUP_REQUESTS_KEEP', 'CLEANUP_EMAIL_MAX_AGE_DAYS', 'CLEANUP_CRON'],
+    vars: ['CLEANUP_WORKER_NAME', 'D1_DATABASE_NAME', 'D1_DATABASE_ID', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'CLEANUP_REQUESTS_KEEP', 'CLEANUP_EMAIL_MAX_AGE_DAYS', 'CLEANUP_CRON', 'CLEANUP_AUTOPILOT_PURGE'],
   },
 };
 
@@ -91,9 +91,15 @@ export function renderWranglerConfig(target, env) {
   if (!existsSync(templatePath)) die(`missing template: ${templatePath}`);
 
   const missing = spec.vars.filter((k) => env[k] === undefined || env[k] === '');
-  // FALLBACK_ADDRESS is the one legitimately-optional value: with no fallback
-  // inbox the worker simply has nowhere to forward on a capture error.
-  const fatal = missing.filter((k) => k !== 'FALLBACK_ADDRESS');
+  // The two legitimately-optional values. Both render as an empty string and
+  // both have a worker-side fallback, so a deployment upgraded without them in
+  // .env still deploys and still behaves as it did:
+  //
+  //   FALLBACK_ADDRESS         no fallback inbox, so nothing to forward to on a
+  //                            capture error
+  //   CLEANUP_AUTOPILOT_PURGE  the cleanup worker falls back to `monthly`
+  const OPTIONAL = ['FALLBACK_ADDRESS', 'CLEANUP_AUTOPILOT_PURGE'];
+  const fatal = missing.filter((k) => !OPTIONAL.includes(k));
   if (fatal.length) {
     die(`.env is missing required values for ${target}: ${fatal.join(', ')}\n  Run \`./a51 setup\` or fill them in by hand.`);
   }

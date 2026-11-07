@@ -17,7 +17,8 @@
 //              Starred emails (starred = 1) are exempt and kept indefinitely,
 //              no matter how old.
 //
-// And once a month, on the first Sunday:
+// And on whatever schedule CLEANUP_AUTOPILOT_PURGE names, by default the first
+// Sunday of the month, and not at all when it is `off`:
 //
 //   endpoints  delete EVERY row under Autopilot's /-/ prefix, with the FILES
 //              object first for any that serves a file. Agent-staged stubs are
@@ -36,6 +37,7 @@
 // Vars (from .env via the rendered wrangler.toml [vars]):
 //   CLEANUP_REQUESTS_KEEP       how many newest request rows to retain
 //   CLEANUP_EMAIL_MAX_AGE_DAYS  max age (days) before an email is purged
+//   CLEANUP_AUTOPILOT_PURGE     off | daily | weekly | monthly, for the /-/ sweep
 //
 // Structured JSON logging, same convention as the other two workers; tail with
 // `wrangler tail area51-cleanup`.
@@ -214,19 +216,46 @@ async function purgeAutopilotEndpoints(env) {
   return { deleted: d1Deleted, r2_failed: r2Failed };
 }
 
-// First Sunday of the month, in UTC, which is the clock the cron trigger runs on.
+// Which days the /-/ purge runs on, in UTC, which is the clock the cron trigger
+// uses. Named by CLEANUP_AUTOPILOT_PURGE in .env.
 //
-// This is a date test in code rather than a cron expression because cron cannot
-// say it. In a `D M DOW` field set, restricting BOTH day-of-month and day-of-week
-// makes them an OR, not an AND: `0 7 1-7 * SUN` fires on the 1st through 7th
-// *and* on every Sunday, which is most of the month. So the trigger stays the
-// ordinary daily one and the handler decides.
+// These are date tests in code rather than a second cron trigger, because cron
+// cannot express the default one. In a `D M DOW` field set, restricting BOTH
+// day-of-month and day-of-week makes them an OR rather than an AND:
+// `0 7 1-7 * SUN` fires on the 1st through the 7th *and* on every Sunday, which
+// is most of the month. So the trigger stays the ordinary daily one and the
+// handler decides which days count.
 //
-// That means the monthly purge rides on the daily run: CLEANUP_CRON has to fire
-// at least once every day for it to happen at all. The default (`0 6 * * *`)
-// does. A cron edited down to, say, Mondays only would silently never purge.
-function isFirstSundayUtc(date) {
-  return date.getUTCDay() === 0 && date.getUTCDate() <= 7;
+// Every schedule here therefore rides on the daily run: CLEANUP_CRON has to fire
+// at least once a day for any of them to land on the right date. The default
+// (`0 6 * * *`) does. A cron edited down to Mondays would purge on Mondays under
+// `weekly`, or never under `monthly`.
+//
+// It is an .env value rather than a constant because a job that deletes data on
+// a timer belongs to the operator whose data it is. Turning it off in particular
+// should not need a code change, and before this it did.
+const PURGE_SCHEDULES = {
+  // Never. The /-/ prefix then grows until someone clears it by hand with
+  // `./a51 purge`, which is a defensible choice during a long engagement.
+  off: () => false,
+  daily: () => true,
+  weekly: (d) => d.getUTCDay() === 0,
+  monthly: (d) => d.getUTCDay() === 0 && d.getUTCDate() <= 7,
+};
+
+const PURGE_DEFAULT = 'monthly';
+
+// An unreadable value falls back to the default rather than to `off`, the same
+// way intFromEnv does: a typo should not quietly disable retention, and it
+// should not quietly enable a delete either. The chosen schedule is logged, so
+// a run says which rule it actually applied.
+function purgeScheduleFromEnv(value) {
+  const key = String(value || '').trim().toLowerCase();
+  return PURGE_SCHEDULES[key] ? key : PURGE_DEFAULT;
+}
+
+function shouldPurgeAutopilot(schedule, date) {
+  return PURGE_SCHEDULES[schedule](date);
 }
 
 export default {
@@ -238,6 +267,7 @@ export default {
       scheduledTime: event.scheduledTime,
       keep,
       maxAgeDays,
+      purgeSchedule: purgeScheduleFromEnv(env.CLEANUP_AUTOPILOT_PURGE),
     });
 
     // Each table is purged independently so a failure in one doesn't block the
@@ -258,8 +288,9 @@ export default {
     // `scheduledTime` rather than Date.now(): it is the instant the trigger was
     // scheduled for, so a run that starts late, or is retried, still decides
     // against the day it was meant to run on.
-    const firstSunday = isFirstSundayUtc(new Date(event.scheduledTime || Date.now()));
-    if (firstSunday) {
+    const purgeSchedule = purgeScheduleFromEnv(env.CLEANUP_AUTOPILOT_PURGE);
+    const purgeToday = shouldPurgeAutopilot(purgeSchedule, new Date(event.scheduledTime || Date.now()));
+    if (purgeToday) {
       try {
         summary.autopilot = await purgeAutopilotEndpoints(env);
       } catch (e) {
@@ -267,6 +298,6 @@ export default {
       }
     }
 
-    log('cleanup_finished', { keep, maxAgeDays, firstSunday, summary });
+    log('cleanup_finished', { keep, maxAgeDays, purgeSchedule, purgeToday, summary });
   },
 };

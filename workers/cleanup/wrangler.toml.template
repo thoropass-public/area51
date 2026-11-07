@@ -49,3 +49,7 @@ bucket_name = "${R2_FILES_BUCKET_NAME}"
 [vars]
 CLEANUP_REQUESTS_KEEP = "${CLEANUP_REQUESTS_KEEP}"
 CLEANUP_EMAIL_MAX_AGE_DAYS = "${CLEANUP_EMAIL_MAX_AGE_DAYS}"
+# off | daily | weekly | monthly, for the /-/ purge. Empty renders as empty and
+# the worker falls back to monthly, so a deployment upgraded without this key in
+# .env keeps the behavior it had rather than failing to render.
+CLEANUP_AUTOPILOT_PURGE = "${CLEANUP_AUTOPILOT_PURGE}"

@@ -45,6 +45,10 @@ export async function run() {
   kv('schedule', `${env.CLEANUP_CRON || unset} ${color.dim('UTC')}`);
   kv('requests', `keep newest ${env.CLEANUP_REQUESTS_KEEP || '?'} rows`);
   kv('emails', `delete after ${env.CLEANUP_EMAIL_MAX_AGE_DAYS || '?'} days ${color.dim('(starred kept forever)')}`);
+  const purge = (env.CLEANUP_AUTOPILOT_PURGE || 'monthly').toLowerCase();
+  kv('/-/ purge', purge === 'off'
+    ? color.dim('off')
+    : `${purge} ${color.dim(purge === 'monthly' ? '(first Sunday)' : purge === 'weekly' ? '(Sundays)' : '')}`);
 
   section('Operators');
   await printUsers(cf, accountId, env);

@@ -743,6 +743,54 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
 }
 
 /**
+ * The Pages project still holding `hostname`, or null.
+ *
+ * Only one thing creates this situation: a deployment built before the
+ * dashboard became a Worker, whose project has not been deleted yet. It matters
+ * because that project is still bound to D1 and both R2 buckets and still
+ * answers on its own pages.dev names, so Cloudflare Access has to keep covering
+ * it for exactly as long as it exists.
+ *
+ * A failure here returns null rather than throwing: this runs inside the step
+ * that puts Access in place, and a Pages listing that cannot be read is not a
+ * reason to leave the dashboard unprotected. `leftoverPagesNames` covers the
+ * gap from the other side.
+ */
+async function findPagesHolder(cf, accountId, hostname) {
+  try {
+    const projects = (await cf.listPagesProjects(accountId)) || [];
+    return projects.find((p) => (p.domains || []).includes(hostname)) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every pages.dev name that must stay in the Access destinations: the leftover
+ * project's own (apex + wildcard, because a wildcard does not match the apex),
+ * plus any already on the live application.
+ *
+ * The second source is what makes this safe when the first one fails. An entry
+ * that is on the application is there because some earlier run put it there to
+ * guard something, and this is a full PUT: dropping it is a decision, not a
+ * default, and it is not one to take on the strength of a listing that errored.
+ */
+function leftoverPagesNames(stale, existing) {
+  const names = new Set();
+  if (stale && stale.subdomain) {
+    names.add(stale.subdomain);
+    names.add(`*.${stale.subdomain}`);
+  }
+  for (const d of (existing && existing.destinations) || []) {
+    const uri = d && d.uri;
+    if (!uri) continue;
+    const host = String(uri).replace(/^https?:\/\//, '').replace(/^\*\./, '').replace(/\/.*$/, '');
+    if (/(^|\.)pages\.dev$/i.test(host)) names.add(uri);
+  }
+  return [...names];
+}
+
+/**
  * Put an Access application in front of the dashboard hostname, gated on the
  * operator list, authenticating with One-time PIN (an emailed code, with no
  * identity provider to configure).
@@ -818,22 +866,47 @@ export async function ensureAccess(cf, accountId, opts) {
     warn(`could not confirm the One-time PIN login method: ${err.message}`);
   }
 
-  // 3. The destination to guard. There is exactly ONE, and that is the whole
-  // reason the dashboard is a Worker rather than a Pages project.
+  // 3. The destinations to guard, derived from what this dashboard is actually
+  // reachable at rather than from what it ought to be reachable at.
   //
-  // A Pages project answers on its custom domain AND `<project>.pages.dev` AND
-  // every preview deployment under `*.<project>.pages.dev`. Access is
-  // hostname-based, so guarding only the custom domain left the pages.dev URL an
-  // UNAUTHENTICATED BYPASS onto every captured request and email. This function
-  // used to read the project back, discover its real (possibly globally
-  // suffixed) subdomain, and add both it and a wildcard — three destinations to
-  // get right, and `doctor` failed the deployment if either extra one ever went
-  // missing.
+  // On a finished deployment that is exactly ONE name, and it is the whole
+  // reason the dashboard is a Worker rather than a Pages project. A Pages
+  // project answers on its custom domain AND `<project>.pages.dev` AND every
+  // preview deployment under `*.<project>.pages.dev`; Access is enforced per
+  // hostname, so an application listing only the custom domain left those an
+  // UNAUTHENTICATED BYPASS onto every captured request and email. The dashboard
+  // Worker sets `workers_dev = false` and `preview_urls = false`, so
+  // DASHBOARD_HOSTNAME is the only name it answers on.
   //
-  // The dashboard Worker sets `workers_dev = false` and `preview_urls = false`,
-  // so DASHBOARD_HOSTNAME is the only name it answers on. Nothing else to
-  // enumerate, nothing to keep in sync, and no bypass that has to be closed.
-  const destinations = [{ type: 'public', uri: hostname }];
+  // The exception is the one moment both products exist: an upgrade from the
+  // Pages era, before the old project has been deleted. It is still deployed and
+  // still bound to D1 and both R2 buckets, so it still serves the entire API on
+  // its pages.dev names. Writing this application is a full PUT, so narrowing
+  // the list to the Worker's hostname would DELETE the entries that were
+  // guarding them, and leave the deployment worse off than before the upgrade:
+  // shut on the name the operator checks, open on the two they have stopped
+  // thinking about.
+  //
+  // So a leftover project keeps its names guarded, and the extra entries fall
+  // away by themselves once it is gone — which is the only state in which one
+  // destination is the whole truth. The list itself is assembled further down,
+  // where the live application has been read and its own entries can be carried
+  // across.
+  const stale = await findPagesHolder(cf, accountId, hostname);
+  if (stale) {
+    degraded(
+      followUps,
+      `the Pages project ${stale.name} still serves this dashboard, so Access still has to guard it`,
+      [
+        `Retire it, and this resolves itself on the next run:`,
+        `  1. dashboard → Workers & Pages → ${stale.name} → Custom domains → remove ${hostname}`,
+        `  2. re-run \`./a51 setup\` so the worker takes the hostname`,
+        `  3. dashboard → Workers & Pages → ${stale.name} → Settings → Delete project`,
+        `Until step 3 that project still holds the D1 and R2 bindings, and still serves`,
+        `every captured request and email on its own pages.dev names.`,
+      ].join('\n'),
+    );
+  }
 
   // 4. The policy.
   //
@@ -869,17 +942,6 @@ export async function ensureAccess(cf, accountId, opts) {
   // anything not carried across here is silently reset; that is worth being
   // careful about on the one object standing between the internet and every
   // captured request.
-  const body = {
-    name: 'AREA 51 dashboard',
-    type: 'self_hosted',
-    domain: hostname,
-    destinations,
-    session_duration: sessionDuration,
-    app_launcher_visible: false,
-    ...(otpId ? { allowed_idps: [otpId], auto_redirect_to_identity: true } : {}),
-    policies,
-  };
-
   const gate = operatorCount > 0
     ? `${operatorCount} operator${operatorCount === 1 ? '' : 's'} via the list`
     : color.yellow('DENY ALL — no operators');
@@ -887,6 +949,26 @@ export async function ensureAccess(cf, accountId, opts) {
   try {
     const apps = (await cf.listAccessApps(accountId)) || [];
     const existing = apps.find((a) => (a.domain || '').replace(/\/$/, '') === hostname);
+
+    // Assembled here because it depends on the live application. `stale` is the
+    // primary source, but the Pages listing it needs is allowed to fail quietly
+    // (a token without Cloudflare Pages:Edit, say), so a pages.dev entry already
+    // on the application is carried across too. Between them, a list that gets
+    // NARROWER than the surface it guards takes two independent failures.
+    const destinations = [{ type: 'public', uri: hostname }];
+    for (const uri of leftoverPagesNames(stale, existing)) destinations.push({ type: 'public', uri });
+
+    const body = {
+      name: 'AREA 51 dashboard',
+      type: 'self_hosted',
+      domain: hostname,
+      destinations,
+      session_duration: sessionDuration,
+      app_launcher_visible: false,
+      ...(otpId ? { allowed_idps: [otpId], auto_redirect_to_identity: true } : {}),
+      policies,
+    };
+
     if (existing) {
       if (existing.app_launcher_visible) body.app_launcher_visible = true;
       await cf.updateAccessApp(accountId, existing.id, body);
@@ -894,6 +976,9 @@ export async function ensureAccess(cf, accountId, opts) {
     } else {
       await cf.createAccessApp(accountId, body);
       ok(`Access application protects ${color.bold(hostname)} (${gate})`);
+    }
+    if (destinations.length > 1) {
+      warn(`Access also guards ${destinations.slice(1).map((d) => d.uri).join(', ')} — a Pages project still serves this dashboard (see follow-ups)`);
     }
     info(color.dim(operatorCount > 0
       ? `allow-list: the "${ACCESS_LIST_NAME}" list (${listId})`

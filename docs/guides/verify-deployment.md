@@ -126,6 +126,15 @@ deployment if either went missing.
 The dashboard Worker answers on one name. There is no second URL to enumerate, no
 wildcard to remember, and no bypass to close.
 
+**One exception, and only while upgrading.** A deployment that predates v1.1.0
+still has its Pages project until you delete it, and that project is still bound
+to D1 and both R2 buckets — so it still serves the whole API on its `pages.dev`
+names. `./a51 setup` detects it and keeps those names in the destination list
+rather than narrowing to the worker's hostname, and prints a follow-up telling
+you to retire the project. So during an upgrade **three destinations is the
+correct state**, and one would mean the bypass is open. Delete the project and
+the list collapses to one by itself on the next run.
+
 ### Preview
 
 The end-to-end summary: **all authenticated users** matching the **AREA 51

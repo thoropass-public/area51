@@ -14,7 +14,7 @@
 // `:uri` route would run a D1 lookup for an endpoint named "upload" and answer
 // a plausible-looking 404. The first draft of router.js did exactly that.
 //
-// So this file exists to pin the behaviour that cannot announce its own
+// So this file exists to pin the behavior that cannot announce its own
 // breakage, and nothing else. It is plain node with no dependencies and no
 // framework:
 //

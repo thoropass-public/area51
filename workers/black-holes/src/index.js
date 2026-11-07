@@ -166,8 +166,8 @@ async function handleHttp(request, env, ctx) {
   if (!endpoint) {
     // Nothing in the table serves this path. One path gets an answer anyway.
     //
-    // A black hole is public by necessity — targets have to reach it — so it is
-    // also reachable by every crawler on the internet, and an indexed callback
+    // A black hole is public by necessity, because targets have to reach it, so
+    // it is also reachable by every crawler on the internet, and an indexed callback
     // host is an engagement artifact sitting in a search result with the paths
     // that were staged on it. This serves a blanket disallow so that does not
     // happen by default.
@@ -178,7 +178,7 @@ async function handleHttp(request, env, ctx) {
     // answers when the table has nothing. Staging a permissive robots.txt for a
     // target that checks for one therefore still works.
     //
-    // robots.txt is advisory. It stops the crawlers that honour it; it is not a
+    // robots.txt is advisory. It stops the crawlers that honor it; it is not a
     // control, and nothing here should be read as one.
     if (route === '/robots.txt') {
       log('http_robots_served', { id });

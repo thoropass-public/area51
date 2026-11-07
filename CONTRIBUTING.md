@@ -50,7 +50,7 @@ gitignored, so edit the template or `.env` and never the rendered file.
 The exception is `node dashboard/src/router.test.mjs`, which pins the dashboard's
 API route precedence. Run it if you touch `dashboard/src/router.js` or the
 `ROUTES` table in `dashboard/src/index.js`; CI runs it too. It exists because
-precedence is the one behaviour in this repository that fails *silently* — a
+precedence is the one behavior in this repository that fails *silently*. A
 mis-resolved route throws nothing, deploys fine, and leaves `doctor` reporting a
 healthy dashboard. Everything else here fails loudly enough that a live probe
 catches it. Don't grow this into a general test suite without reading

@@ -41,7 +41,7 @@ them, so they cost no Worker invocation, and the file is consumed at deploy time
 rather than published. They do **not** apply to `/api/*`, which the Worker
 generates.
 
-This is defence in depth, not a fix. Both places the dashboard renders
+This is defense in depth, not a fix. Both places the dashboard renders
 attacker-controlled content already handle it: a captured email's HTML body goes
 into `<iframe sandbox="" srcdoc>` (opaque origin, no scripts, no forms), and a
 captured request body is HTML-escaped before `highlightJson` wraps tokens in

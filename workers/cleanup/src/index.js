@@ -28,7 +28,7 @@
 //   EML    the captured-email R2 bucket (raw .eml at key emails/<id>.eml)
 //   FILES  the endpoint-file bucket. Held ONLY so the monthly /-/ purge can
 //          delete an object before the row that points at it. Autopilot itself
-//          has no FILES binding and that has not changed — it is what stops an
+//          has no FILES binding and that has not changed. It is what stops an
 //          agent reading or replacing a payload a human uploaded. This worker
 //          never reads the bucket and never writes to it; it deletes, on a
 //          schedule, keys it read out of D1.
@@ -151,7 +151,7 @@ async function purgeEmails(env, maxAgeDays) {
 // monthly sweep would be a schema migration for a table whose whole contract is
 // "exact-match lookup by uri". So the rule is the blunt one, and it is the rule
 // the operator asked for: on the first Sunday of the month, agent-staged
-// endpoints go. They are engagement scratch — an agent can stage another in one
+// endpoints go. They are engagement scratch: an agent can stage another in one
 // call, and nothing else expires them.
 //
 // HAND-WRITTEN ENDPOINTS ARE NEVER TOUCHED. The prefix is the whole of the
@@ -159,7 +159,7 @@ async function purgeEmails(env, maxAgeDays) {
 // row outside it (the worker enforces that server-side), so "under /-/" and
 // "staged by an agent" are the same set, with one exception worth knowing: a
 // file a human uploaded to a /-/ path from the dashboard also lives here, and
-// this deletes it too. That is deliberate and documented — a payload meant to
+// this deletes it too. That is deliberate and documented. A payload meant to
 // outlive the month belongs at a path of its own.
 //
 // ORDER: R2 object first, then the D1 row, exactly as the email purge and
@@ -214,7 +214,7 @@ async function purgeAutopilotEndpoints(env) {
   return { deleted: d1Deleted, r2_failed: r2Failed };
 }
 
-// First Sunday of the month, in UTC — the same clock the cron trigger runs on.
+// First Sunday of the month, in UTC, which is the clock the cron trigger runs on.
 //
 // This is a date test in code rather than a cron expression because cron cannot
 // say it. In a `D M DOW` field set, restricting BOTH day-of-month and day-of-week
@@ -256,7 +256,7 @@ export default {
     }
 
     // `scheduledTime` rather than Date.now(): it is the instant the trigger was
-    // scheduled for, so a run that starts late — or is retried — still decides
+    // scheduled for, so a run that starts late, or is retried, still decides
     // against the day it was meant to run on.
     const firstSunday = isFirstSundayUtc(new Date(event.scheduledTime || Date.now()));
     if (firstSunday) {

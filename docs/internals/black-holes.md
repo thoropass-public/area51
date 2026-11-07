@@ -52,15 +52,15 @@ that rule over the API.
 6. **No row** → `404! Not Found`, with one exception: `/robots.txt` is answered
    with a hardcoded `User-agent: * / Disallow: /`.
 
-   A black hole is public by necessity — targets have to reach it — which means
-   every crawler can too, and an indexed callback host is an engagement artifact
+   A black hole is public by necessity, because targets have to reach it, which
+   means every crawler can too, and an indexed callback host is an engagement artifact
    sitting in a search result alongside the paths staged on it.
 
    The order is what keeps this compatible with exact-match routing: the table is
    consulted **first**, so an operator who creates a `/robots.txt` endpoint is
    served their row, and the hardcoded one only answers when the table has
    nothing. Staging a permissive `robots.txt` for a target that reads one still
-   works. It is advisory in any case — it stops crawlers that honour it, and is
+   works. It is advisory in any case: it stops crawlers that honor it, and is
    not a control.
 7. **Row with `r2_key`** (file-backed) → `env.FILES.get(key)` and stream the
    object back with `200` and its own stored `Content-Type` (falling back to

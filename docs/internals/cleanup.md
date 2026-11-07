@@ -41,8 +41,8 @@ Autopilot's `/-/` prefix. Hand-written endpoints are never touched: the prefix i
 the whole of the test.
 
 **Every one of them, with no age test, because there is nothing to test.** The
-`endpoints` table has no timestamp column — its contract is exact-match lookup by
-`uri` — and adding one to carry a monthly sweep would be a schema migration for a
+`endpoints` table has no timestamp column, since its contract is exact-match
+lookup by `uri`, and adding one to carry a monthly sweep would be a schema migration for a
 sweep that does not need it. Agent-staged stubs are engagement scratch; an agent
 restages one in a single call.
 
@@ -56,13 +56,13 @@ OR: `0 7 1-7 * SUN` fires on the 1st through the 7th **and** on every Sunday,
 which is most of the month. So the trigger stays the ordinary daily one and
 `isFirstSundayUtc(event.scheduledTime)` decides. The consequence is worth stating
 plainly: **the monthly purge rides on the daily run.** `CLEANUP_CRON` has to fire
-at least once a day for it to happen at all — the default does; a cron edited
+at least once a day for it to happen at all. The default does; a cron edited
 down to, say, Mondays would silently never purge.
 
 This worker therefore holds the `FILES` binding, so it can delete an endpoint's
 object before the row that points at it. That does not loosen Autopilot's fence:
 Autopilot still has no `FILES` binding, which is what stops an agent reaching a
-payload a human uploaded. This worker has no `fetch` handler and no domain — it
+payload a human uploaded. This worker has no `fetch` handler and no domain, so it
 cannot be asked for an object, it never reads the bucket, and it never writes
 to it.
 

@@ -44,6 +44,23 @@ if (!block) {
 const ROUTES = [...block[1].matchAll(/\[\s*'([A-Z]+)',\s*'([^']+)',\s*(\w+)\s*\]/g)]
   .map(([, method, path, name]) => [method, path, name]);
 
+// A route the pattern above does not match is absent from every assertion below
+// and nothing says so. The run still reports all green, over a route count
+// nobody checks against the table. That is the same silent failure this whole
+// file exists to prevent, so it is worth four lines to refuse it: count the
+// entries that START a line inside the block and insist the two agree.
+//
+// Wrapping a long entry across two lines stays fine, and is not what this
+// catches: `\s*` spans newlines, so the pattern reads it, and the entry still
+// opens a line, so the count sees it too. What it catches is an entry the
+// pattern cannot read at all, such as one written with double quotes.
+const declared = (block[1].match(/^\s*\[/gm) || []).length;
+if (declared !== ROUTES.length) {
+  console.error(`parsed ${ROUTES.length} of the ${declared} entries in ROUTES. One is written in a form this file cannot read, most likely with double quotes.`);
+  console.error('Reformat it to match the others, or widen the pattern above. A route this file cannot see is a route it does not test.');
+  process.exit(1);
+}
+
 const match = buildRouter(ROUTES);
 
 let pass = 0;

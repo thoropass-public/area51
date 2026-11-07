@@ -78,8 +78,8 @@ touched: the prefix is the only thing it matches on.
 | `weekly` | Sundays |
 | `monthly` | the first Sunday of the month (default) |
 
-**Every one of them, with no age test, because there is nothing to test
-against.** The `endpoints` table has no timestamp column. Its contract is
+**Every endpoint under the prefix goes, with no age test, because there is
+nothing to test against.** The `endpoints` table has no timestamp column. Its contract is
 exact-match lookup by `uri`, and adding a column to carry a periodic sweep would
 be a schema migration the sweep does not need. Agent-staged stubs are engagement
 scratch, and an agent restages one in a single call.
@@ -88,15 +88,16 @@ scratch, and an agent restages one in a single call.
 the prefix, so the purge takes it. A payload meant to outlive the schedule
 belongs at a path outside `/-/`.
 
-**These are date tests in code, not cron expressions**, and that is not
-stylistic. In a cron field set, restricting both day-of-month and day-of-week
+**These are date tests in code, not cron expressions.** In a cron field set,
+restricting both day-of-month and day-of-week
 makes them an OR rather than an AND: `0 7 1-7 * SUN` fires on the 1st through the
 7th *and* on every Sunday, which is most of the month. So the trigger stays the
 ordinary daily one and the handler decides which days count.
 
-So **every schedule rides on the daily run.** `CLEANUP_CRON` has to fire at least once a day for any of them to land on
-the right date. The default does. A cron edited down to Mondays would purge on
-Mondays under `weekly`, and never under `monthly`.
+So **every schedule rides on the daily run.** `CLEANUP_CRON` has to fire at
+least once a day for any of them to land on the right date. The default does. A
+cron edited down to Mondays would purge on Mondays under `weekly`, and never
+under `monthly`.
 
 An unreadable value falls back to `monthly` rather than to `off`, the same way
 the two integer settings fall back. A typo should not quietly disable retention,

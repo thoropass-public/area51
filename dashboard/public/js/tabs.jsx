@@ -277,6 +277,14 @@ function EndpointsTab() {
     toast("Endpoint deleted", "success");
   };
 
+  // Search and pins reach every endpoint, /-/ included — the filter is applied by
+  // the API, and grouping only decides where a returned row is drawn. But a
+  // query whose matches are ALL under /-/ would draw them behind a collapsed row
+  // and read as "no results", so the group follows the filter: open while one is
+  // active, closed again when it clears. The toggle still works either way.
+  const filtering = terms.length > 0;
+  useEffect(() => { setAutopilotOpen(filtering); }, [filtering]);
+
   // Hand-written endpoints keep their order and stay on top; agent-staged ones
   // are gathered underneath behind their group row. The group row travels as a
   // sentinel IN the row array because ListView renders `rows.map(renderRow)` and

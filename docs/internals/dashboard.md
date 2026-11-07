@@ -198,6 +198,13 @@ them behind a single **AUTOPILOT** row that folds the whole set away, collapsed
 on arrival. An engagement can leave dozens of agent-staged rows behind, and they
 used to bury the handful an operator wrote by hand.
 
+Search and pins are unaffected and reach every endpoint, `/-/` included: the
+filter is applied by the API, and the grouping only decides where a returned row
+is drawn. The group does follow the filter, though — open while one is active,
+closed again when it clears — because a query whose matches all happen to be
+under `/-/` would otherwise draw them behind a collapsed row and read as "no
+results".
+
 It is presentation only. The query, the cursor and `{n} loaded` are unchanged —
 the group row travels as a sentinel inside the row array that `ListView` maps
 over, so nothing about paging or the empty state had to learn about it. The

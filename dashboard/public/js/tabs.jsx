@@ -156,44 +156,38 @@ function effectiveSearch(input, pins) {
   return all;
 }
 
+// The one search term that does not search: it switches the Endpoints list over
+// to the agent-staged set instead of narrowing within the list you are on.
+//
+// Agent-staged endpoints are not shown anywhere else. An engagement leaves
+// dozens or hundreds of them, they are nobody's working set, and they sort to
+// the top of every page because `/-/` begins with a character below `/`. So
+// they are their own list, reached by asking for it.
+//
+// It is matched EXACTLY, never as a substring, because `/foo:autopilot:bar` is
+// a legal endpoint URI and searching for it should find that row rather than
+// changing which list you are looking at. The token is stripped out before the
+// rest of the terms are sent, so `:autopilot: oauth` reads as "agent-staged
+// endpoints matching oauth": a scope, ANDed with the terms, which the server
+// still ORs among themselves.
+const AUTOPILOT_TOKEN = ":autopilot:";
+
+function splitAutopilotScope(terms) {
+  const rest = terms.filter((t) => t !== AUTOPILOT_TOKEN);
+  return { autopilot: rest.length !== terms.length, terms: rest };
+}
+
 // ----------------------------------------------------------------
 // Endpoints
 // ----------------------------------------------------------------
 
 // Autopilot's fence, mirrored from the worker. Every endpoint an agent can
 // create, read or delete lives under this prefix, and the worker enforces it
-// server-side. This copy only decides where a row is DISPLAYED, so the two
-// drifting would be a cosmetic bug, never a security one.
+// server-side. This copy decides only what the modal offers: an endpoint under
+// the prefix cannot be archived, so the button is not rendered for one.
 const AUTOPILOT_PREFIX = "/-/";
 
 const isAutopilotUri = (uri) => String(uri || "").startsWith(AUTOPILOT_PREFIX);
-
-// A collapsed-by-default group header, injected into the row list as a sentinel
-// rather than rendered around it.
-//
-// Agent-staged endpoints pile up: an engagement can leave dozens of /-/ rows
-// behind, and they buried the handful an operator wrote by hand. They are now
-// held below everything else behind one row that folds them away, which is the
-// whole feature. The list is still one flat query, still one cursor, and still
-// sorted the way the API returned it within each group.
-function AutopilotGroupRow({ count, open, onToggle }) {
-  return (
-    <div
-      className={`row group-row${open ? " open" : ""}`}
-      onClick={onToggle}
-      role="button"
-      tabIndex={0}
-      aria-expanded={open}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
-    >
-      <span className="caret"><Icon.chevron/></span>
-      <span className="group-label">AUTOPILOT</span>
-      <span className="group-meta">
-        {count} loaded · staged by agents under <span className="mono">{AUTOPILOT_PREFIX}</span>
-      </span>
-    </div>
-  );
-}
 
 function EndpointsTab() {
   const toast = useToast();
@@ -202,15 +196,15 @@ function EndpointsTab() {
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
   const { pins, addPin, removePin, clearPins, colors, pinColor } = usePinnedFilters("endpoints");
-  const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
+  const allTerms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
+  // Works from the input and from a pin, so the scope can be made sticky by
+  // pinning it, the same way any other term is.
+  const { autopilot, terms } = useMemo(() => splitAutopilotScope(allTerms), [allTerms]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
-  // Collapsed on arrival: the point of the group is that these are not what you
-  // came to look at.
-  const [autopilotOpen, setAutopilotOpen] = useState(false);
   const [modal, setModal] = useState(null); // {mode:'edit'|'new', uri?}
   // Which side of the list is on screen. Archived endpoints are never mixed in
   // with the working list. The button swaps the view rather than widening it.
@@ -219,7 +213,7 @@ function EndpointsTab() {
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEndpoints({ search: terms, archived: showArchived });
+      const r = await API.listEndpoints({ search: terms, archived: showArchived, autopilot });
       setRows(r);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -229,7 +223,7 @@ function EndpointsTab() {
     } finally {
       setLoading(false);
     }
-  }, [terms, toast, showArchived]);
+  }, [terms, toast, showArchived, autopilot]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
@@ -238,7 +232,7 @@ function EndpointsTab() {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].uri;
-      const r = await API.listEndpoints({ search: terms, cursor, archived: showArchived });
+      const r = await API.listEndpoints({ search: terms, cursor, archived: showArchived, autopilot });
       setRows((xs) => [...xs, ...r]);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -280,33 +274,6 @@ function EndpointsTab() {
     toast("Endpoint deleted", "success");
   };
 
-  // Search and pins reach every endpoint, /-/ included, because the filter is applied by
-  // the API, and grouping only decides where a returned row is drawn. But a
-  // query whose matches are ALL under /-/ would draw them behind a collapsed row
-  // and read as "no results", so the group follows the filter: open while one is
-  // active, closed again when it clears. The toggle still works either way.
-  const filtering = terms.length > 0;
-  useEffect(() => { setAutopilotOpen(filtering); }, [filtering]);
-
-  // Hand-written endpoints keep their order and stay on top; agent-staged ones
-  // are gathered underneath behind their group row. The group row travels as a
-  // sentinel IN the row array because ListView renders `rows.map(renderRow)` and
-  // nothing else. No change to ListView, and the loader, empty state and
-  // "load more" below it keep working on the real rows.
-  const { manual, autopilot } = useMemo(() => {
-    const manual = [];
-    const autopilot = [];
-    for (const r of rows) (isAutopilotUri(r.uri) ? autopilot : manual).push(r);
-    return { manual, autopilot };
-  }, [rows]);
-
-  const listRows = useMemo(() => {
-    if (!autopilot.length) return manual;
-    const out = [...manual, { __group: "autopilot", count: autopilot.length }];
-    if (autopilotOpen) out.push(...autopilot);
-    return out;
-  }, [manual, autopilot, autopilotOpen]);
-
   return (
     <>
       <ListView
@@ -314,11 +281,9 @@ function EndpointsTab() {
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
         pinPlaceholder="Search Endpoints…"
-        rows={listRows} loading={loading} hasMore={hasMore}
+        rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="endpoint-grid"
-        // The real row count, not the display list's: the group row is
-        // furniture, and "{n} loaded" has to keep meaning rows.
         total={rows.length}
         header={<>
           <span></span>
@@ -347,14 +312,7 @@ function EndpointsTab() {
             </button>
           )}
         </>}
-        renderRow={(r) => (r.__group === "autopilot" ? (
-          <AutopilotGroupRow
-            key="__autopilot"
-            count={r.count}
-            open={autopilotOpen}
-            onToggle={() => setAutopilotOpen((v) => !v)}
-          />
-        ) : (
+        renderRow={(r) => (
           <EndpointRow
             key={r.uri}
             row={r}
@@ -362,7 +320,7 @@ function EndpointsTab() {
             matches={pinMatches(pins, colors, r.uri)}
             onOpen={() => open(r.uri)}
           />
-        ))}
+        )}
       />
       {modal && (
         <EndpointModal

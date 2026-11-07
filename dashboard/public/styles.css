@@ -651,48 +651,6 @@ select {
 .row:hover {
   background: var(--n1);
 }
-
-/* Autopilot group header in the Endpoints list.
-   Not a data row: it carries no grid class, so it opts out of the grid the
-   other rows share and lays itself out. Collapsed by default, because agent-staged
-   endpoints are the ones you are usually trying to look past. */
-.row.group-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--n1);
-  font-family: var(--mono);
-  font-size: 11.5px;
-  user-select: none;
-}
-
-.row.group-row:hover {
-  background: var(--n2);
-}
-
-.row.group-row .caret {
-  display: inline-flex;
-  color: var(--n4);
-  transition: transform 0.1s ease;
-}
-
-.row.group-row.open .caret {
-  transform: rotate(90deg);
-}
-
-.row.group-row .group-label {
-  color: var(--f1);
-  letter-spacing: 0.08em;
-}
-
-.row.group-row .group-meta {
-  color: var(--n4);
-}
-
-.row.group-row .group-meta .mono {
-  color: var(--s0);
-}
-
 .row.active {
   background: var(--row-active);
 }

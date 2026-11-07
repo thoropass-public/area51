@@ -18,17 +18,24 @@ its own auth; see [autopilot.md](../internals/autopilot.md).
 - **Success:** HTTP 200 with a JSON body. Lists return a bare array. Detail
   routes return the row object. Mutations return `{ok: true}` (plus extras).
 - **Errors:** `{error: "message"}` with `400` (bad input), `404`
-  (`{error: "Not found"}`), `411` / `413` (upload size), or `500`
-  (`{error: "Internal error"}`). Every handler is wrapped in `withErrorHandler`
-  (one `try/catch` in `src/index.js`), which logs the real error via `console.error` and
-  returns the generic 500.
+  (`{error: "Not found"}`), `409` (a conflict: a URI already taken, or a write to
+  an archived endpoint), `411` / `413` (upload size), or `500`
+  (`{error: "Internal error"}`). One `try/catch` in `src/index.js` wraps every
+  handler, logs the real error through `console.error`, and returns the generic
+  500, so a handler cannot forget to.
 - **Pagination:** cursor-based. Page size is fixed at **50** (`PAGE_SIZE` in
-  `_shared.js`). The cursor is the natural sort key of the last row returned:
+  `shared.js`). The cursor is the natural sort key of the last row returned:
   `uri` for endpoints (ascending), `ts` for requests and emails (descending).
   Pass it as `?cursor=`. "Has more" is inferred client-side from
   `results.length === PAGE_SIZE`, but the client cannot import `PAGE_SIZE` (no
   build step), so `dashboard/public/js/tabs.jsx` hardcodes `50` in each has-more test and
   in `DISPLAY_TARGET`. The two copies must be changed together.
+- **Caching:** every response carries `Cache-Control: no-store`. An endpoint URI
+  travels inside the path percent-encoded, so `/-/payload.js` is fetched as
+  `/api/endpoints/%2F-%2Fpayload.js` and ends in a cacheable extension. Without
+  the header, Cloudflare's extension-based caching and the browser's heuristics
+  are both free to keep a copy, and a row reads back with its previous body
+  after a save.
 - **Search:** `?search=` may be **repeated**. Terms are ORed inside a
   parenthesized group, which is ANDed with the cursor. Matching is
   `LIKE '%term%'`, i.e. a full table scan; fine at this scale, and
@@ -40,11 +47,11 @@ its own auth; see [autopilot.md](../internals/autopilot.md).
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/endpoints` | List. Params: `cursor` (last `uri`), `search` (repeatable, matches `uri`), `archived` (`1` for the Archive view, anything else for the working list), `autopilot` (`1` for the agent-staged set under `/-/`, anything else for everything outside it). Both are scopes applied in SQL and ANDed with the `search` terms, which are ORed among themselves. Endpoints under `/-/` are excluded by default: they sort first under `uri ASC`, so a browser-side filter would leave a page of this list empty whenever an engagement has staged more of them than fit on one. Returns `[{uri, status, filename}]` sorted ascending by `uri`; a non-null `filename` means the row is file-backed (`r2_key` never leaves the server). The two sides are never mixed, and neither carries a count of the other. |
-| `POST` | `/api/endpoints` | Upsert a **text** endpoint. Body `{uri, status, headers, body, create?}`. `create: true` makes it an insert: `409` if the URI is already taken, which is what the New endpoint modal sends so that naming an existing path is refused rather than overwriting it. Without it the call saves an edit, which is the same write. `409` too if the row is archived, because an archived endpoint is frozen. `headers` is a line-separated string (`Key: Value\n…`) parsed to a JSON object server-side. Validates that `uri` starts with `/` and `status` is an integer 100–599. If the URI is currently file-backed this **converts it back to text**: `r2_key`/`filename` are cleared and the object is deleted (response carries `replaced_file: true`). |
-| `POST` | `/api/endpoints/upload?uri=<uri>` | Upsert a **file-backed** endpoint. `&create=1` makes it an insert, `409` if the URI is taken; without it, attaching a file to an endpoint you opened replaces whatever it served. `409` too if the row is archived. Both are checked **before** anything streams to R2, so a refusal leaves no stray object. The request **body is the raw file** (not multipart) so it streams into R2; `Content-Type` is the file's type and `X-Filename` is the URI-encoded display name. Takes no status/headers/body, since the server owns all three. `400` on a bad URI, `411` without `Content-Length`, `413` over 25 MB, `500` if the `FILES` binding is missing. A failed row write deletes the new object; the previous object is deleted only after the row is repointed. |
+| `GET` | `/api/endpoints` | List. Params: `cursor` (last `uri`), `search` (repeatable, matches `uri`), `archived` (`1` for the Archive view), `autopilot` (`1` for the agent-staged set under `/-/`). The two flags are scopes applied in SQL and ANDed with the ORed `search` terms; `/-/` is excluded unless asked for. Returns `[{uri, status, filename}]` ascending by `uri`, where a non-null `filename` means file-backed (`r2_key` never leaves the server). Scopes are never mixed and none carries a count of the others. |
+| `POST` | `/api/endpoints` | Upsert a **text** endpoint. Body `{uri, status, headers, body, create?}`. `headers` is a line-separated string (`Key: Value\n…`) parsed server-side. Validates that `uri` starts with `/` and `status` is 100–599. `create: true` makes it an insert, so `409` if the URI is taken; without it the call saves an edit. `409` as well if the row is archived. If the URI is currently file-backed this **converts it back to text**: `r2_key`/`filename` cleared, object deleted, response carries `replaced_file: true`. |
+| `POST` | `/api/endpoints/upload?uri=<uri>` | Upsert a **file-backed** endpoint. `&create=1` makes it an insert, so `409` if the URI is taken; without it, attaching a file to an endpoint you opened replaces what it served. `409` as well if the row is archived. Both are checked **before** anything streams to R2, so a refusal leaves no stray object. The request **body is the raw file** (not multipart) so it streams into R2; `Content-Type` is the file's type and `X-Filename` is the URI-encoded display name. Takes no status/headers/body, since the server owns all three. `400` on a bad URI, `411` without `Content-Length`, `413` over 25 MB, `500` if the `FILES` binding is missing. A failed row write deletes the new object; the previous object is deleted only after the row is repointed. |
 | `GET` | `/api/endpoints/:uri` | Detail; `uri` is URL-encoded in the path. Carries `file`: `null` for a text endpoint, else `{filename, content_type, size, missing}` where `content_type`/`size` come from an R2 `head()` and `missing: true` means the row outlived its object. |
-| `PATCH` | `/api/endpoints/:uri` | Rename and/or archive, in one write. Body `{uri?, archived?}`; omitted fields keep their value. A rename is a primary-key `UPDATE`, and nothing else in either store is keyed by the URI, so a file-backed endpoint keeps its object with no R2 call. `400` if the new URI is empty or does not start with `/`; `404` if the row is gone; `409` if the name is taken (checked first for the message, and caught again from the `UNIQUE` constraint for the race), if the result would be an archived endpoint under `/-/`, or if the row is archived and the call tries to rename it. An archived endpoint is frozen, and `{archived: false}` is the only write it accepts. Renaming *into* `/-/` hands the endpoint to Autopilot and to the monthly purge; renaming *out* is what converts an agent-staged stub into an ordinary endpoint. |
+| `PATCH` | `/api/endpoints/:uri` | Rename and/or archive in one write. Body `{uri?, archived?}`, omitted fields keep their value. A rename is a primary-key `UPDATE`, and nothing else in either store is keyed by the URI, so a file-backed endpoint keeps its object with no R2 call. `400` if the new URI is empty or does not start with `/`. `404` if the row is gone. `409` if the name is taken (checked for the message, and caught again from the `UNIQUE` constraint for the race), if the result would be an archived endpoint under `/-/`, or if the row is archived and the call tries to rename it: an archived endpoint is frozen and `{archived: false}` is the only write it takes. Renaming *into* `/-/` hands the endpoint to Autopilot and to the purge schedule; renaming *out* converts an agent-staged stub into an ordinary one. |
 | `DELETE` | `/api/endpoints/:uri` | Delete. `404` if nothing was deleted. For a file-backed row the object is deleted **first**, then the row, so a failed object delete leaves a visible row to retry rather than an orphan. |
 
 `/api/endpoints/upload` is a **literal** route, and `src/router.js` settles
@@ -52,14 +59,6 @@ literal paths before it considers `:uri`, including when the path is declared
 but the method is not, which answers `405` rather than falling through. Real
 endpoint URIs arrive percent-encoded (so a leading `%2F`) and could not collide
 with the literal string `upload` in any case. `router.test.mjs` pins this.
-
-Every `/api/*` response carries `Cache-Control: no-store`. That is not only
-hygiene: an endpoint URI travels inside the path percent-encoded, so a request
-for `/-/payload.js` arrives as `/api/endpoints/%2F-%2Fpayload.js` and ends in a
-cacheable extension. Without the header, Cloudflare's extension-based caching
-and the browser's own heuristics are both free to hold a copy, and the row reads
-back with its previous body after a save while the black hole already serves the
-new one.
 
 ## Requests
 

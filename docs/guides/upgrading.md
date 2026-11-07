@@ -119,6 +119,12 @@ list, and rewrites the application itself.
 Then check **Zero Trust → Access → Applications → AREA 51 dashboard →
 Destinations** by hand. You want exactly one: your dashboard hostname.
 
+Before this point three destinations is the **correct** state, not a bug. While
+the Pages project is alive it still answers on `<project>.pages.dev` and every
+`*.pages.dev` preview with its D1 and R2 bindings attached, so setup keeps those
+names guarded rather than narrowing to the Worker and leaving them open. The
+extra entries go when the project does.
+
 `doctor` reports the policy count, not the destination list, so it shows green
 either way. This is the one step of the upgrade it cannot verify for you.
 

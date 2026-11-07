@@ -131,12 +131,10 @@ Those are the default service names; if you changed `WORKER_NAME`,
 `AGENT_WORKER_NAME`, `CLEANUP_WORKER_NAME` or `DASHBOARD_WORKER_NAME` in `.env`,
 `./a51 status` prints the ones actually deployed.
 
-The dashboard is in the same place as the rest, with `wrangler tail
-area51-dashboard` or Workers & Pages → *worker* → Logs, and that is new. As a
-Pages project it had
-no Workers Logs, no Logpush, no Tail Workers and no source maps; a failing
-`/api/*` call left nothing to read anywhere. Its config now sets
-`upload_source_maps = true`, so a 500 resolves to a real line number.
+The dashboard reads the same way as the rest: `wrangler tail area51-dashboard`,
+or Workers & Pages → *worker* → Logs. Its config sets `upload_source_maps = true`,
+so a 500 from `/api/*` resolves to a real line number rather than a minified
+one.
 
 ## Health checks
 

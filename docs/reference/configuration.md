@@ -183,14 +183,7 @@ it lives:
 Each Worker gets it from its own `wrangler.toml.template`, the dashboard
 included.
 
-This used to be worse. As a Pages project the dashboard took its compatibility
-date from the project's deployment config, which is not a file anyone can edit,
-so the CLI held a fourth copy in `provision.mjs` as `PAGES_COMPATIBILITY_DATE`
-and `./a51 deploy dashboard` **overwrote** the live value with it on every
-deploy. The two were out of sync once (Pages raised by hand in the Cloudflare
-dashboard, the workers untouched), and a deploy would have silently rolled it
-back nineteen months. Four templates that a reviewer can diff is strictly
-better than three templates plus one value buried in provisioning code.
+Four templates a reviewer can diff, with no copy buried in provisioning code.
 
 A compatibility date does **not** gate security patches: Cloudflare patches the
 runtime regardless and supports old dates indefinitely. It gates behavioral flags

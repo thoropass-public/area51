@@ -18,12 +18,12 @@ the browser on page load. There is no bundler, no `node_modules` for the fronten
 and deploying is a pure file upload.
 
 `index.html` loads React and ReactDOM's **production** builds
-(`react.production.min.js`, `react-dom.production.min.js`). It used to load the
-development builds so the browser console kept React's runtime warnings, which
-is worth something with no build step and no type checking, but it cost roughly
-1.1 MB on every page load of a console an operator opens and leaves open all day.
-Nothing in the app depends on the dev builds; swap the two script tags back
-locally when you want the warnings.
+(`react.production.min.js`, `react-dom.production.min.js`). The development
+builds keep React's runtime warnings in the console, which is worth something
+with no build step and no type checking, but they cost roughly 1.1 MB on every
+page load of a console an operator leaves open all day. Nothing in the app
+depends on them, so swap the two script tags locally when you want the
+warnings.
 
 Babel-standalone is still the bulk of what remains (~2.8 MB), and it still
 transpiles ~116 KB of JSX in the browser on every load. No tree-shaking, no type
@@ -348,9 +348,8 @@ the dashboard's DOM nor its cookies; **no `allow-forms`**; and no
 `allow-top-navigation`, so the message cannot move the tab under you. Email
 arrives from attackers by definition. **Those four stay off.**
 
-The two that are on exist so a link in a captured email opens in a new tab,
-which it previously could not do at all. `sandbox=""` blocks the navigation and
-the click does nothing. `allow-popups` permits the new tab;
+The two that are on exist so a link in a captured email opens in a new tab. An
+empty `sandbox` blocks the navigation outright, so the click does nothing. `allow-popups` permits the new tab;
 `allow-popups-to-escape-sandbox` is what stops that tab inheriting the sandbox
 and landing on a blank page. Both are gated on a real user gesture by every
 current browser, and `target="_blank"` implies `noopener`, so the opened page

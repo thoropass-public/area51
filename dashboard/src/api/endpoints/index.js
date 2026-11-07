@@ -5,11 +5,18 @@ export async function listEndpoints({ request, env }) {
   const cursor = url.searchParams.get('cursor');
   const searchTerms = url.searchParams.getAll('search').filter(Boolean);
 
+  // The list is one side or the other, never both: `?archived=1` is the Archive
+  // view, anything else is the working list. There is no mixed mode and no
+  // count of the other side — that would be a second query, and the only honest
+  // cheap answer to "how many are archived" is the one the Archive view gives
+  // by showing them.
+  const archived = url.searchParams.get('archived') === '1' ? 1 : 0;
+
   // filename rides along so the list can mark file-backed rows without a second
   // query. Same row read, two more columns.
   let query = 'SELECT uri, status, r2_key, filename FROM endpoints';
-  const conditions = [];
-  const params = [];
+  const conditions = ['archived = ?'];
+  const params = [archived];
 
   if (cursor) {
     conditions.push('uri > ?');
@@ -20,7 +27,7 @@ export async function listEndpoints({ request, env }) {
     conditions.push('(' + orClauses.join(' OR ') + ')');
     for (const term of searchTerms) params.push(`%${term}%`);
   }
-  if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+  query += ' WHERE ' + conditions.join(' AND ');
   query += ` ORDER BY uri ASC LIMIT ${PAGE_SIZE}`;
 
   const { results } = await env.DB.prepare(query).bind(...params).all();

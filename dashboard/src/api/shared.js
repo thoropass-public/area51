@@ -1,5 +1,13 @@
 export const PAGE_SIZE = 50;
 
+// Autopilot's fence, mirrored here. The Autopilot worker enforces it on its own
+// side and is the authority; this copy exists so the dashboard can apply the
+// rules that follow FROM an endpoint being agent-staged — it cannot be
+// archived, and renaming it out of the prefix is what converts it into an
+// ordinary endpoint.
+export const AUTOPILOT_PREFIX = '/-/';
+export const isAutopilotUri = (uri) => String(uri || '').startsWith(AUTOPILOT_PREFIX);
+
 // Every /api/* response carries `no-store`, and that is load-bearing rather
 // than hygiene. An endpoint URI reaches this API inside the path, percent-
 // encoded, so `/-/payload.js` arrives as `/api/endpoints/%2F-%2Fpayload.js` and

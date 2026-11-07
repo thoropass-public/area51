@@ -17,13 +17,20 @@
 -- response is owned by the server: status is 200, headers hold the detected
 -- Content-Type, body is ''. A file cannot be mixed with a hand-written body
 -- or a custom status.
+--
+-- `archived = 1` is a row the catcher will not serve: the lookup filters on it,
+-- so an archived endpoint 404s exactly as an absent one does, while the row —
+-- and its R2 object, if it has one — stay put. It is the undo-able half of
+-- delete. Only hand-written endpoints can be archived; see the Autopilot note
+-- on the ALTER at the foot of this file.
 CREATE TABLE IF NOT EXISTS endpoints (
   uri TEXT PRIMARY KEY,
   status INTEGER NOT NULL DEFAULT 200,
   headers TEXT,            -- JSON object, stringified: {"Header-Name": "value"}
   body TEXT,
   r2_key TEXT,             -- R2 object key (random UUID); NULL = text endpoint
-  filename TEXT            -- original upload filename, display only
+  filename TEXT,           -- original upload filename, display only
+  archived INTEGER NOT NULL DEFAULT 0   -- 1 = retained but not served
 );
 
 -- ─── requests ───────────────────────────────────────────────────────────────
@@ -127,3 +134,23 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT NOT NULL       -- ISO 8601 UTC
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_key_id ON users(key_id);
+
+-- ─── migrations ─────────────────────────────────────────────────────────────
+-- Statements that bring a database created by an EARLIER version of this file
+-- up to date. A fresh database gets everything from the CREATE TABLEs above and
+-- needs none of these, which is exactly why they cannot simply be run: SQLite
+-- has no `ADD COLUMN IF NOT EXISTS`, so a second run would fail on a duplicate
+-- column and take `./a51 deploy schema` and `doctor --fix` down with it.
+--
+-- `applySchema` therefore reads `PRAGMA table_info(<table>)` before each
+-- `ALTER TABLE ... ADD COLUMN` and skips the ones already applied. That is the
+-- same GET-then-act rule every other provisioning step follows (CLAUDE.md,
+-- invariant 8) rather than a special case for SQL.
+--
+-- Keep these at the foot of the file: statements are applied in order, and a
+-- migration must land after the CREATE TABLE it alters.
+
+-- v1.1.0: archive an endpoint instead of deleting it. Autopilot endpoints are
+-- never archived — an agent-staged `/-/` stub is deleted, or renamed out of the
+-- prefix first, which is what converts it into an ordinary endpoint.
+ALTER TABLE endpoints ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;

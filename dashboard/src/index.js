@@ -38,7 +38,7 @@ import { errResp } from './api/shared.js';
 import { buildRouter } from './router.js';
 
 import { listEndpoints, upsertEndpoint } from './api/endpoints/index.js';
-import { getEndpoint, deleteEndpoint } from './api/endpoints/by-uri.js';
+import { getEndpoint, patchEndpoint, deleteEndpoint } from './api/endpoints/by-uri.js';
 import { uploadEndpointFile } from './api/endpoints/upload.js';
 import { getDomains } from './api/config/domains.js';
 import { listEmails, markGroup } from './api/emails/index.js';
@@ -72,6 +72,7 @@ const ROUTES = [
   // routes live in their own lookup table — see router.js.
   ['POST',   '/api/endpoints/upload',           uploadEndpointFile],
   ['GET',    '/api/endpoints/:uri',             getEndpoint],
+  ['PATCH',  '/api/endpoints/:uri',             patchEndpoint],
   ['DELETE', '/api/endpoints/:uri',             deleteEndpoint],
 
   ['GET',    '/api/blacklist/ips',              listIps],

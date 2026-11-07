@@ -195,10 +195,45 @@ export async function ensureDatabase(cf, accountId, name, knownId) {
  * is written with `CREATE TABLE IF NOT EXISTS`, so this is safe to re-run and
  * never drops data.
  */
+/**
+ * `ALTER TABLE <t> ADD COLUMN <c> …` → `{ table, column }`, else null.
+ *
+ * Only this one statement shape is recognised, and deliberately so: it is the
+ * only one in db/schema.sql that is not already idempotent. Everything else
+ * there is `CREATE … IF NOT EXISTS` and re-runs for free.
+ */
+function parseAddColumn(statement) {
+  const m = statement.match(/^\s*ALTER\s+TABLE\s+([A-Za-z_]\w*)\s+ADD\s+(?:COLUMN\s+)?([A-Za-z_]\w*)/i);
+  return m ? { table: m[1], column: m[2] } : null;
+}
+
 export async function applySchema(cf, accountId, databaseId) {
   const statements = splitSqlStatements(readFileSync(SCHEMA_PATH, 'utf8'));
   let applied = 0;
+  let skipped = 0;
   for (const statement of statements) {
+    // SQLite has no `ADD COLUMN IF NOT EXISTS`, so a migration that has already
+    // landed would fail on a duplicate column and take the whole run with it.
+    // Asking the table what it has is the same GET-then-act rule the rest of
+    // provisioning follows, and it is better than tolerating the error: a
+    // column that is genuinely missing still has to be added successfully, and
+    // a broken ALTER still throws with the statement that broke.
+    const addColumn = parseAddColumn(statement);
+    if (addColumn) {
+      // pragma_table_info() rather than a bare PRAGMA: it is an ordinary SELECT,
+      // so it goes through D1's query endpoint like everything else here, and
+      // the table name is a bound parameter rather than interpolated SQL.
+      const columns = await cf.d1Rows(
+        accountId,
+        databaseId,
+        'SELECT name FROM pragma_table_info(?)',
+        [addColumn.table],
+      );
+      if (columns.some((c) => c.name === addColumn.column)) {
+        skipped += 1;
+        continue;
+      }
+    }
     try {
       await cf.d1Query(accountId, databaseId, statement);
       applied += 1;
@@ -206,7 +241,10 @@ export async function applySchema(cf, accountId, databaseId) {
       throw new Error(`failed applying schema statement "${describeStatement(statement)}": ${err.message}`);
     }
   }
-  ok(`applied ${applied} schema statement${applied === 1 ? '' : 's'} from db/schema.sql`);
+  ok(
+    `applied ${applied} schema statement${applied === 1 ? '' : 's'} from db/schema.sql` +
+    (skipped ? ` ${color.dim(`(${skipped} migration${skipped === 1 ? '' : 's'} already in place)`)}` : ''),
+  );
   const tables = await cf.d1Rows(
     accountId,
     databaseId,

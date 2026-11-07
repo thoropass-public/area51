@@ -192,6 +192,28 @@ check mark, and toasts the host it used (clicking it does not open the modal). T
 active host comes from the Home picker; with none selected the button toasts an
 error instead.
 
+The toolbar carries an **Archive** toggle beside *New endpoint*. It swaps the
+list rather than widening it: the working list is unarchived endpoints, the
+Archive view is the rest, and the two are never mixed. *New endpoint* is hidden
+inside the Archive view, since creating one there would file it straight into
+the list you are not looking at.
+
+In the modal, **Archive** sits beside Delete — it is the undo-able half of it.
+An archived endpoint keeps its row and its R2 object and simply stops being
+served, because the catcher's lookup filters on `archived = 0`. The button is
+*unmounted* for an endpoint under `/-/` rather than disabled, the same treatment
+the file-mode editors get: agent-staged endpoints are deleted, or renamed out of
+the prefix first, which is what converts one into an ordinary endpoint.
+
+**The URI is editable.** A rename is a primary-key `UPDATE` and nothing else in
+either store is keyed by it — an endpoint's R2 object is keyed by a random UUID
+— so a file-backed endpoint keeps its object with no R2 call at all, and
+captured requests keep the URL they were actually made to. The rename is sent
+before the body write, so a name clash comes back as `409` with nothing changed
+and the modal still showing what was typed. Renaming *into* `/-/` is allowed and
+confirmed first, because it hands the endpoint to Autopilot and to the monthly
+purge.
+
 Rows are shown in two groups. Hand-written endpoints come first in the order the
 API returned them; everything under Autopilot's `/-/` prefix is gathered below
 them behind a single **AUTOPILOT** row that folds the whole set away, collapsed

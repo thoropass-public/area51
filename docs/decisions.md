@@ -877,3 +877,42 @@ spaces the sender actually typed — is stored collapsed. Header folding is
 indistinguishable from intentional whitespace once the CRLF is gone, so no parser
 can tell them apart, and the raw `.eml` remains the source of truth for anyone who
 needs the exact bytes.
+
+## Schema migrations are idempotent by inspection, not by tolerance
+
+`db/schema.sql` is applied in full on every `./a51 deploy schema` and every
+`doctor --fix`. Everything in it was `CREATE … IF NOT EXISTS`, so re-running was
+free. Adding a column broke that: SQLite has no `ADD COLUMN IF NOT EXISTS`, and a
+second run would fail on a duplicate column and take the whole schema step with
+it.
+
+**What it does instead:** `applySchema` recognises `ALTER TABLE … ADD COLUMN`,
+reads `pragma_table_info(<table>)` first, and skips the statement when the column
+is already there. Migrations live at the foot of the file, after the `CREATE
+TABLE`s they alter.
+
+**Why not just tolerate the error.** The obvious alternative is to catch the
+failure and carry on. Two things are wrong with it. It means string-matching
+Cloudflare's relayed SQLite message, which is not a contract and would silently
+stop working if the wording changed. And it would swallow a genuinely broken
+`ALTER` — a typo'd table, a bad default — leaving a column missing that something
+later queries. Inspecting first keeps the strict rule: if an `ALTER` runs at all,
+it still has to succeed.
+
+It is also the rule the rest of provisioning already follows. Every `ensure*`
+helper reads current state before it writes ([CLAUDE.md](../CLAUDE.md) invariant
+8); schema application was the one step that did not.
+
+## `deploy` applies the schema first
+
+`TARGETS` used to end with `schema`, so `./a51 deploy all` shipped every worker
+and *then* migrated the database.
+
+That is backwards the moment worker code reads a new column, and it fails
+quietly rather than loudly: the catcher's endpoint lookup catches its own errors
+and treats them as "no match", so a worker deployed ahead of its column would
+answer `404` for **every endpoint on every black hole** until the schema step ran
+seconds later. Mid-engagement that is a window where callbacks stop being served
+and the only trace is `http_endpoint_lookup_failed` in the logs.
+
+Migrate, then ship the code that depends on the migration.

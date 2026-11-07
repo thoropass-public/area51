@@ -151,8 +151,13 @@ async function handleHttp(request, env, ctx) {
 
   let endpoint = null;
   try {
+    // `archived = 0` is part of the match, not a check after it: an archived
+    // endpoint is retained but not served, and the cheapest way to mean that is
+    // for the lookup to simply not find it. A target therefore gets the same
+    // 404 it would get for a path that was never staged, which is also the only
+    // thing it should be able to tell.
     endpoint = await env.DB.prepare(
-      'SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ?'
+      'SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ? AND archived = 0'
     ).bind(route).first();
   } catch (err) {
     logErr('http_endpoint_lookup_failed', { id, route, error: String(err && err.message || err) });

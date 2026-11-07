@@ -212,11 +212,14 @@ function EndpointsTab() {
   // came to look at.
   const [autopilotOpen, setAutopilotOpen] = useState(false);
   const [modal, setModal] = useState(null); // {mode:'edit'|'new', uri?}
+  // Which side of the list is on screen. Archived endpoints are never mixed in
+  // with the working list — the button swaps the view rather than widening it.
+  const [showArchived, setShowArchived] = useState(false);
 
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEndpoints({ search: terms });
+      const r = await API.listEndpoints({ search: terms, archived: showArchived });
       setRows(r);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -226,7 +229,7 @@ function EndpointsTab() {
     } finally {
       setLoading(false);
     }
-  }, [terms, toast]);
+  }, [terms, toast, showArchived]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
@@ -235,7 +238,7 @@ function EndpointsTab() {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].uri;
-      const r = await API.listEndpoints({ search: terms, cursor });
+      const r = await API.listEndpoints({ search: terms, cursor, archived: showArchived });
       setRows((xs) => [...xs, ...r]);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -322,12 +325,28 @@ function EndpointsTab() {
           <span>URI</span>
           <span>Status</span>
         </>}
-        emptyText={search ? "no endpoints match that pattern" : "no endpoints configured"}
-        rightToolbar={
-          <button className="btn primary" onClick={() => setModal({ mode: "new" })}>
-            <span className="plus">+</span> New endpoint
-          </button>
+        emptyText={
+          search
+            ? "no endpoints match that pattern"
+            : showArchived ? "nothing archived" : "no endpoints configured"
         }
+        rightToolbar={<>
+          <button
+            className={`btn${showArchived ? " active" : ""}`}
+            onClick={() => setShowArchived((v) => !v)}
+            aria-pressed={showArchived}
+            title={showArchived ? "Back to the endpoints being served" : "Endpoints kept but not served"}
+          >
+            {showArchived ? "← Endpoints" : "Archive"}
+          </button>
+          {/* Creating one from inside the Archive view would put it straight
+              into the list you are not looking at. */}
+          {!showArchived && (
+            <button className="btn primary" onClick={() => setModal({ mode: "new" })}>
+              <span className="plus">+</span> New endpoint
+            </button>
+          )}
+        </>}
         renderRow={(r) => (r.__group === "autopilot" ? (
           <AutopilotGroupRow
             key="__autopilot"
@@ -415,9 +434,13 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ uri: "", status: 200, headers: "Content-Type: text/plain", body: "" });
+  // `form.uri` is editable in edit mode now, so the path the row is stored
+  // under has to be held separately: every write targets `uri` (the prop, the
+  // row as it exists) and may MOVE it to form.uri.
+  const [form, setForm] = useState({ uri: "", status: 200, headers: "Content-Type: text/plain", body: "", archived: false });
   // An endpoint is EITHER text-backed or file-backed, never both: a hosted file
   // can't be mixed with a hand-written body or a chosen status. `file` is a
   // picked-but-not-yet-uploaded File; `savedFile` is what the row already serves
@@ -440,6 +463,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
         status: d.status,
         headers: headersObjToLines(parsedHeaders),
         body: d.body || "",
+        archived: !!d.archived,
       });
       setSavedFile(d.file || null);
       setLoading(false);
@@ -472,19 +496,51 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
     if (fileInput.current) fileInput.current.value = "";
   };
 
-  const save = async () => {
-    const targetUri = form.uri.trim();
-    if (mode === "new" && !targetUri) { toast("URI is required", "error"); return; }
-    if (mode === "new" && !targetUri.startsWith("/")) { toast("URI must start with /", "error"); return; }
+  // Archive / unarchive. Its own write, and its own button: it is not something
+  // you should have to press Save to apply, and it is the one action here that
+  // changes whether the black hole serves this path at all.
+  const toggleArchive = async () => {
     setSaving(true);
     try {
+      await API.patchEndpoint(uri, { archived: !form.archived });
+      toast(form.archived ? "Endpoint unarchived — it is served again" : "Endpoint archived — it is no longer served", "success");
+      onSaved();
+    } catch (e) {
+      toast((form.archived ? "Unarchive" : "Archive") + " failed: " + e.message, "error");
+      setSaving(false);
+    }
+  };
+
+  const save = async () => {
+    const targetUri = form.uri.trim();
+    if (!targetUri) { toast("URI is required", "error"); return; }
+    if (!targetUri.startsWith("/")) { toast("URI must start with /", "error"); return; }
+
+    // A rename is its own write, and it goes FIRST: if the name is taken the
+    // server answers 409 and nothing has been changed yet, so the modal is
+    // still showing exactly what the operator typed.
+    const renaming = mode === "edit" && targetUri !== uri;
+    if (renaming && isAutopilotUri(targetUri) && !isAutopilotUri(uri)) {
+      const ok = await confirm({
+        title: "Move into Autopilot's prefix",
+        message: `${targetUri} is under ${AUTOPILOT_PREFIX}. Agents will be able to read, replace and delete it, and the monthly cleanup deletes everything under that prefix. Archived endpoints cannot live there at all.`,
+        confirmLabel: "Move it",
+      });
+      if (!ok) return;
+    }
+
+    setSaving(true);
+    try {
+      if (renaming) await API.patchEndpoint(uri, { uri: targetUri });
+
       if (file) {
         // Upload replaces whatever the URI served before, text or an older file.
         await API.uploadEndpointFile(targetUri, file);
       } else if (savedFile) {
-        // Untouched file endpoint: nothing to write. Saving text here would
-        // silently delete the file the row is serving.
-        onClose();
+        // Untouched file endpoint: nothing further to write. Saving text here
+        // would silently delete the file the row is serving. A rename above is
+        // still a change, so the list is refreshed rather than just closed.
+        if (renaming) onSaved(); else onClose();
         return;
       } else {
         await API.saveEndpoint({
@@ -516,18 +572,23 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
           <>
             <div className="field">
               <label>URI</label>
-              {mode === "edit" ? (
-                <div className="readonly-value">{form.uri}</div>
-              ) : (
-                <input
-                  type="text"
-                  placeholder="/api/v1/callback"
-                  value={form.uri}
-                  onChange={(e) => update("uri", e.target.value)}
-                  autoFocus
-                />
-              )}
-              <div className="helper">Path the black hole will serve. Must start with /</div>
+              {/* Editable in both modes. A rename is an ordinary primary-key
+                  update — nothing else in either store is keyed by the URI, so
+                  a file-backed endpoint keeps its object — and the write is
+                  applied by Save, not as you type. */}
+              <input
+                type="text"
+                placeholder="/api/v1/callback"
+                value={form.uri}
+                onChange={(e) => update("uri", e.target.value)}
+                autoFocus={mode === "new"}
+                spellCheck={false}
+              />
+              <div className="helper">
+                {mode === "edit" && form.uri.trim() !== uri
+                  ? <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>
+                  : "Path the black hole will serve. Must start with /"}
+              </div>
             </div>
 
             {fileMode ? (
@@ -588,8 +649,19 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
       </div>
       <div className="modal-foot">
         {mode === "edit" && (
-          <button className="btn danger" onClick={() => onDelete(form.uri)} disabled={saving || loading}>
+          <button className="btn danger" onClick={() => onDelete(uri)} disabled={saving || loading}>
             Delete
+          </button>
+        )}
+        {/* Archive is the undo-able half of Delete, so it sits beside it.
+            Unmounted rather than disabled for an Autopilot endpoint, matching
+            how the file-mode editors are handled: a grayed-out button still
+            invites a click, and this one has nothing to offer. An agent-staged
+            endpoint is deleted, or renamed out of /-/ to become an ordinary
+            endpoint that can then be archived. */}
+        {mode === "edit" && !loading && !isAutopilotUri(uri) && (
+          <button className="btn" onClick={toggleArchive} disabled={saving}>
+            {form.archived ? "Unarchive" : "Archive"}
           </button>
         )}
         <div className="spacer"/>

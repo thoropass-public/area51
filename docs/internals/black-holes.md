@@ -46,9 +46,13 @@ that rule over the API.
 4. `ctx.waitUntil(insertRequestLog(...))`, fire and forget, so D1 latency never
    delays the response. A failure logs `http_log_insert_failed` and the capture is
    lost. There is no retry.
-5. `SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ?` against
-   `url.pathname`. A lookup error logs `http_endpoint_lookup_failed` and is
-   treated as "no match" rather than failing the response.
+5. `SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ? AND
+   archived = 0` against `url.pathname`. A lookup error logs
+   `http_endpoint_lookup_failed` and is treated as "no match" rather than
+   failing the response. An **archived** row is not a match either: it behaves
+   exactly as an absent one, so a target cannot tell the two apart — which is
+   the only thing it should be able to tell.
+
 6. **No row** → `404! Not Found`.
 7. **Row with `r2_key`** (file-backed) → `env.FILES.get(key)` and stream the
    object back with `200` and its own stored `Content-Type` (falling back to

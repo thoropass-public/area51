@@ -109,8 +109,11 @@ const qs = (params) => {
 };
 
 const API = {
-  listEndpoints: ({ cursor, search } = {}) =>
-    apiFetch('/api/endpoints' + qs({ cursor, search })),
+  // `archived` selects which side of the list to read. The two are separate
+  // views, never merged: the working list is unarchived endpoints and the
+  // Archive view is the rest.
+  listEndpoints: ({ cursor, search, archived } = {}) =>
+    apiFetch('/api/endpoints' + qs({ cursor, search, archived: archived ? 1 : undefined })),
   getEndpoint: (uri) =>
     apiFetch(`/api/endpoints/${encodeURIComponent(uri)}`),
   saveEndpoint: ({ uri, status, headers, body }) =>
@@ -118,6 +121,15 @@ const API = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uri, status: Number(status), headers, body }),
+    }),
+  // Rename and/or archive, in one write. `patch` carries `uri` (the new path),
+  // `archived`, or both. 409 comes back for a name that is taken and for an
+  // attempt to archive something under /-/.
+  patchEndpoint: (uri, patch) =>
+    apiFetch(`/api/endpoints/${encodeURIComponent(uri)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
     }),
   deleteEndpoint: (uri) =>
     apiFetch(`/api/endpoints/${encodeURIComponent(uri)}`, { method: 'DELETE' }),

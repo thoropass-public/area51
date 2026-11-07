@@ -1558,6 +1558,11 @@ function resolveInlineImages(html, attachments) {
 
   // Attribute form: src="cid:x", src='cid:x', src=cid:x. Also href and the
   // legacy background attribute, both of which mail HTML still uses.
+  //
+  // `srcset` is NOT covered. Its value is a comma-separated list with width and
+  // density descriptors, so it needs a parser rather than this substitution,
+  // and mail that uses it is rare enough that a half-right replacement would be
+  // worse than none. A cid: reference inside a srcset still renders broken.
   let out = html.replace(
     /(\s(?:src|href|background)\s*=\s*)(["']?)cid:([^"'\s>]+)\2/gi,
     (whole, prefix, quote, cid) => {
@@ -1698,7 +1703,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   // Resolved once per message rather than per render: a message with several
   // inline images base64s every one of them, and the body re-renders on every
   // tab toggle and full-screen press.
-  const view = React.useMemo(
+  const view = useMemo(
     () => (body ? resolveInlineImages(body.parsed.html, body.parsed.attachments) : null),
     [body],
   );

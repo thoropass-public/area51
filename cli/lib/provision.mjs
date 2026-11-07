@@ -220,14 +220,20 @@ export async function applySchema(cf, accountId, databaseId) {
     // a broken ALTER still throws with the statement that broke.
     const addColumn = parseAddColumn(statement);
     if (addColumn) {
-      // pragma_table_info() rather than a bare PRAGMA: it is an ordinary SELECT,
-      // so it goes through D1's query endpoint like everything else here, and
-      // the table name is a bound parameter rather than interpolated SQL.
+      // pragma_table_info() rather than a bare PRAGMA, because it is an
+      // ordinary SELECT and goes through D1's query endpoint like every other
+      // statement here.
+      //
+      // The table name is interpolated rather than bound. A bound parameter
+      // inside a table-valued function argument is accepted by SQLite but is
+      // not a guarantee worth leaning on through D1's HTTP layer, and this runs
+      // in the step that would take `./a51 deploy schema` down with it. There
+      // is no injection surface: the name comes from parseAddColumn, which
+      // matches `[A-Za-z_]\w*` against this repository's own schema file.
       const columns = await cf.d1Rows(
         accountId,
         databaseId,
-        'SELECT name FROM pragma_table_info(?)',
-        [addColumn.table],
+        `SELECT name FROM pragma_table_info('${addColumn.table}')`,
       );
       if (columns.some((c) => c.name === addColumn.column)) {
         skipped += 1;

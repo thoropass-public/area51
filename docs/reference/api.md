@@ -52,6 +52,14 @@ but the method is not, which answers `405` rather than falling through. Real
 endpoint URIs arrive percent-encoded (so a leading `%2F`) and could not collide
 with the literal string `upload` in any case. `router.test.mjs` pins this.
 
+Every `/api/*` response carries `Cache-Control: no-store`. That is not only
+hygiene: an endpoint URI travels inside the path percent-encoded, so a request
+for `/-/payload.js` arrives as `/api/endpoints/%2F-%2Fpayload.js` and ends in a
+cacheable extension. Without the header, Cloudflare's extension-based caching
+and the browser's own heuristics are both free to hold a copy, and the row reads
+back with its previous body after a save while the black hole already serves the
+new one.
+
 ## Requests
 
 | Method | Path | Notes |

@@ -1297,6 +1297,111 @@ function EmailRow({ row, active, matches, onOpen, onToggleRead, onToggleStar }) 
   );
 }
 
+// ---- Inline (cid:) images in a captured email ------------------------------
+//
+// An HTML email that shows a picture inline almost never embeds it. It ships the
+// picture as a MIME part carrying a Content-ID and refers to it as
+// `<img src="cid:whatever@example.com">`. `cid:` is not a scheme a browser can
+// resolve — it only means anything relative to the message the part came from —
+// so the raw HTML renders with a broken image in every mail client that has not
+// been told how to resolve it. Ours had not: the parsed HTML went to the iframe
+// verbatim, and the parts sat in the attachment list instead.
+//
+// Resolving it means rewriting each `cid:` reference to a `data:` URL built from
+// that part's bytes. `data:` is deliberate rather than `blob:`: the dashboard's
+// CSP allows `img-src 'self' data:`, a srcdoc iframe inherits that policy, and
+// widening it to `blob:` to save a base64 pass is not a trade worth making.
+//
+// REMOTE images are left exactly as they are, and the CSP blocks them. That is
+// not an oversight to fix later. A remote image in a captured email is a beacon:
+// loading it tells whoever sent the mail the exact moment an operator opened it,
+// from an address that belongs to the engagement. The viewer reports how many it
+// refused rather than loading them quietly or hiding that it did not.
+
+function base64FromBytes(content) {
+  const bytes = content instanceof Uint8Array ? content : new Uint8Array(content);
+  // Chunked because String.fromCharCode(...bytes) blows the argument limit on
+  // anything bigger than a small icon.
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+// Content-ID arrives as `<id@host>` in the header and is written as `cid:id@host`
+// in the markup, so the angle brackets come off before either side is compared.
+function normalizeCid(v) {
+  return String(v || "").trim().replace(/^</, "").replace(/>$/, "");
+}
+
+// Rewrite every cid: reference in `html` that an attachment can satisfy.
+// Returns the rewritten HTML plus what could not be resolved, which the viewer
+// reports: `missing` is a cid the message referenced but shipped no part for (a
+// genuinely broken email), `remote` is an http(s) image the CSP will refuse.
+function resolveInlineImages(html, attachments) {
+  if (!html) return { html: "", missing: 0, remote: 0 };
+
+  const byCid = new Map();
+  for (const a of attachments || []) {
+    const cid = normalizeCid(a.contentId);
+    if (cid && a.content) byCid.set(cid, a);
+  }
+
+  const dataUrls = new Map();
+  const dataUrlFor = (cid) => {
+    if (dataUrls.has(cid)) return dataUrls.get(cid);
+    const part = byCid.get(cid);
+    let url = null;
+    if (part) {
+      try {
+        url = `data:${part.mimeType || "application/octet-stream"};base64,${base64FromBytes(part.content)}`;
+      } catch {
+        url = null;   // unreadable part: treated as missing, never as a crash
+      }
+    }
+    dataUrls.set(cid, url);
+    return url;
+  };
+
+  let missing = 0;
+  const swap = (cidRaw) => {
+    const url = dataUrlFor(normalizeCid(decodeURIComponent(cidRaw.trim())));
+    if (url) return url;
+    missing++;
+    return null;
+  };
+
+  // Attribute form: src="cid:x", src='cid:x', src=cid:x. Also href and the
+  // legacy background attribute, both of which mail HTML still uses.
+  let out = html.replace(
+    /(\s(?:src|href|background)\s*=\s*)(["']?)cid:([^"'\s>]+)\2/gi,
+    (whole, prefix, quote, cid) => {
+      const url = swap(cid);
+      return url ? `${prefix}${quote || '"'}${url}${quote || '"'}` : whole;
+    },
+  );
+
+  // CSS form: url(cid:x) in a style attribute or a <style> block.
+  out = out.replace(
+    /url\(\s*(["']?)cid:([^"')\s]+)\1\s*\)/gi,
+    (whole, quote, cid) => {
+      const url = swap(cid);
+      return url ? `url(${quote || '"'}${url}${quote || '"'})` : whole;
+    },
+  );
+
+  const remote = (out.match(/\s(?:src|background)\s*=\s*["']?https?:\/\//gi) || []).length;
+
+  // `<base target="_blank">` is what makes a link in a captured email open in a
+  // new tab instead of trying to navigate the frame. It is injected rather than
+  // written onto each anchor because it also covers markup we never see, and a
+  // message that sets its own <base> keeps it: the first one in the document
+  // wins, so prepending ours only affects documents that declared none.
+  return { html: `<base target="_blank">${out}`, missing, remote };
+}
+
 function EmailModal({ id, starred, onToggleStar, onClose }) {
   const toast = useToast();
   const confirm = useConfirm();
@@ -1342,6 +1447,12 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
             mimeType: a.mimeType || "application/octet-stream",
             content: a.content,
             size: a.content ? (a.content.byteLength || a.content.length || 0) : 0,
+            // Kept so resolveInlineImages can match a `cid:` reference to the
+            // part that satisfies it. `related` is postal-mime's own flag for a
+            // part the HTML points at, and is what the attachment list uses to
+            // say so rather than listing it as a plain file.
+            contentId: a.contentId || "",
+            related: !!a.related,
           })),
         };
         setBody({ buf, parsed });
@@ -1403,6 +1514,14 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
   const hasHtml = !!(body && body.parsed.html);
   const hasText = !!(body && body.parsed.text);
 
+  // Resolved once per message rather than per render: a message with several
+  // inline images base64s every one of them, and the body re-renders on every
+  // tab toggle and full-screen press.
+  const view = React.useMemo(
+    () => (body ? resolveInlineImages(body.parsed.html, body.parsed.attachments) : null),
+    [body],
+  );
+
   const bothBodies = hasHtml && hasText;
   // Body view: HTML/Plain switcher only when BOTH parts exist; with one part it's
   // just shown; with neither, a "no body" notice. The full-screen toggle is
@@ -1437,7 +1556,36 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     </div>
   ) : (hasHtml && (!hasText || bodyView === "html")) ? (
     <div className="iframe-wrap">
-      <iframe sandbox="" srcDoc={body.parsed.html} title="email html"/>
+      {view && view.remote > 0 && (
+        <div className="notice">
+          <span className="glyph">∅</span>
+          <span>
+            {view.remote} remote image{view.remote === 1 ? "" : "s"} blocked. Loading one would
+            tell the sender you opened this. <strong>Download raw</strong> has the untouched message.
+          </span>
+        </div>
+      )}
+      {view && view.missing > 0 && (
+        <div className="notice">
+          <span className="glyph">!</span>
+          <span>
+            {view.missing} inline image{view.missing === 1 ? "" : "s"} referenced but not attached
+            to the message.
+          </span>
+        </div>
+      )}
+      {/* Scripts stay off: no allow-scripts, no allow-same-origin, so the frame
+          keeps its opaque origin and cannot reach the dashboard around it.
+          allow-popups plus allow-popups-to-escape-sandbox is what lets a link
+          open in a real new tab — without the second flag the new tab inherits
+          the sandbox and lands on a blank page. Browsers only honour it on a
+          genuine click, and target=_blank implies noopener everywhere current,
+          so the opened page gets no handle back to this one. */}
+      <iframe
+        sandbox="allow-popups allow-popups-to-escape-sandbox"
+        srcDoc={view ? view.html : ""}
+        title="email html"
+      />
     </div>
   ) : hasText ? (
     <pre className="code-block wrap">{body.parsed.text}</pre>

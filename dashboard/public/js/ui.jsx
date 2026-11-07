@@ -68,7 +68,11 @@ function isEdgeAuthResponse(resp, bodyLooksRight) {
 // ---- API client ----
 
 async function apiFetch(path, init) {
-  const resp = await fetch(path, { redirect: 'manual', ...init });
+  // `no-store` on both sides. The server sends it too (src/api/shared.js), but
+  // the two cover different things: the header governs what may be kept, this
+  // governs whether the browser is allowed to answer from a copy it already
+  // has, including one taken before the header was ever sent.
+  const resp = await fetch(path, { redirect: 'manual', cache: 'no-store', ...init });
   const ct = resp.headers.get('content-type') || '';
   const isJson = ct.includes('application/json');
   if (isEdgeAuthResponse(resp, isJson)) {
@@ -180,7 +184,7 @@ const API = {
   // Bypasses apiFetch (non-JSON body), so it repeats the edge-session guard:
   // an HTML body here means the Access login page, not an email.
   getEmailRaw: async (id) => {
-    const resp = await fetch(`/api/emails/${encodeURIComponent(id)}/raw`, { redirect: 'manual' });
+    const resp = await fetch(`/api/emails/${encodeURIComponent(id)}/raw`, { redirect: 'manual', cache: 'no-store' });
     const ct = resp.headers.get('content-type') || '';
     if (isEdgeAuthResponse(resp, !ct.includes('text/html'))) {
       reloadForExpiredSession();

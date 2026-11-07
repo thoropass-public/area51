@@ -43,7 +43,7 @@ generates.
 
 This is defence in depth, not a fix. Both places the dashboard renders
 attacker-controlled content already handle it: a captured email's HTML body goes
-into `<iframe sandbox="" srcdoc>` (opaque origin, no scripts, no forms), and a
+into a sandboxed `srcdoc` iframe (opaque origin, no scripts, no forms), and a
 captured request body is HTML-escaped before `highlightJson` wraps tokens in
 spans.
 
@@ -212,7 +212,7 @@ same for the **From** address.
 
 **Emails.** Opening a message shows the envelope metadata from the database and
 immediately fetches the raw `.eml`, parsing it in the browser. The body renders
-the **HTML part** in a strict `sandbox=""` iframe if present, else the plain-text
+the **HTML part** in a near-strict sandboxed iframe if present, else the plain-text
 part in a `<pre>`, else a "no body" notice; when both exist an HTML / Plain
 switcher appears. Full headers (collapsible) and a clickable attachment list (each
 downloads its decoded bytes as a Blob) come from the same parse. A **full-screen
@@ -279,14 +279,46 @@ filter change cannot land late and clobber the filtered view.
 Email HTML is rendered as:
 
 ```jsx
-<iframe sandbox="" srcDoc={parsed.html} title="email html"/>
+<iframe
+  sandbox="allow-popups allow-popups-to-escape-sandbox"
+  srcDoc={resolveInlineImages(parsed.html, parsed.attachments).html}
+  title="email html"
+/>
 ```
 
-`sandbox=""` with no tokens is the strictest sandbox: no scripts, no same-origin
-access, no form submission, no top-level navigation. Email arrives from
-attackers by definition. **Do not relax this.**
+The sandbox carries exactly two tokens, and what it still withholds is the part
+that matters: **no `allow-scripts`**, so nothing in the message executes; **no
+`allow-same-origin`**, so the frame keeps an opaque origin and can reach neither
+the dashboard's DOM nor its cookies; **no `allow-forms`**; and no
+`allow-top-navigation`, so the message cannot move the tab under you. Email
+arrives from attackers by definition. **Those four stay off.**
+
+The two that are on exist so a link in a captured email opens in a new tab,
+which it previously could not do at all — `sandbox=""` blocks the navigation and
+the click does nothing. `allow-popups` permits the new tab;
+`allow-popups-to-escape-sandbox` is what stops that tab inheriting the sandbox
+and landing on a blank page. Both are gated on a real user gesture by every
+current browser, and `target="_blank"` implies `noopener`, so the opened page
+gets no handle back. The `<base target="_blank">` that directs links there is
+injected by `resolveInlineImages`.
 
 Captured request bodies and headers are rendered as text, never as markup.
+
+### Inline images
+
+An HTML email that shows a picture inline ships it as a MIME part with a
+Content-ID and refers to it as `<img src="cid:...">`. No browser resolves `cid:`,
+so until `resolveInlineImages` existed every one of them rendered broken while
+the part sat in the attachment list. It rewrites each reference the message can
+satisfy — attribute form and CSS `url()` — to a `data:` URL built from that
+part's bytes. `data:` rather than `blob:` because the CSP already allows
+`img-src 'self' data:` and a srcdoc iframe inherits it.
+
+**Remote images are deliberately not loaded**, and the CSP is what refuses them.
+A remote image in a captured email is a beacon: fetching it tells whoever sent
+the message the moment an operator opened it, from an address belonging to the
+engagement. The viewer reports the count it blocked, and the count the message
+referenced but never attached, rather than leaving either looking like a bug.
 
 ## Expired session handling
 

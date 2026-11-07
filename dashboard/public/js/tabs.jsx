@@ -497,8 +497,10 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
       if (renaming) await API.patchEndpoint(uri, { uri: targetUri });
 
       if (file) {
-        // Upload replaces whatever the URI served before, text or an older file.
-        await API.uploadEndpointFile(targetUri, file);
+        // Replaces whatever the URI served before, text or an older file, but
+        // only for an endpoint that was opened. Creating one at a path that is
+        // already taken is refused, the same as a rename onto it would be.
+        await API.uploadEndpointFile(targetUri, file, mode === "new");
       } else if (savedFile) {
         // Untouched file endpoint: nothing further to write. Saving text here
         // would silently delete the file the row is serving. A rename above is
@@ -511,6 +513,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
           status: Number(form.status) || 200,
           headers: form.headers,
           body: form.body,
+          create: mode === "new",
         });
       }
       onSaved();

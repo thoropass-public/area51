@@ -248,6 +248,11 @@ There is deliberately **no hint in the interface** that the term exists, and no
 count of what is hidden. `{n} loaded` counts the rows on screen, which in the
 default list means hand-written endpoints only.
 
+**Creating is not the same write as saving.** Both go through the same upsert,
+so the New endpoint modal sends `create` and the server answers `409` on a URI
+that is already taken instead of overwriting the row that holds it. Renaming
+onto a taken path was already refused; this makes the two answers agree.
+
 The modal is in exactly one of two states. In **text mode** it shows Headers /
 Status / Body editors plus a **Serve a file** drop target ("Drop a file here or
 click to browse"). Attaching a file switches to

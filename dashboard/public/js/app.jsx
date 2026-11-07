@@ -163,7 +163,7 @@ function chipPlacement(i, n) {
 
 function Home({ setTab }) {
   const tiles = [
-    { id: "endpoints", num: "01", title: "Endpoints", desc: "Define what gets served to the target — status, headers, body. Use as callback URLs, SSRF probes, OAuth redirects, payload hosts." },
+    { id: "endpoints", num: "01", title: "Endpoints", desc: "Define what gets served to the target: status, headers, body. Use as callback URLs, SSRF probes, OAuth redirects, payload hosts." },
     { id: "requests",  num: "02", title: "Requests",  desc: "Every HTTP hit on the worker, raw. Inspect method, URL, IP, headers and body." },
     { id: "emails",    num: "03", title: "Emails",    desc: "Inbound emails are received and parsed entirely client-side, with HTML bodies rendered in a sandboxed context to contain untrusted content." },
   ];
@@ -216,7 +216,7 @@ function Home({ setTab }) {
                     aria-pressed={eligible ? selected : undefined}
                     title={eligible
                       ? (selected ? `${d.addr} is the default host for copied URLs` : `Set ${d.addr} as the default host`)
-                      : `${d.addr} serves mail only — can't be a default host`}
+                      : `${d.addr} serves mail only, so it can't be a default host`}
                   >
                     <span className="dot"/>
                     <span className="addr">{d.addr}</span>
@@ -232,7 +232,7 @@ function Home({ setTab }) {
 
         <div className="home-intro">
           <p className="lede">
-            Welcome to <b>AREA 51</b> — restricted airspace for out-of-band callbacks.
+            Welcome to <b>AREA 51</b>, restricted airspace for out-of-band callbacks.
           </p>
           <p>
             This is the management console for your callback infrastructure. Use it to host custom
@@ -365,7 +365,7 @@ function BlacklistManager({ title, caption, placeholder, values, onAdd, onRemove
       </div>
 
       {values.length === 0 ? (
-        <div className="bl-empty">No entries — list is empty.</div>
+        <div className="bl-empty">No entries. The list is empty.</div>
       ) : (
         <ul className="bl-list">
           {values.map((v) => (

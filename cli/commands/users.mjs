@@ -59,12 +59,12 @@ export async function run(args) {
 
 /** Read-only. No key material exists to print, so this is safe to run anywhere. */
 async function list({ env, cf, accountId }) {
-  heading(`Operators ${color.dim(`— database ${env.D1_DATABASE_NAME}`)}`);
+  heading(`Operators ${color.dim(`database ${env.D1_DATABASE_NAME}`)}`);
   const users = await listUsers(cf, accountId, env.D1_DATABASE_ID);
 
   if (!users.length) {
     plain('');
-    warn('no operators — the dashboard is closed to everyone and Autopilot rejects every key');
+    warn('no operators, so the dashboard is closed to everyone and Autopilot rejects every key');
     hint('Add one with `./a51 users add`');
     plain('');
     return 0;
@@ -101,7 +101,7 @@ async function add({ env, cf, accountId }, emailArg) {
     die([
       `${email} is already an operator.`,
       '',
-      '  Their key cannot be shown again — only its hash is stored. To give them a',
+      '  Their key cannot be shown again, because only its hash is stored. To give them a',
       '  working key, issue a new one:',
       `    ./a51 users rotate-key ${email}`,
     ].join('\n'));
@@ -131,11 +131,11 @@ async function remove({ env, cf, accountId }, emailArg) {
   step(`Remove operator ${email}`);
   plain('');
   plain('  Their Autopilot key stops working immediately. They lose the dashboard as');
-  plain('  soon as their current Access session expires — revoke it in Zero Trust to');
+  plain('  soon as their current Access session expires. Revoke it in Zero Trust to');
   plain('  cut it short.');
   if (last) {
     plain('');
-    warn(`${email} is the last operator — the dashboard will be closed to everyone.`);
+    warn(`${email} is the last operator, so the dashboard will be closed to everyone.`);
   }
   plain('');
   if (!(await confirm(`  Remove ${color.bold(email)}?`, false))) {
@@ -145,7 +145,7 @@ async function remove({ env, cf, accountId }, emailArg) {
   }
 
   await cf.d1Query(accountId, env.D1_DATABASE_ID, 'DELETE FROM users WHERE email = ?', [email]);
-  ok('removed from the users table — their Autopilot key is now dead');
+  ok('removed from the users table, so their Autopilot key is now dead');
 
   const pushed = await pushFromD1({ env, cf, accountId }, { previousCount: before.length });
   plain('');
@@ -185,12 +185,12 @@ async function rotate({ env, cf, accountId }, emailArg) {
   }
 
   const minted = await upsertUser(cf, accountId, env.D1_DATABASE_ID, email);
-  ok(`issued key ${color.dim(minted.keyId)} — ${color.dim(existing.key_id)} is revoked`);
+  ok(`issued key ${color.dim(minted.keyId)}; ${color.dim(existing.key_id)} is revoked`);
 
   // No push. Rotation changes key_id and key_hash; the email set is untouched,
   // and the Access list mirrors the email column only. Cloudflare has nothing to
   // learn from this operation.
-  info(color.dim('dashboard access is unchanged — Access authenticates the address, not the key'));
+  info(color.dim('dashboard access is unchanged, because Access authenticates the address, not the key'));
 
   printKey(env, email, minted.key, 'Their new key');
   closePrompts();
@@ -233,7 +233,7 @@ async function resolveEmail(emailArg, question) {
  */
 async function pushFromD1({ env, cf, accountId }, opts = {}) {
   if (!env.DASHBOARD_HOSTNAME) {
-    warn('DASHBOARD_HOSTNAME is not set — skipping the Cloudflare side');
+    warn('DASHBOARD_HOSTNAME is not set, so skipping the Cloudflare side');
     hint('Run `./a51 setup` first, then `./a51 users sync`.');
     return false;
   }
@@ -297,12 +297,12 @@ function reportDrift(emails, onList) {
  */
 function printKey(env, email, key, label) {
   plain('');
-  heading(`${label} ${color.dim(`— shown once, ${color.bold('now')}`)}`);
+  heading(`${label} ${color.dim(`shown once, ${color.bold('now')}`)}`);
   plain('');
   plain(`    ${color.bold(color.green(key))}`);
   plain('');
   plain(`  ${color.yellow('Copy it before this scrolls away.')} Only a hash is stored, so it cannot be`);
-  plain(`  shown again — a lost key is replaced with \`./a51 users rotate-key ${email}\`.`);
+  plain(`  shown again. A lost key is replaced with \`./a51 users rotate-key ${email}\`.`);
   plain('');
   if (env.AUTOPILOT_HOSTNAME) {
     plain(`  ${color.bold('They register Autopilot with:')}`);
@@ -311,7 +311,7 @@ function printKey(env, email, key, label) {
     plain('');
   }
   if (env.DASHBOARD_HOSTNAME) {
-    plain(`  The dashboard needs no key — Cloudflare Access emails ${color.cyan(email)} a`);
+    plain(`  The dashboard needs no key. Cloudflare Access emails ${color.cyan(email)} a`);
     plain(`  one-time PIN at ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)}.`);
     plain('');
   }

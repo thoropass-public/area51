@@ -49,7 +49,7 @@ export async function getEndpoint({ params, env }) {
 // is not the only thing that can call this:
 //
 //   * An endpoint under /-/ cannot be archived. Agent-staged endpoints are
-//     deleted or converted — renaming one out of the prefix is the conversion,
+//     deleted or converted. Renaming one out of the prefix is the conversion,
 //     and that is also what takes it out of Autopilot's reach and out of the
 //     monthly purge. Archiving one would leave a row that is agent-owned,
 //     unserved, and purged next month regardless, which is three different
@@ -80,7 +80,7 @@ export async function patchEndpoint({ params, request, env }) {
 
   // An archived row is frozen. The ONE write it accepts is the one that
   // unarchives it, so a rename is refused here even though the same call could
-  // technically carry both — "unarchive and move it somewhere else" is two
+  // technically carry both. "Unarchive and move it somewhere else" is two
   // decisions, and the second one belongs to an endpoint that is being served.
   if (row.archived && nextUri !== uri) return errResp(ARCHIVED_FROZEN, 409);
 

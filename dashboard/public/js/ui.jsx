@@ -36,7 +36,7 @@ const SESSION_RELOAD_KEY = 'area51:sessionReloadAt';
 const SESSION_RELOAD_COOLDOWN_MS = 15000;
 // Delay so the error toast paints before the navigation tears the page down.
 const SESSION_RELOAD_DELAY_MS = 900;
-const SESSION_EXPIRED_MESSAGE = 'session expired — reloading…';
+const SESSION_EXPIRED_MESSAGE = 'session expired, reloading…';
 
 let _reloadingForSession = false;
 

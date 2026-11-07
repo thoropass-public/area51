@@ -80,7 +80,7 @@ export async function verifyToken(cf) {
   try {
     const result = await cf.verifyToken();
     if (result && result.status !== 'active') {
-      warn(`the API token status is "${result.status}" — expected "active".`);
+      warn(`the API token status is "${result.status}", expected "active".`);
       return false;
     }
     ok('API token is valid and active');

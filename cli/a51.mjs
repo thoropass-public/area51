@@ -44,7 +44,7 @@ const COMMANDS = {
   },
   users: {
     module: './commands/users.mjs',
-    summary: 'manage operators — dashboard access and Autopilot keys, together',
+    summary: 'manage operators: dashboard access and Autopilot keys, together',
     usage: [
       './a51 users [list]                          who has access, and their key ids',
       '  ./a51 users add [email]                     add an operator and mint their key',
@@ -59,7 +59,7 @@ const COMMANDS = {
       '  for the dashboard, and their API key authenticates agents to Autopilot.',
       '  The D1 users table is the source of truth for both, and the only thing',
       '  these commands write; the Cloudflare allow-list is a projection of it.',
-      '  Keys are shown once, when minted — only a hash is stored, so a lost key',
+      '  Keys are shown once, when minted. Only a hash is stored, so a lost key',
       '  is rotated, never recovered.',
     ].join('\n'),
   },
@@ -77,7 +77,7 @@ const COMMANDS = {
 
 function usage() {
   plain('');
-  plain(`${color.bold('AREA 51')} — the exploit server for out-of-band findings`);
+  plain(`${color.bold('AREA 51')}: the exploit server for out-of-band findings`);
   plain('');
   plain(`  ${color.dim('usage:')} ./a51 <command> [options]`);
   plain('');
@@ -121,7 +121,7 @@ async function main() {
   if (!command || argv.includes('--help') || argv.includes('-h')) {
     if (command && COMMANDS[command]) {
       plain('');
-      plain(`  ${color.bold(command)} — ${COMMANDS[command].summary}`);
+      plain(`  ${color.bold(command)}  ${COMMANDS[command].summary}`);
       plain('');
       plain(`  ${COMMANDS[command].usage}`);
       plain('');
@@ -156,7 +156,7 @@ main()
       console.error(`${color.red('Cloudflare API error')} on ${err.method} ${err.path}`);
       console.error(`  ${err.message}`);
       if (err.status === 403 || err.status === 401) {
-        console.error(`  ${color.dim('This usually means the API token is missing a permission — see docs/guides/getting-started.md#api-token.')}`);
+        console.error(`  ${color.dim('This usually means the API token is missing a permission. See docs/guides/getting-started.md#api-token.')}`);
       }
     } else {
       console.error(`${color.red('error')} ${err && err.message ? err.message : err}`);

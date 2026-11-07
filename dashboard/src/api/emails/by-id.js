@@ -24,7 +24,7 @@ export async function patchEmail({ params, request, env }) {
   const values = [];
   if ('read' in body) { sets.push('read = ?'); values.push(body.read ? 1 : 0); }
   if ('starred' in body) { sets.push('starred = ?'); values.push(body.starred ? 1 : 0); }
-  if (!sets.length) return errResp('Nothing to update — provide read and/or starred', 400);
+  if (!sets.length) return errResp('Nothing to update. Provide read and/or starred', 400);
 
   values.push(params.id);
   const res = await env.DB.prepare(

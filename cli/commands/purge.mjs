@@ -31,7 +31,7 @@ export async function run() {
   const { env, cf, accountId } = await loadContext({ needDatabase: true });
   const dbId = env.D1_DATABASE_ID;
 
-  heading('AREA 51 — purge');
+  heading('AREA 51 purge');
   const choice = await select('What should be purged?', [
     { value: 'requests', label: 'Requests', hint: 'older than N days (D1 only)' },
     { value: 'emails', label: 'Emails', hint: 'older than N days (D1 rows + their .eml in R2)' },
@@ -77,7 +77,7 @@ async function purgeEmails(cf, accountId, dbId, bucket) {
   plain(`    · ${rows.length} object${rows.length === 1 ? '' : 's'} deleted from R2 bucket ${bucket}`);
   plain(`    · ${rows.length} row${rows.length === 1 ? '' : 's'} deleted from D1 "emails"`);
   plain(`    · starred email is excluded and kept`);
-  if (!(await typeToConfirm('PURGE', 'This cannot be undone — the raw messages are gone.'))) {
+  if (!(await typeToConfirm('PURGE', 'This cannot be undone. The raw messages are gone.'))) {
     plain('  Canceled.');
     return 1;
   }
@@ -90,7 +90,7 @@ async function purgeEmails(cf, accountId, dbId, bucket) {
       deleted.push(row.id);
     } catch (err) {
       failures += 1;
-      warn(`R2 delete failed for emails/${row.id}.eml (${err.message}) — its row is kept so it can be retried`);
+      warn(`R2 delete failed for emails/${row.id}.eml (${err.message}), so its row is kept to be retried`);
     }
   }
   ok(`deleted ${deleted.length} .eml object${deleted.length === 1 ? '' : 's'} from R2${failures ? `, ${failures} failed` : ''}`);

@@ -7,7 +7,7 @@ export async function listEndpoints({ request, env }) {
 
   // The list is one side or the other, never both: `?archived=1` is the Archive
   // view, anything else is the working list. There is no mixed mode and no
-  // count of the other side — that would be a second query, and the only honest
+  // count of the other side, which would be a second query. The only honest
   // cheap answer to "how many are archived" is the one the Archive view gives
   // by showing them.
   const archived = url.searchParams.get('archived') === '1' ? 1 : 0;

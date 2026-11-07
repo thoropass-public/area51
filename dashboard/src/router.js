@@ -3,7 +3,7 @@
 // On Cloudflare Pages this file did not exist: Pages Functions derived the whole
 // route table from the shape of the `functions/` directory, with `[id]` naming a
 // dynamic segment and the export name (`onRequestGet`) naming the method.
-// Workers has no such convention — a Worker is one `fetch` handler — so the
+// Workers has no such convention, since a Worker is one `fetch` handler, so the
 // table that used to be implicit in the filesystem is written down here.
 //
 // Two things about the way it is written down are deliberate.
@@ -15,12 +15,12 @@
 // convention nobody can see: append a route in the wrong place and
 // `GET /api/endpoints/upload` starts doing a D1 lookup for an endpoint literally
 // named "upload". So the literal paths are held in their own table and settled
-// FIRST — including the case where the path is declared but the method is not,
+// FIRST, including the case where the path is declared but the method is not,
 // which answers 405 rather than falling through to `:uri`. Position within
 // ROUTES cannot affect any of this.
 //
 // **Matching is done on the raw pathname, by segment.** No URLPattern, no regex.
-// Endpoint URIs reach this API percent-encoded in a path segment — the dashboard
+// Endpoint URIs reach this API percent-encoded in a path segment. The dashboard
 // sends `encodeURIComponent('/-/callback')`, so the request path is
 // `/api/endpoints/%2F-%2Fcallback`. `url.pathname` preserves that encoding
 // verbatim, and splitting on `/` therefore yields exactly one segment for the
@@ -88,7 +88,7 @@ export function buildRouter(routes) {
    */
   return function match(method, pathname) {
     // 1. Literal paths, first and last word on the paths they cover. A declared
-    //    literal path that does not serve this method is a 405 — it must not
+    //    literal path that does not serve this method is a 405, and it must not
     //    fall through to a parameter route that happens to have the same shape.
     const byMethod = literal.get(pathname);
     if (byMethod) {

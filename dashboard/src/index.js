@@ -12,8 +12,8 @@
 //
 //   [assets] run_worker_first = ["/api/*"]
 //
-// Only `/api/*` invokes this code. Every static file — index.html, styles.css,
-// the three .jsx files, the favicon — is served by Cloudflare's asset layer
+// Only `/api/*` invokes this code. Every static file (index.html, styles.css,
+// the three .jsx files, the favicon) is served by Cloudflare's asset layer
 // without ever entering this Worker, and requests to static assets are free and
 // unlimited on both the Free and Paid plans. `run_worker_first = true` would
 // make every one of them a billable Worker invocation for no benefit; the
@@ -52,7 +52,7 @@ import { listEmails as listBlacklistEmails, addEmail as addBlacklistEmail } from
 import { deleteEmail as deleteBlacklistEmail } from './api/blacklist/emails/by-email.js';
 
 // [method, path, handler]. `:name` is a dynamic segment, delivered to the
-// handler in `params.name` still percent-encoded — the handlers decode it
+// handler in `params.name` still percent-encoded. The handlers decode it
 // themselves, exactly as they did under Pages. Grouping is for reading only;
 // static-versus-dynamic precedence is handled by the router's structure, not by
 // the order of this list.
@@ -69,7 +69,7 @@ const ROUTES = [
   ['GET',    '/api/endpoints',                  listEndpoints],
   ['POST',   '/api/endpoints',                  upsertEndpoint],
   // Static sibling of /api/endpoints/:uri. It is reached first because static
-  // routes live in their own lookup table — see router.js.
+  // routes live in their own lookup table; see router.js.
   ['POST',   '/api/endpoints/upload',           uploadEndpointFile],
   ['GET',    '/api/endpoints/:uri',             getEndpoint],
   ['PATCH',  '/api/endpoints/:uri',             patchEndpoint],
@@ -94,7 +94,7 @@ export default {
 
     // Only /api/* should ever arrive here (run_worker_first). Anything else
     // means the asset routing was misconfigured, and answering 404 is both
-    // honest and cheap — there is no ASSETS binding to fall back to.
+    // honest and cheap, because there is no ASSETS binding to fall back to.
     if (url.pathname !== '/api' && !url.pathname.startsWith('/api/')) {
       return errResp('Not found', 404);
     }

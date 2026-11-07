@@ -2,7 +2,7 @@ export const PAGE_SIZE = 50;
 
 // Autopilot's fence, mirrored here. The Autopilot worker enforces it on its own
 // side and is the authority; this copy exists so the dashboard can apply the
-// rules that follow FROM an endpoint being agent-staged — it cannot be
+// rules that follow FROM an endpoint being agent-staged. It cannot be
 // archived, and renaming it out of the prefix is what converts it into an
 // ordinary endpoint.
 export const AUTOPILOT_PREFIX = '/-/';
@@ -13,7 +13,7 @@ export const AUTOPILOT_PREFIX = '/-/';
 // being served, so that unarchiving puts back what you archived rather than
 // whatever was edited into it meanwhile. Allowing edits would also mean a path
 // could be rewritten, re-bodied or re-filed while nothing on the black hole
-// reflected any of it — a draft hiding inside a retention feature.
+// reflected any of it, which is a draft hiding inside a retention feature.
 //
 // Enforced on every write path rather than in the modal, because the modal is
 // not the only caller.

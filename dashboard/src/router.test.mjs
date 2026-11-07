@@ -3,7 +3,7 @@
 //
 // AREA 51 has no test suite. `./a51 doctor` is how a deployment is verified: it
 // checks every binding, domain and policy, and probes the live hosts. That works
-// because almost everything here fails loudly — a missing binding 500s, an
+// because almost everything here fails loudly: a missing binding 500s, an
 // unbound hostname answers 530, a broken worker does not deploy.
 //
 // Route precedence is the exception. When Pages derived routes from the
@@ -22,7 +22,7 @@
 //
 // The route table is PARSED OUT of index.js rather than restated here, so a
 // route added there is covered here automatically and the two cannot drift.
-// Being inside src/ is deliberate — it sits next to what it tests, and wrangler
+// Being inside src/ is deliberate. It sits next to what it tests, and wrangler
 // only bundles what index.js imports, so it never ships. It must never move to
 // public/, which is served.
 
@@ -34,7 +34,7 @@ const src = readFileSync(indexPath, 'utf8');
 
 const block = src.match(/const ROUTES = \[([\s\S]*?)\n\];/);
 if (!block) {
-  console.error('could not find `const ROUTES = [...]` in src/index.js — has the table been renamed?');
+  console.error('could not find `const ROUTES = [...]` in src/index.js. Has the table been renamed?');
   process.exit(1);
 }
 

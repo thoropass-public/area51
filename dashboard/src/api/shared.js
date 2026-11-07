@@ -1,12 +1,26 @@
 export const PAGE_SIZE = 50;
 
-export function json(data, init) {
-  return Response.json(data, init);
+// Every /api/* response carries `no-store`, and that is load-bearing rather
+// than hygiene. An endpoint URI reaches this API inside the path, percent-
+// encoded — `/-/payload.js` arrives as `/api/endpoints/%2F-%2Fpayload.js` — so
+// a request for an endpoint whose URI ends in a cacheable extension ends in one
+// too, and both Cloudflare's extension-based caching and the browser's own
+// heuristics are free to hold a copy of a response that declares no freshness
+// at all. The symptom is a row that keeps reading back with its previous body
+// after a save, while the black hole, on another host, already serves the new
+// one. `raw.js` has always set it; the JSON API never did.
+//
+// Nothing under /api/* is cacheable in any case: it is per-operator data behind
+// Access that changes the moment anything writes.
+const NO_STORE = { 'Cache-Control': 'no-store' };
+
+export function json(data, init = {}) {
+  return Response.json(data, { ...init, headers: { ...NO_STORE, ...(init.headers || {}) } });
 }
 
 // `headers` carries the few cases that need one, such as `Allow` on a 405.
 export function errResp(message, status, headers) {
-  return Response.json({ error: message }, headers ? { status, headers } : { status });
+  return Response.json({ error: message }, { status, headers: { ...NO_STORE, ...(headers || {}) } });
 }
 
 // ---- Endpoint file uploads (FILES R2 binding) ----

@@ -288,7 +288,7 @@ page in the same commit:
 
 | Tier | Holds | Update it when you change… |
 |---|---|---|
-| [docs/guides/](docs/guides/) | getting-started, verify-deployment, usage, operations, troubleshooting | setup steps, an operator workflow, a failure mode |
+| [docs/guides/](docs/guides/) | getting-started, verify-deployment, usage, operations, troubleshooting, upgrading | setup steps, an operator workflow, a failure mode, anything an existing deployment has to do by hand to take a new version |
 | [docs/reference/](docs/reference/) | cli, configuration, api, database | a command or flag, a `.env` value, a route, a column |
 | [docs/internals/](docs/internals/) | architecture, black-holes, autopilot, dashboard, cleanup | how a runtime piece behaves |
 

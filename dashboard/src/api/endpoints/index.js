@@ -74,6 +74,17 @@ export async function upsertEndpoint({ request, env }) {
   const bodyText = typeof body === 'string' ? body : '';
 
   const existing = await env.DB.prepare('SELECT r2_key, archived FROM endpoints WHERE uri = ?').bind(uri).first();
+
+  // `create: true` turns this upsert into an insert, and the dashboard sends it
+  // from the New endpoint modal only.
+  //
+  // The write itself has to stay an upsert, because saving an edit is the same
+  // call. But the two intents are not the same: saving an edit means "this row,
+  // with these values", while creating means "a row that does not exist yet".
+  // Without the flag the second silently became the first, so typing a path
+  // that already existed overwrote it with no warning, while RENAMING onto the
+  // same path was refused. Same collision, two different answers.
+  if (existing && payload.create === true) return errResp(`${uri} already exists`, 409);
   // An upsert onto an archived row would quietly edit something that is not
   // being served, and leave it archived. Refused rather than silently
   // unarchived: resurrecting an endpoint is a decision, not a side effect of

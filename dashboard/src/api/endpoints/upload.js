@@ -65,6 +65,14 @@ export async function uploadEndpointFile({ request, env }) {
   // The object this URI currently points at (if any). It is deleted after the
   // row is successfully repointed at the new key.
   const existing = await env.DB.prepare('SELECT r2_key, archived FROM endpoints WHERE uri = ?').bind(uri).first();
+
+  // Same rule as the text path, and checked before anything streams to R2 so a
+  // refusal leaves no object behind. Attaching a file to an endpoint you opened
+  // is a replacement and stays allowed; naming a path that already exists in the
+  // New endpoint modal is not.
+  if (existing && url.searchParams.get('create') === '1') {
+    return errResp(`${uri} already exists`, 409);
+  }
   // Checked BEFORE the object is written, not after: the refusal has to cost
   // nothing, and an upload that streamed into R2 first would leave a stray key
   // behind on every attempt.

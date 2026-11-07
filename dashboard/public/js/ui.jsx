@@ -124,11 +124,14 @@ const API = {
     })),
   getEndpoint: (uri) =>
     apiFetch(`/api/endpoints/${encodeURIComponent(uri)}`),
-  saveEndpoint: ({ uri, status, headers, body }) =>
+  // `create` is the difference between "a row that does not exist yet" and
+  // "this row, with these values". Sent from the New endpoint modal only, and
+  // the server answers 409 rather than overwriting whatever was already there.
+  saveEndpoint: ({ uri, status, headers, body, create }) =>
     apiFetch('/api/endpoints', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uri, status: Number(status), headers, body }),
+      body: JSON.stringify({ uri, status: Number(status), headers, body, ...(create ? { create: true } : {}) }),
     }),
   // Rename and/or archive, in one write. `patch` carries `uri` (the new path),
   // `archived`, or both. 409 comes back for a name that is taken and for an
@@ -145,8 +148,8 @@ const API = {
   // the bytes stream into R2 without being buffered. Status/headers/body are
   // owned by the server for these, which is why none are sent. The filename is
   // URI-encoded because header values must stay ASCII.
-  uploadEndpointFile: (uri, file) =>
-    apiFetch(`/api/endpoints/upload?uri=${encodeURIComponent(uri)}`, {
+  uploadEndpointFile: (uri, file, create) =>
+    apiFetch(`/api/endpoints/upload?uri=${encodeURIComponent(uri)}${create ? '&create=1' : ''}`, {
       method: 'POST',
       headers: {
         'Content-Type': file.type || 'application/octet-stream',

@@ -20,7 +20,7 @@ and deploying is a pure file upload.
 `index.html` loads React and ReactDOM's **production** builds
 (`react.production.min.js`, `react-dom.production.min.js`). It used to load the
 development builds so the browser console kept React's runtime warnings, which
-is worth something with no build step and no type checking — but it cost roughly
+is worth something with no build step and no type checking, but it cost roughly
 1.1 MB on every page load of a console an operator opens and leaves open all day.
 Nothing in the app depends on the dev builds; swap the two script tags back
 locally when you want the warnings.
@@ -82,7 +82,7 @@ arrived.
 ```
 dashboard/
 ├── wrangler.toml.template   name, bindings, [assets] routing (generated → wrangler.toml)
-├── public/                  EVERYTHING HERE IS PUBLIC — served to anyone who reaches the host
+├── public/                  EVERYTHING HERE IS PUBLIC, served to anyone who reaches the host
 │   ├── _headers             CSP + security headers, applied by the asset layer (not served)
 │   ├── index.html           CDN script tags, theme bootstrap, mount point
 │   ├── styles.css           the whole design system (dense, dark-first, theme-aware)
@@ -94,7 +94,7 @@ dashboard/
 └── src/                     server side; never served
     ├── index.js             the Worker: entry, guard, route table, one try/catch
     ├── router.js            the matcher (literal-beats-param, raw-pathname segments)
-    ├── router.test.mjs      the repo's only test file — precedence fails silently
+    ├── router.test.mjs      the repo's only test file; precedence fails silently
     └── api/                 the JSON API handlers (see api.md)
 ```
 
@@ -110,7 +110,7 @@ run_worker_first = ["/api/*"]
 ```
 
 Only `/api/*` invokes `src/`. The six files in `public/` are served by
-Cloudflare's asset layer, never entering the Worker — which is also why they cost
+Cloudflare's asset layer, never entering the Worker, which is also why they cost
 nothing: static-asset requests are free and unlimited. Setting
 `run_worker_first = true` would make every page load a billable invocation.
 `not_found_handling = "none"` 404s unknown paths the same way.
@@ -125,7 +125,7 @@ A Worker is a single `fetch` handler, so that table is written out in
 - **A literal path beats a parameter route, whatever the method.**
   `/api/endpoints/upload` matches both the literal route and `/api/endpoints/:uri`.
   Literal paths are held in a separate table and settled first, *including* when
-  the path is declared but the method is not — that answers 405 rather than
+  the path is declared but the method is not. That answers 405 rather than
   falling through. Order within `ROUTES` cannot affect this.
 - **Matching splits the raw `url.pathname` by segment.** No `URLPattern`, no
   regex. Endpoint URIs arrive percent-encoded (`/-/callback` →
@@ -134,7 +134,7 @@ A Worker is a single `fetch` handler, so that table is written out in
   parameter across two segments.
 
 `router.test.mjs` pins both. It is the only test file in the repository because
-this is the only behavior here that breaks *silently* — see
+this is the only behavior here that breaks *silently*. See
 [decisions.md](../decisions.md#one-test-file-for-route-precedence-and-only-that).
 
 `index.html` also applies the saved theme **synchronously** before React paints,
@@ -202,21 +202,21 @@ Opening an archived endpoint gives a **read-only** modal: its path, status,
 headers and body (or the file it serves) are shown, and the only actions are
 Unarchive, Delete and Close. The editors are unmounted rather than disabled, the
 same treatment file mode gets. That is the UI half of a rule the API enforces on
-every write path, since the modal is not the only caller — rename, text upsert
+every write path, since the modal is not the only caller: rename, text upsert
 and file upload all answer `409` on an archived row. The point is that
 unarchiving returns what was archived, rather than whatever was edited into it
 while nothing was serving it.
 
-In the modal, **Archive** sits beside Delete — it is the undo-able half of it.
+In the modal, **Archive** sits beside Delete, because it is the undo-able half of it.
 An archived endpoint keeps its row and its R2 object and simply stops being
 served, because the catcher's lookup filters on `archived = 0`. The button is
 *unmounted* for an endpoint under `/-/` rather than disabled, the same treatment
 the file-mode editors get: agent-staged endpoints are deleted, or renamed out of
 the prefix first, which is what converts one into an ordinary endpoint.
 
-**The URI is editable.** A rename is a primary-key `UPDATE` and nothing else in
-either store is keyed by it — an endpoint's R2 object is keyed by a random UUID
-— so a file-backed endpoint keeps its object with no R2 call at all, and
+**The URI is editable.** A rename is a primary-key `UPDATE`, and nothing else in
+either store is keyed by the URI. An endpoint's R2 object is keyed by a random
+UUID, so a file-backed endpoint keeps its object with no R2 call at all, and
 captured requests keep the URL they were actually made to. The rename is sent
 before the body write, so a name clash comes back as `409` with nothing changed
 and the modal still showing what was typed. Renaming *into* `/-/` is allowed and

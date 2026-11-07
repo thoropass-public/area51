@@ -41,10 +41,10 @@ jobs:
       # reads a lockfile, not package.json, and package-lock.json is
       # deliberately not committed here (docs/decisions.md). `npm install`
       # generates that lockfile inside the runner, and that generated file is
-      # what Trivy then scans — so the scan covers the fully resolved tree,
+      # what Trivy then scans, so the scan covers the fully resolved tree,
       # transitive dependencies included, which is precisely what Dependabot
       # cannot see in this repo. Skip this step and Trivy has no lockfile to
-      # read, finds nothing, and the gate passes green forever — worse than
+      # read, finds nothing, and the gate passes green forever, which is worse than
       # having no scanner at all, because it looks like coverage.
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -58,7 +58,7 @@ jobs:
       #
       # Unfixed vulnerabilities are included here, because visibility is the
       # point of this step even when there's nothing to upgrade to yet.
-      - name: Trivy — report CRITICAL/HIGH/MEDIUM
+      - name: Trivy report CRITICAL/HIGH/MEDIUM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -78,11 +78,11 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy
 
-      # The gate. Only CRITICAL blocks a merge, and only when a fix exists —
+      # The gate. Only CRITICAL blocks a merge, and only when a fix exists.
       # `ignore-unfixed: true` is load-bearing here. Blocking on an unfixable
       # CRITICAL would wedge every PR in the repo behind something nobody can
       # action; those still show up as alerts via the report step above.
-      - name: Trivy — fail on fixable CRITICAL
+      - name: Trivy fail on fixable CRITICAL
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs

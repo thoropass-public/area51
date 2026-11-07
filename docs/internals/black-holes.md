@@ -50,7 +50,7 @@ that rule over the API.
    archived = 0` against `url.pathname`. A lookup error logs
    `http_endpoint_lookup_failed` and is treated as "no match" rather than
    failing the response. An **archived** row is not a match either: it behaves
-   exactly as an absent one, so a target cannot tell the two apart — which is
+   exactly as an absent one, so a target cannot tell the two apart, which is
    the only thing it should be able to tell.
 
 6. **No row** → `404! Not Found`.

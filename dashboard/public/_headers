@@ -28,7 +28,7 @@
   X-Content-Type-Options: nosniff
 
   # A dashboard URL can carry nothing sensitive in its path, but it does
-  # identify the deployment — and therefore an engagement. Send no referrer.
+  # identify the deployment, and therefore an engagement. Send no referrer.
   Referrer-Policy: no-referrer
 
   # None of these are used. Denying them removes the prompt as much as the
@@ -50,7 +50,7 @@
   #     that is not unpkg or esm.sh.
   #   * object-src 'none' kills plugin embedding.
   #   * base-uri 'self' stops a <base> tag rewriting every relative URL.
-  #   * form-action 'none' — the dashboard posts via fetch, never a form, so a
+  #   * form-action 'none': the dashboard posts via fetch, never a form, so a
   #     form injected into the page has nowhere to send to.
   #   * frame-ancestors 'none' duplicates X-Frame-Options for modern browsers.
   #

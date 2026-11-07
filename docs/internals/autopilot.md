@@ -93,7 +93,7 @@ moment.
 Third, and it is a rule the dashboard enforces rather than this worker:
 **an endpoint under `/-/` cannot be archived.** Archiving retains a row while
 taking it out of service, and an agent-staged endpoint has no use for that
-state — it would be agent-owned, unserved, and deleted by the monthly purge
+state. It would be agent-owned, unserved, and deleted by the monthly purge
 regardless, which is three lifecycles at once. An agent-staged stub is either
 deleted, or renamed out of `/-/` from the dashboard, and that rename is exactly
 what converts it into an ordinary endpoint: it leaves Autopilot's reach, leaves

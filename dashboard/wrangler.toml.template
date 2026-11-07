@@ -19,8 +19,8 @@ compatibility_date = "2026-05-20"
 # Pages: a Pages project is reachable at its custom domain AND at
 # <project>.pages.dev AND at every *.pages.dev preview deployment, so the Access
 # application had to enumerate and guard all three or leave an unauthenticated
-# bypass. A Worker with these two flags off has exactly one hostname —
-# DASHBOARD_HOSTNAME — so there is no bypass to guard and no wildcard to keep in
+# bypass. A Worker with these two flags off has exactly one hostname,
+# DASHBOARD_HOSTNAME, so there is no bypass to guard and no wildcard to keep in
 # an Access policy.
 workers_dev = false
 preview_urls = false
@@ -45,7 +45,7 @@ enabled = true
 # `run_worker_first` is the cost control. Scoped to /api/*, the six static files
 # are served by Cloudflare's asset layer without invoking the Worker at all, and
 # static-asset requests are free and unlimited on both the Free and Paid plans.
-# Setting it to `true` — as most examples do — would make every page load, every
+# Setting it to `true`, as most examples do, would make every page load, every
 # stylesheet and every .jsx fetch a billable Worker invocation for no gain.
 #
 # `not_found_handling = "none"` lets the asset layer 404 unknown paths, also

@@ -19,8 +19,8 @@
 -- or a custom status.
 --
 -- `archived = 1` is a row the catcher will not serve: the lookup filters on it,
--- so an archived endpoint 404s exactly as an absent one does, while the row —
--- and its R2 object, if it has one — stay put. It is the undo-able half of
+-- so an archived endpoint 404s exactly as an absent one does, while the row,
+-- and its R2 object if it has one, stay put. It is the undo-able half of
 -- delete. Only hand-written endpoints can be archived; see the Autopilot note
 -- on the ALTER at the foot of this file.
 CREATE TABLE IF NOT EXISTS endpoints (
@@ -151,6 +151,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_key_id ON users(key_id);
 -- migration must land after the CREATE TABLE it alters.
 
 -- v1.1.0: archive an endpoint instead of deleting it. Autopilot endpoints are
--- never archived — an agent-staged `/-/` stub is deleted, or renamed out of the
+-- never archived. An agent-staged `/-/` stub is deleted, or renamed out of the
 -- prefix first, which is what converts it into an ordinary endpoint.
 ALTER TABLE endpoints ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;

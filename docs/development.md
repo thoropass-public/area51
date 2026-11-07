@@ -93,7 +93,7 @@ worker's Logs in the Cloudflare dashboard.
 **The dashboard API** (`dashboard/src/`)
 
 - Handlers are plain named exports taking `{ request, env, ctx, params }`. The
-  export's name and the file's location mean nothing to routing — a handler is
+  export's name and the file's location mean nothing to routing. A handler is
   reachable only if it is in the `ROUTES` table in `src/index.js`.
 - Do **not** add per-handler error wrapping. `src/index.js` applies one
   `try/catch` to every route.
@@ -102,7 +102,7 @@ worker's Logs in the Cloudflare dashboard.
 - Run `node dashboard/src/router.test.mjs` after touching `router.js` or the
   route table. CI runs it too, so a shadowed route fails the check rather than
   reaching a deployment.
-- Anything server-side belongs in `src/`, never `public/` — everything under
+- Anything server-side belongs in `src/`, never `public/`. Everything under
   `public/` is served to anyone who can reach the host. CI greps `public/` for
   Cloudflare binding references and fails if it finds one, since a binding is
   the one thing server code cannot do without.
@@ -189,13 +189,13 @@ exists instead:
 
 - **`./a51 doctor`** is the acceptance test for a deployment: bindings, domains,
   routing, policies, plus live probes of all three hostnames.
-- **`node dashboard/src/router.test.mjs`** — the exception, and the only test
+- **`node dashboard/src/router.test.mjs`** is the exception, and the only test
   file here. Plain node, no dependencies, no framework. It pins the dashboard's
   API route precedence, which is the one behavior in this repository that fails
   *silently*: Cloudflare Pages used to resolve which route won when two matched,
   invisibly and for free, and `dashboard/src/router.js` has to do it itself now.
   Get it wrong and nothing throws, nothing fails to deploy, and `doctor` sees a
-  healthy dashboard — the request just reaches the wrong handler and returns a
+  healthy dashboard. The request just reaches the wrong handler and returns a
   believable 404. It parses the route table out of `src/index.js`, so a route
   added there is covered automatically. Run it after touching the router or that
   table. See [decisions.md](decisions.md#one-test-file-for-route-precedence-and-only-that).

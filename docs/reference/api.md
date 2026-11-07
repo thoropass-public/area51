@@ -41,14 +41,14 @@ its own auth; see [autopilot.md](../internals/autopilot.md).
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/api/endpoints` | List. Params: `cursor` (last `uri`), `search` (repeatable, matches `uri`), `archived` (`1` for the Archive view, anything else for the working list). Returns `[{uri, status, filename}]` sorted ascending by `uri`; a non-null `filename` means the row is file-backed (`r2_key` never leaves the server). The two sides are never mixed, and neither carries a count of the other. |
-| `POST` | `/api/endpoints` | `409` if the row is archived — an archived endpoint is frozen. Otherwise: upsert a **text** endpoint. Body `{uri, status, headers, body}`. `headers` is a line-separated string (`Key: Value\n…`) parsed to a JSON object server-side. Validates that `uri` starts with `/` and `status` is an integer 100–599. If the URI is currently file-backed this **converts it back to text**: `r2_key`/`filename` are cleared and the object is deleted (response carries `replaced_file: true`). |
+| `POST` | `/api/endpoints` | `409` if the row is archived, because an archived endpoint is frozen. Otherwise: upsert a **text** endpoint. Body `{uri, status, headers, body}`. `headers` is a line-separated string (`Key: Value\n…`) parsed to a JSON object server-side. Validates that `uri` starts with `/` and `status` is an integer 100–599. If the URI is currently file-backed this **converts it back to text**: `r2_key`/`filename` are cleared and the object is deleted (response carries `replaced_file: true`). |
 | `POST` | `/api/endpoints/upload?uri=<uri>` | `409` if the row is archived, checked **before** anything streams to R2 so a refusal leaves no stray object. Otherwise: upsert a **file-backed** endpoint. The request **body is the raw file** (not multipart) so it streams into R2; `Content-Type` is the file's type and `X-Filename` is the URI-encoded display name. Takes no status/headers/body, since the server owns all three. `400` on a bad URI, `411` without `Content-Length`, `413` over 25 MB, `500` if the `FILES` binding is missing. A failed row write deletes the new object; the previous object is deleted only after the row is repointed. |
 | `GET` | `/api/endpoints/:uri` | Detail; `uri` is URL-encoded in the path. Carries `file`: `null` for a text endpoint, else `{filename, content_type, size, missing}` where `content_type`/`size` come from an R2 `head()` and `missing: true` means the row outlived its object. |
-| `PATCH` | `/api/endpoints/:uri` | Rename and/or archive, in one write. Body `{uri?, archived?}`; omitted fields keep their value. A rename is a primary-key `UPDATE` — nothing else in either store is keyed by the URI, so a file-backed endpoint keeps its object with no R2 call. `400` if the new URI is empty or does not start with `/`; `404` if the row is gone; `409` if the name is taken (checked first for the message, and caught again from the `UNIQUE` constraint for the race), if the result would be an archived endpoint under `/-/`, or if the row is archived and the call tries to rename it — an archived endpoint is frozen, and `{archived: false}` is the only write it accepts. Renaming *into* `/-/` hands the endpoint to Autopilot and to the monthly purge; renaming *out* is what converts an agent-staged stub into an ordinary endpoint. |
+| `PATCH` | `/api/endpoints/:uri` | Rename and/or archive, in one write. Body `{uri?, archived?}`; omitted fields keep their value. A rename is a primary-key `UPDATE`, and nothing else in either store is keyed by the URI, so a file-backed endpoint keeps its object with no R2 call. `400` if the new URI is empty or does not start with `/`; `404` if the row is gone; `409` if the name is taken (checked first for the message, and caught again from the `UNIQUE` constraint for the race), if the result would be an archived endpoint under `/-/`, or if the row is archived and the call tries to rename it. An archived endpoint is frozen, and `{archived: false}` is the only write it accepts. Renaming *into* `/-/` hands the endpoint to Autopilot and to the monthly purge; renaming *out* is what converts an agent-staged stub into an ordinary endpoint. |
 | `DELETE` | `/api/endpoints/:uri` | Delete. `404` if nothing was deleted. For a file-backed row the object is deleted **first**, then the row, so a failed object delete leaves a visible row to retry rather than an orphan. |
 
 `/api/endpoints/upload` is a **literal** route, and `src/router.js` settles
-literal paths before it considers `:uri` — including when the path is declared
+literal paths before it considers `:uri`, including when the path is declared
 but the method is not, which answers `405` rather than falling through. Real
 endpoint URIs arrive percent-encoded (so a leading `%2F`) and could not collide
 with the literal string `upload` in any case. `router.test.mjs` pins this.
@@ -118,14 +118,14 @@ Deliberately asymmetric:
    segments, still percent-encoded, so decode them yourself.
 2. Add it to the `ROUTES` table in `dashboard/src/index.js` as
    `['METHOD', '/api/path/:param', handler]`. Routing is **not** file-based any
-   more — the file's location and the export's name mean nothing to the router,
+   more. The file's location and the export's name mean nothing to the router,
    so a handler that is not in that table is simply unreachable. Position in the
    list does not matter: literal paths always beat `:param` routes.
 3. Do **not** wrap the handler in error handling. `src/index.js` applies one
    `try/catch` around every route, so a handler cannot forget it. Use the `json`
    / `errResp` helpers from `../shared.js` so error shapes stay uniform.
 4. Run `node dashboard/src/router.test.mjs`. It reads the `ROUTES` table out of
-   `index.js`, so your new route is covered automatically — and a route that
+   `index.js`, so your new route is covered automatically, and a route that
    shadows an existing one fails there rather than silently in production.
 5. Validate input explicitly. Never interpolate user input into SQL. Bind it.
    The one place a table name is interpolated (historically, in purge) validated

@@ -17,7 +17,7 @@ yarn-error.log*
 # Deliberately not committed. `npm install` regenerates it, and leaving it out
 # keeps the repo to one dependency manifest. The trade is that installs resolve
 # the caret ranges in package.json fresh, so two installs can pick up different
-# patch/minor versions of wrangler and postal-mime — pin a range in package.json
+# patch/minor versions of wrangler and postal-mime. Pin a range in package.json
 # if a specific version ever matters. See docs/decisions.md.
 package-lock.json
 
@@ -26,7 +26,7 @@ package-lock.json
 .dev.vars
 .dev.vars.*
 
-# Environment — holds the Cloudflare API token
+# Environment: holds the Cloudflare API token
 .env
 .env.*
 !.env.example

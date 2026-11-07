@@ -36,7 +36,7 @@ The map of `URI path → response` the catcher serves. A row is either
 | `body` | `TEXT` | Response body. Subject to D1's 2 MB row limit. Always `''` on a file-backed row. |
 | `r2_key` | `TEXT` | Object key (a random UUID) in the files bucket. `NULL` = text endpoint. Internal, never returned by the API. |
 | `filename` | `TEXT` | Original upload name. **Display only**; never used to build a response header. |
-| `archived` | `INTEGER NOT NULL DEFAULT 0` | `1` = retained, not served, and **frozen**: the only writes an archived row accepts are the one that unarchives it and the one that deletes it. Rename, text upsert and file upload all answer `409`. The catcher's lookup is `WHERE uri = ? AND archived = 0`, so an archived endpoint answers `404` exactly as an absent one does, while the row and its R2 object stay put. Endpoints under `/-/` are never archived — an agent-staged stub is deleted, or renamed out of the prefix first. Added in v1.1.0 by the migration at the foot of `db/schema.sql`. |
+| `archived` | `INTEGER NOT NULL DEFAULT 0` | `1` = retained, not served, and **frozen**: the only writes an archived row accepts are the one that unarchives it and the one that deletes it. Rename, text upsert and file upload all answer `409`. The catcher's lookup is `WHERE uri = ? AND archived = 0`, so an archived endpoint answers `404` exactly as an absent one does, while the row and its R2 object stay put. Endpoints under `/-/` are never archived. An agent-staged stub is deleted, or renamed out of the prefix first. Added in v1.1.0 by the migration at the foot of `db/schema.sql`. |
 
 No timestamp column. Nothing surfaces one, the catcher does not need one, and
 its absence is why uploads have no automatic retention and why the Autopilot

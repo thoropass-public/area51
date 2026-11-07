@@ -131,8 +131,9 @@ Those are the default service names; if you changed `WORKER_NAME`,
 `AGENT_WORKER_NAME`, `CLEANUP_WORKER_NAME` or `DASHBOARD_WORKER_NAME` in `.env`,
 `./a51 status` prints the ones actually deployed.
 
-The dashboard is in the same place as the rest — `wrangler tail area51-dashboard`,
-or Workers & Pages → *worker* → Logs — and that is new. As a Pages project it had
+The dashboard is in the same place as the rest, with `wrangler tail
+area51-dashboard` or Workers & Pages → *worker* → Logs, and that is new. As a
+Pages project it had
 no Workers Logs, no Logpush, no Tail Workers and no source maps; a failing
 `/api/*` call left nothing to read anywhere. Its config now sets
 `upload_source_maps = true`, so a 500 resolves to a real line number.
@@ -260,7 +261,7 @@ Typical pentest volumes sit inside Cloudflare's free tier. The limits that matte
 | R2 storage | 10 GB | captured `.eml` (with attachments) and endpoint uploads |
 | R2 egress | free | serving payloads and raw-message downloads |
 | Workers requests | 100 K/day | every target request, every `/api/*` dashboard call, every agent call |
-| Static assets | free, unlimited | the dashboard's HTML, CSS, `.jsx` and favicon — these do **not** count as Worker requests |
+| Static assets | free, unlimited | the dashboard's HTML, CSS, `.jsx` and favicon; these do **not** count as Worker requests |
 
 Notes:
 

@@ -44,7 +44,7 @@ Worker with static assets since v1.1.0
 - **area51-autopilot** is the agent-facing REST + MCP server, on its own hostname.
 - **area51-cleanup** is the retention worker; **no active routes** (cron only).
 - **area51-dashboard** is the dashboard, on the single custom domain
-  `area51.<zone>` and **nothing else** — no `*.workers.dev` route and no preview
+  `area51.<zone>` and **nothing else**: no `*.workers.dev` route and no preview
   URLs, because its config sets `workers_dev = false` and `preview_urls = false`.
   One hostname is the whole point: it is the only thing Access has to guard.
 
@@ -113,12 +113,12 @@ One public hostname destination: `area51.<zone>`, the dashboard's Custom Domain.
 
 ![Access destinations](../../.github/assets/access-destinations.png)
 
-**This used to be the most important check on the page, and it is now trivial —
+**This used to be the most important check on the page, and it is now trivial,
 which was the point of the migration.** A Cloudflare Pages project answers on its
 custom domain *and* `<project>.pages.dev` *and* every `*.pages.dev` preview
 deployment. Access is enforced per hostname, so an app listing only the custom
 domain left the rest reachable with **no login**, straight into every captured
-request and email. The application therefore had to guard three hostnames — and
+request and email. The application therefore had to guard three hostnames, and
 the wildcard does not match the apex, so both extras were needed and each was
 separately forgettable. `doctor` had a check whose only job was to fail the
 deployment if either went missing.
@@ -128,7 +128,7 @@ wildcard to remember, and no bypass to close.
 
 **One exception, and only while upgrading.** A deployment that predates v1.1.0
 still has its Pages project until you delete it, and that project is still bound
-to D1 and both R2 buckets — so it still serves the whole API on its `pages.dev`
+to D1 and both R2 buckets, so it still serves the whole API on its `pages.dev`
 names. `./a51 setup` detects it and keeps those names in the destination list
 rather than narrowing to the worker's hostname, and prints a follow-up telling
 you to retire the project. So during an upgrade **three destinations is the

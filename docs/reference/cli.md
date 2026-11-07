@@ -116,7 +116,7 @@ Uploads code that is already provisioned. Defaults to `all`.
 | `black-holes` | Render `wrangler.toml` from the template + `.env`, then `wrangler deploy` |
 | `autopilot` | Render `wrangler.toml` and deploy. There is no secret to install, because it authenticates against the D1 `users` table |
 | `cleanup` | Deploy, which re-registers the cron trigger from `CLEANUP_CRON` |
-| `dashboard` | Render `wrangler.toml` and deploy `dashboard/` — `src/` as the Worker, `public/` as its static assets. Its D1/R2 bindings are in the template, so they travel with the upload |
+| `dashboard` | Render `wrangler.toml` and deploy `dashboard/`: `src/` as the Worker, `public/` as its static assets. Its D1/R2 bindings are in the template, so they travel with the upload |
 | `schema` | Re-apply `db/schema.sql` (idempotent; never drops data) |
 
 A configuration change and a code change ship the same way, since the Worker
@@ -278,8 +278,8 @@ re-pushes the Access allow-list derived from it. That is also why there is no
 
 `add` and `rotate-key` also manage the Access application itself when needed:
 the Zero Trust organization, the One-time PIN login method, the application, its
-allow policy, and its destination. There is exactly one destination —
-`DASHBOARD_HOSTNAME` — because the dashboard worker has `workers_dev` and
+allow policy, and its destination. There is exactly one destination,
+`DASHBOARD_HOSTNAME`, because the dashboard worker has `workers_dev` and
 `preview_urls` off and answers on no other name. As a Pages project it also
 answered on `<project>.pages.dev` and every `*.pages.dev` preview, so all three
 had to be listed or the rest were an unauthenticated bypass.

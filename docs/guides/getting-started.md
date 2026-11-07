@@ -98,7 +98,7 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Account | **Workers Scripts** · Edit | deploying the four Workers (the dashboard is one of them) |
 | Account | **D1** · Edit | creating the database, applying the schema, all SQL the CLI runs |
 | Account | **Workers R2 Storage** · Edit | creating both buckets, deleting objects during a purge |
-| Account | **Cloudflare Pages** · Edit | detaching a Pages project's custom domain when it holds a hostname a black hole is taking over. AREA 51 creates no Pages project of its own — the dashboard has been a Worker since v1.1.0 — but a domain worth taking over often has someone else's Pages site on it, and without this the takeover degrades to a manual dashboard step |
+| Account | **Cloudflare Pages** · Edit | detaching a Pages project's custom domain when it holds a hostname a black hole is taking over. AREA 51 creates no Pages project of its own, since the dashboard has been a Worker since v1.1.0, but a domain worth taking over often has someone else's Pages site on it, and without this the takeover degrades to a manual dashboard step |
 | Account | **Account Settings** · Read | discovering the account id |
 | Account | **Access: Apps and Policies** · Edit | the Access application in front of the dashboard |
 | Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organization and enabling one-time PIN login |
@@ -310,7 +310,7 @@ Prints exactly what will be created, then asks once. `--dry-run` stops here.
 
 ### 6. Workers
 
-For each of the four Workers — catcher, Autopilot, cleanup, dashboard — renders
+For each of the four Workers (catcher, Autopilot, cleanup, dashboard), renders
 `wrangler.toml` from `wrangler.toml.template` + `.env`, then `wrangler deploy`
 from that directory. The dashboard is no different from the rest: `src/` is its
 code and `public/` its static assets, both declared in its template alongside the
@@ -361,7 +361,7 @@ Its D1 and R2 bindings (`DB`, `EML`, `FILES`) are declared in
 `dashboard/wrangler.toml.template` and travel with the upload, so there is
 nothing to attach over the API and no ordering to get right.
 
-This step was considerably larger when the dashboard was a Pages project — a bare
+This step was considerably larger when the dashboard was a Pages project. A bare
 create, a bindings `PATCH` onto two deployment configs, an upload, a possible
 re-patch-and-re-upload, then a custom domain plus a hand-managed CNAME pointing at
 a subdomain Cloudflare may have suffixed. See

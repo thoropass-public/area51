@@ -79,7 +79,7 @@ zones*). All fourteen are required: the primary black hole always carries the
 `mail` role, so the Email Routing permissions and Zone Settings are never
 optional at setup time.
 
-`Cloudflare Pages:Edit` looks like a leftover — nothing here creates a Pages
+`Cloudflare Pages:Edit` looks like a leftover, since nothing here creates a Pages
 project any more, since the dashboard became a Worker. It is not: it is what lets
 a confirmed takeover **detach a Pages project's custom domain** when one holds a
 hostname a black hole needs, and a domain worth taking over very often has
@@ -141,14 +141,14 @@ schema, domain bindings and the Access policy.
    `archived = 1` is part of the match, not a check after it: an archived
    endpoint is retained but not served, so it answers 404 exactly as an absent
    one does and a target cannot tell them apart. Endpoints under `/-/` are never
-   archived — an agent-staged stub is deleted, or renamed out of the prefix,
+   archived. An agent-staged stub is deleted, or renamed out of the prefix,
    which is what converts it into an ordinary endpoint.
 
 6. **No frontend build step.** React, ReactDOM and Babel come from a CDN; JSX is
    transpiled in the browser. The three `dashboard/public/js/*.jsx` files share
    globals on `window` (no modules). Don't introduce a bundler, imports, or a
    package step for the frontend without revisiting that decision. Deploys are
-   pure file uploads — moving the dashboard onto Workers static assets did not
+   pure file uploads. Moving the dashboard onto Workers static assets did not
    change that.
 
    Two rules come with the `public/` ÷ `src/` split, and both matter:
@@ -165,7 +165,7 @@ schema, domain bindings and the Access policy.
    free. `dashboard/src/index.js` now holds the `ROUTES` table and
    `dashboard/src/router.js` matches it. Two properties must hold: a **literal
    path is settled before any `:param` route, including when the method does not
-   match** (that answers 405, it does not fall through — otherwise
+   match** (that answers 405, it does not fall through; otherwise
    `GET /api/endpoints/upload` does a D1 lookup for an endpoint named "upload");
    and **matching splits the raw `url.pathname` by segment**, never `URLPattern`,
    which canonicalizes the path and would decode the `%2F` that every endpoint
@@ -259,7 +259,7 @@ schema, domain bindings and the Access policy.
   build). There is no test suite; `./a51 doctor` is how a deployment is verified.
   **One deliberate exception:** `node dashboard/src/router.test.mjs` pins the
   dashboard's route precedence, because that is the one behavior here that breaks
-  *silently* — a mis-resolved route runs the wrong handler and answers a
+  *silently*: a mis-resolved route runs the wrong handler and answers a
   plausible 404, which no binding check or live probe can see. Run it after
   touching `dashboard/src/router.js` or the `ROUTES` table. Don't generalize it
   into a suite without revisiting

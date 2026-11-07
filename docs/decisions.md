@@ -460,7 +460,7 @@ Access app has one destination because there is only one thing to guard.
 upgrade both products exist: the Worker is deployed, and the old Pages project is
 still there, still bound to D1 and both R2 buckets, still answering on its
 `pages.dev` names. Writing the Access application is a full `PUT`, so the obvious
-version of this change — list the Worker's hostname and nothing else — would have
+version of this change, listing the Worker's hostname and nothing else, would have
 *removed* the destinations that were guarding those names and left the upgrade
 strictly worse than the thing it replaced: shut on the name the operator checks,
 open on the two they have stopped thinking about. So `ensureAccess` derives the
@@ -471,13 +471,13 @@ independent sources feed that (the Pages listing, and any `pages.dev` entry
 already on the live application) so narrowing the list takes two failures at once.
 
 Cloudflare also now recommends Workers over Pages for new projects, and ships new
-features only there — but that was the tiebreaker, not the reason.
+features only there, but that was the tiebreaker, not the reason.
 
 **What it deleted.** Four workarounds that existed solely because Pages behaved
 the way it did:
 
 - **Bindings had nowhere to live.** A Pages project's D1 and R2 bindings exist
-  only in Cloudflare's API, so `setup` had to `PATCH` them on — onto *both* the
+  only in Cloudflare's API, so `setup` had to `PATCH` them on, onto *both* the
   production and preview deployment configs, before the first upload, or every
   `/api/*` call 500d for a missing `DB`. And creating a project *with*
   `deployment_configs` in one `POST` is rejected on some accounts with a generic
@@ -500,8 +500,8 @@ the way it did:
   `upload_source_maps`.
 
 **What it costs.** Pages derived the route table from the shape of the
-`functions/` directory — `[id]` for a dynamic segment, `onRequestGet` for the
-method — and resolved match precedence invisibly. A Worker is one `fetch`
+`functions/` directory (`[id]` for a dynamic segment, `onRequestGet` for the
+method) and resolved match precedence invisibly. A Worker is one `fetch`
 handler, so that table is now written down in `src/index.js` and matched by
 `src/router.js`. Adding an endpoint is two edits instead of one, and precedence
 is something code has to get right. That is a real, permanent cost; it is smaller
@@ -511,13 +511,13 @@ than the four items above.
 unlimited on both plans and do not count as Worker invocations, and Pages
 Functions were billed on the same Workers meter as any other worker. The billable
 surface is the same set of `/api/*` calls either way. This is why
-`run_worker_first` is scoped to `["/api/*"]` and not set to `true`: `true` — which
-is what most examples show — would make every page load, stylesheet and `.jsx`
-fetch a billable invocation for nothing. `not_found_handling = "none"` likewise
+`run_worker_first` is scoped to `["/api/*"]` and not set to `true`. Setting it
+to `true`, which is what most examples show, would make every page load,
+stylesheet and `.jsx` fetch a billable invocation for nothing. `not_found_handling = "none"` likewise
 lets the asset layer 404 unknown paths without invoking the worker.
 
 **What was deliberately NOT done: folding the API into Autopilot.** It looks like
-an obvious consolidation — one worker, one binding set, shared D1 helpers, both
+an obvious consolidation: one worker, one binding set, shared D1 helpers, both
 are REST over the same database. It must not happen. Autopilot has **no `FILES`
 binding on purpose** and is fenced to `/-/*`; the dashboard writes `FILES` and
 manages endpoints at any URI. Merging them would hand any Autopilot key holder
@@ -525,7 +525,7 @@ the ability to read, replace or delete a payload a human staged. See
 [Autopilot is a separate worker, bounded to `/-/*`](#autopilot-is-a-separate-worker-bounded-to--).
 
 **Undoing it** means restoring all four workarounds above, and re-teaching Access
-to guard three hostnames — including the wildcard, which does not match the apex,
+to guard three hostnames, including the wildcard, which does not match the apex,
 so both extra destinations are needed and each is separately forgettable.
 
 ## One test file, for route precedence, and only that
@@ -534,7 +534,7 @@ so both extra destinations are needed and each is separately forgettable.
 node, no dependencies, no framework: `node dashboard/src/router.test.mjs`.
 
 **Why an exception to "no test suite":** `./a51 doctor` works as the acceptance
-test because nearly everything here fails *loudly* — a missing binding 500s, an
+test because nearly everything here fails *loudly*: a missing binding 500s, an
 unbound hostname answers 530, a broken worker will not deploy. Route precedence is
 the one thing that does not. Two routes can match one path (`/api/endpoints/upload`
 matches both the literal route and `/api/endpoints/:uri`), and picking the wrong
@@ -550,7 +550,7 @@ renamed table fails the run loudly instead of silently testing nothing.
 
 **Scope discipline:** it asserts precedence, parameter capture (endpoint URIs
 arrive percent-encoded, and `%2F` must stay inside one segment), and 404-vs-405.
-It does not test handlers, D1, or R2 — those fail loudly and `doctor` covers them.
+It does not test handlers, D1, or R2. Those fail loudly and `doctor` covers them.
 Turning this into a general test suite is a different decision from the one made
 here.
 
@@ -872,8 +872,8 @@ block ([dashboard.md](internals/dashboard.md)), for a different reason: there it
 is only legibility, since Cloudflare's own `Received` and `ARC-*` headers fold
 with tabs and long space runs.
 
-**What it costs:** a subject whose *original* whitespace was meaningful — two
-spaces the sender actually typed — is stored collapsed. Header folding is
+**What it costs:** a subject whose *original* whitespace was meaningful, such as
+two spaces the sender actually typed, is stored collapsed. Header folding is
 indistinguishable from intentional whitespace once the CRLF is gone, so no parser
 can tell them apart, and the raw `.eml` remains the source of truth for anyone who
 needs the exact bytes.
@@ -895,7 +895,7 @@ TABLE`s they alter.
 failure and carry on. Two things are wrong with it. It means string-matching
 Cloudflare's relayed SQLite message, which is not a contract and would silently
 stop working if the wording changed. And it would swallow a genuinely broken
-`ALTER` — a typo'd table, a bad default — leaving a column missing that something
+`ALTER`, such as a typo'd table or a bad default, leaving a column missing that something
 later queries. Inspecting first keeps the strict rule: if an `ALTER` runs at all,
 it still has to succeed.
 

@@ -7,7 +7,7 @@
 // this deployment used to have to defend against. See
 // docs/decisions.md#the-dashboard-is-a-worker-not-a-pages-project.
 //
-// The division of labour is set in wrangler.toml and matters for both cost and
+// The division of labor is set in wrangler.toml and matters for both cost and
 // correctness:
 //
 //   [assets] run_worker_first = ["/api/*"]

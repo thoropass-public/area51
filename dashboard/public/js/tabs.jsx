@@ -162,7 +162,7 @@ function effectiveSearch(input, pins) {
 
 // Autopilot's fence, mirrored from the worker. Every endpoint an agent can
 // create, read or delete lives under this prefix, and the worker enforces it
-// server-side — this copy only decides where a row is DISPLAYED, so the two
+// server-side. This copy only decides where a row is DISPLAYED, so the two
 // drifting would be a cosmetic bug, never a security one.
 const AUTOPILOT_PREFIX = "/-/";
 
@@ -174,7 +174,7 @@ const isAutopilotUri = (uri) => String(uri || "").startsWith(AUTOPILOT_PREFIX);
 // Agent-staged endpoints pile up: an engagement can leave dozens of /-/ rows
 // behind, and they buried the handful an operator wrote by hand. They are now
 // held below everything else behind one row that folds them away, which is the
-// whole feature — the list is still one flat query, still one cursor, and still
+// whole feature. The list is still one flat query, still one cursor, and still
 // sorted the way the API returned it within each group.
 function AutopilotGroupRow({ count, open, onToggle }) {
   return (
@@ -277,7 +277,7 @@ function EndpointsTab() {
     toast("Endpoint deleted", "success");
   };
 
-  // Search and pins reach every endpoint, /-/ included — the filter is applied by
+  // Search and pins reach every endpoint, /-/ included, because the filter is applied by
   // the API, and grouping only decides where a returned row is drawn. But a
   // query whose matches are ALL under /-/ would draw them behind a collapsed row
   // and read as "no results", so the group follows the filter: open while one is
@@ -288,7 +288,7 @@ function EndpointsTab() {
   // Hand-written endpoints keep their order and stay on top; agent-staged ones
   // are gathered underneath behind their group row. The group row travels as a
   // sentinel IN the row array because ListView renders `rows.map(renderRow)` and
-  // nothing else — no change to ListView, and the loader, empty state and
+  // nothing else. No change to ListView, and the loader, empty state and
   // "load more" below it keep working on the real rows.
   const { manual, autopilot } = useMemo(() => {
     const manual = [];
@@ -1376,7 +1376,7 @@ function EmailRow({ row, active, matches, onOpen, onToggleRead, onToggleStar }) 
 // An HTML email that shows a picture inline almost never embeds it. It ships the
 // picture as a MIME part carrying a Content-ID and refers to it as
 // `<img src="cid:whatever@example.com">`. `cid:` is not a scheme a browser can
-// resolve — it only means anything relative to the message the part came from —
+// resolve. It only means something relative to the message the part came from,
 // so the raw HTML renders with a broken image in every mail client that has not
 // been told how to resolve it. Ours had not: the parsed HTML went to the iframe
 // verbatim, and the parts sat in the attachment list instead.
@@ -1388,7 +1388,7 @@ function EmailRow({ row, active, matches, onOpen, onToggleRead, onToggleStar }) 
 //
 // REMOTE images are left exactly as they are and DO load: the CSP carries
 // `img-src ... https:` for them. Worth knowing what that costs, because it is a
-// deliberate choice rather than an accident — a remote image in a captured email
+// deliberate choice rather than an accident. A remote image in a captured email
 // is a beacon, so rendering one tells whoever sent the message the moment an
 // operator opened it, from an address belonging to the engagement.
 // `Referrer-Policy: no-referrer` keeps the dashboard's own URL out of the
@@ -1642,8 +1642,8 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
       {/* Scripts stay off: no allow-scripts, no allow-same-origin, so the frame
           keeps its opaque origin and cannot reach the dashboard around it.
           allow-popups plus allow-popups-to-escape-sandbox is what lets a link
-          open in a real new tab — without the second flag the new tab inherits
-          the sandbox and lands on a blank page. Browsers only honour it on a
+          open in a real new tab. Without the second flag the new tab inherits
+          the sandbox and lands on a blank page. Browsers only honor it on a
           genuine click, and target=_blank implies noopener everywhere current,
           so the opened page gets no handle back to this one. */}
       <iframe

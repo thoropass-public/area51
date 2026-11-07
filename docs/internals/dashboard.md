@@ -41,7 +41,7 @@ them, so they cost no Worker invocation, and the file is consumed at deploy time
 rather than published. They do **not** apply to `/api/*`, which the Worker
 generates.
 
-This is defence in depth, not a fix. Both places the dashboard renders
+This is defense in depth, not a fix. Both places the dashboard renders
 attacker-controlled content already handle it: a captured email's HTML body goes
 into a sandboxed `srcdoc` iframe (opaque origin, no scripts, no forms), and a
 captured request body is HTML-escaped before `highlightJson` wraps tokens in
@@ -200,12 +200,12 @@ used to bury the handful an operator wrote by hand.
 
 Search and pins are unaffected and reach every endpoint, `/-/` included: the
 filter is applied by the API, and the grouping only decides where a returned row
-is drawn. The group does follow the filter, though — open while one is active,
-closed again when it clears — because a query whose matches all happen to be
+is drawn. The group does follow the filter, though: open while one is active,
+closed again when it clears. A query whose matches all happen to be
 under `/-/` would otherwise draw them behind a collapsed row and read as "no
 results".
 
-It is presentation only. The query, the cursor and `{n} loaded` are unchanged —
+It is presentation only. The query, the cursor and `{n} loaded` are unchanged:
 the group row travels as a sentinel inside the row array that `ListView` maps
 over, so nothing about paging or the empty state had to learn about it. The
 `/-/` check is a copy of Autopilot's fence, which the worker enforces
@@ -314,7 +314,7 @@ the dashboard's DOM nor its cookies; **no `allow-forms`**; and no
 arrives from attackers by definition. **Those four stay off.**
 
 The two that are on exist so a link in a captured email opens in a new tab,
-which it previously could not do at all — `sandbox=""` blocks the navigation and
+which it previously could not do at all. `sandbox=""` blocks the navigation and
 the click does nothing. `allow-popups` permits the new tab;
 `allow-popups-to-escape-sandbox` is what stops that tab inheriting the sandbox
 and landing on a blank page. Both are gated on a real user gesture by every
@@ -330,7 +330,7 @@ An HTML email that shows a picture inline ships it as a MIME part with a
 Content-ID and refers to it as `<img src="cid:...">`. No browser resolves `cid:`,
 so until `resolveInlineImages` existed every one of them rendered broken while
 the part sat in the attachment list. It rewrites each reference the message can
-satisfy — attribute form and CSS `url()` — to a `data:` URL built from that
+satisfy (attribute form and CSS `url()`) to a `data:` URL built from that
 part's bytes. `data:` rather than `blob:` because the CSP already allows
 `img-src 'self' data:` and a srcdoc iframe inherits it.
 
@@ -345,8 +345,8 @@ so what leaks is the fetch, not where it came from. Narrowing `img-src` back to
 Plain `http:` images are not listed and will still not render: the dashboard is
 https, so the browser blocks or upgrades mixed content whatever the policy says.
 
-The viewer reports only the images the message *referenced but never attached* —
-a broken `cid:` — because that is the case a reader would otherwise take for a
+The viewer reports only the images the message *referenced but never attached*,
+a broken `cid:`, because that is the case a reader would otherwise take for a
 bug in the dashboard rather than in the mail.
 
 ## Expired session handling

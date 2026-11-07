@@ -53,7 +53,7 @@ jobs:
             -not -path './.git/*' \
             -print0 | xargs -0 -n1 node --check
 
-      # The repository's only test. Route precedence is the one behaviour here
+      # The repository's only test. Route precedence is the one behavior here
       # that fails SILENTLY: a mis-resolved route throws nothing, deploys fine,
       # and leaves `./a51 doctor` reporting a healthy dashboard, so neither the
       # syntax check above nor the acceptance test on a live deployment can see

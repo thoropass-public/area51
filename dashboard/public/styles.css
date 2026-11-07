@@ -654,7 +654,7 @@ select {
 
 /* Autopilot group header in the Endpoints list.
    Not a data row: it carries no grid class, so it opts out of the grid the
-   other rows share and lays itself out. Collapsed by default — agent-staged
+   other rows share and lays itself out. Collapsed by default, because agent-staged
    endpoints are the ones you are usually trying to look past. */
 .row.group-row {
   display: flex;

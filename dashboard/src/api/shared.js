@@ -2,7 +2,7 @@ export const PAGE_SIZE = 50;
 
 // Every /api/* response carries `no-store`, and that is load-bearing rather
 // than hygiene. An endpoint URI reaches this API inside the path, percent-
-// encoded — `/-/payload.js` arrives as `/api/endpoints/%2F-%2Fpayload.js` — so
+// encoded, so `/-/payload.js` arrives as `/api/endpoints/%2F-%2Fpayload.js` and
 // a request for an endpoint whose URI ends in a cacheable extension ends in one
 // too, and both Cloudflare's extension-based caching and the browser's own
 // heuristics are free to hold a copy of a response that declares no freshness

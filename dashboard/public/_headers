@@ -9,7 +9,7 @@
 #   * This file is served to nobody. `_headers` and `_redirects` are consumed at
 #     deploy time and are not themselves published as assets.
 #
-# This is defence in depth, not a fix for a known hole. Both places the
+# This is defense in depth, not a fix for a known hole. Both places the
 # dashboard renders attacker-controlled content already handle it: a captured
 # email's HTML body goes into `<iframe sandbox="" srcdoc>` (opaque origin, no
 # scripts, no forms), and a captured request body is escaped before
@@ -24,7 +24,7 @@
 
   # No MIME sniffing. The .jsx files are served with a type browsers do not
   # execute directly (Babel fetches and compiles them), and sniffing is exactly
-  # the behaviour that could change that.
+  # the behavior that could change that.
   X-Content-Type-Options: nosniff
 
   # A dashboard URL can carry nothing sensitive in its path, but it does
@@ -63,7 +63,7 @@
   # moment an operator opened it, from an address belonging to the engagement.
   # `Referrer-Policy: no-referrer` above is what keeps the dashboard's own URL
   # out of that request, so what leaks is the fetch itself, not where from.
-  # Plain http: is left out on purpose — the dashboard is https, so the browser
+  # Plain http: is left out on purpose. The dashboard is https, so the browser
   # blocks or upgrades mixed content whatever the policy says, and listing it
   # would only suggest otherwise.
   #

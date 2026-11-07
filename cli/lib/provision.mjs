@@ -804,9 +804,9 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
 async function findPagesHolder(cf, accountId, hostname) {
   try {
     const projects = (await cf.listPagesProjects(accountId)) || [];
-    return projects.find((p) => (p.domains || []).includes(hostname)) || null;
+    return { project: projects.find((p) => (p.domains || []).includes(hostname)) || null, checked: true };
   } catch {
-    return null;
+    return { project: null, checked: false };
   }
 }
 
@@ -820,17 +820,30 @@ async function findPagesHolder(cf, accountId, hostname) {
  * guard something, and this is a full PUT: dropping it is a decision, not a
  * default, and it is not one to take on the strength of a listing that errored.
  */
-function leftoverPagesNames(stale, existing) {
+function leftoverPagesNames(stale, existing, checked) {
   const names = new Set();
   if (stale && stale.subdomain) {
     names.add(stale.subdomain);
     names.add(`*.${stale.subdomain}`);
   }
-  for (const d of (existing && existing.destinations) || []) {
-    const uri = d && d.uri;
-    if (!uri) continue;
-    const host = String(uri).replace(/^https?:\/\//, '').replace(/^\*\./, '').replace(/\/.*$/, '');
-    if (/(^|\.)pages\.dev$/i.test(host)) names.add(uri);
+
+  // Entries already on the application are carried across ONLY when the Pages
+  // listing could not be read. That condition is the whole of it, and leaving it
+  // out was a bug: without it an entry on the application kept re-adding itself
+  // every run, so the destinations never narrowed after the project was deleted
+  // and an operator was left staring at guards for a host that no longer exists.
+  //
+  // With the listing read and no project holding the hostname, there is nothing
+  // to guard and the extra entries go. With the listing unreadable, dropping
+  // them would be a guess in the one direction that can expose data, so they
+  // stay and `ensureAccess` says why.
+  if (!checked) {
+    for (const d of (existing && existing.destinations) || []) {
+      const uri = d && d.uri;
+      if (!uri) continue;
+      const host = String(uri).replace(/^https?:\/\//, '').replace(/^\*\./, '').replace(/\/.*$/, '');
+      if (/(^|\.)pages\.dev$/i.test(host)) names.add(uri);
+    }
   }
   return [...names];
 }
@@ -937,7 +950,8 @@ export async function ensureAccess(cf, accountId, opts) {
   // destination is the whole truth. The list itself is assembled further down,
   // where the live application has been read and its own entries can be carried
   // across.
-  const stale = await findPagesHolder(cf, accountId, hostname);
+  const pages = await findPagesHolder(cf, accountId, hostname);
+  const stale = pages.project;
   if (stale) {
     degraded(
       followUps,
@@ -1001,7 +1015,7 @@ export async function ensureAccess(cf, accountId, opts) {
     // on the application is carried across too. Between them, a list that gets
     // NARROWER than the surface it guards takes two independent failures.
     const destinations = [{ type: 'public', uri: hostname }];
-    for (const uri of leftoverPagesNames(stale, existing)) destinations.push({ type: 'public', uri });
+    for (const uri of leftoverPagesNames(stale, existing, pages.checked)) destinations.push({ type: 'public', uri });
 
     const body = {
       name: 'AREA 51 dashboard',

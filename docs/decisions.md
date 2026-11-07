@@ -466,9 +466,17 @@ strictly worse than the thing it replaced: shut on the name the operator checks,
 open on the two they have stopped thinking about. So `ensureAccess` derives the
 list from what the dashboard is reachable at rather than what it ought to be
 reachable at: a leftover project keeps its names guarded, with a follow-up saying
-to retire it, and the entries fall away by themselves once it is gone. Two
-independent sources feed that (the Pages listing, and any `pages.dev` entry
-already on the live application) so narrowing the list takes two failures at once.
+to retire it, and the entries go once it is gone.
+
+**The first version of this did not narrow.** It also carried across any
+`pages.dev` entry already on the application, as a second source in case the
+Pages listing could not be read. That made the entries permanent: with the
+project deleted the listing came back empty, but the application's own entries
+re-added themselves on every run, so the destinations never shrank and an
+operator was left looking at guards for a host that no longer existed. The
+carry-across now happens only when the listing actually FAILED, which is the case
+it was written for. Read the listing and find nothing, and the extra entries are
+dropped. That difference is pinned by a test.
 
 Cloudflare also now recommends Workers over Pages for new projects, and ships new
 features only there, but that was the tiebreaker, not the reason.

@@ -1,10 +1,13 @@
 name: CI
 
+# Both branches are listed because the default branch is `next` while `main`
+# is still live: Dependabot and the GitHub UI open PRs against the default, so
+# a list naming only `main` would leave every one of them unchecked.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, next]
   push:
-    branches: [main]
+    branches: [main, next]
 
 # Nothing here needs write access. Kept explicit so a future step can't
 # silently inherit a broader token.

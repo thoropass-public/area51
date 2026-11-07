@@ -192,5 +192,5 @@ touch this codebase: cross-request promise resolution (2024-10-14), which is the
 `ctx.waitUntil` request-logging pattern, and TextDecoder lone-surrogate handling
 (2026-02-24), which runs over attacker-controlled email headers.
 
-Raise it deliberately, all four together, and re-verify the email path afterwards:
+Raise it deliberately, all four together, and re-verify the email path afterward:
 `nodejs_compat` + `postal-mime` is where the risk concentrates.

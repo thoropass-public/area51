@@ -550,7 +550,7 @@ export class Cloudflare {
    *
    * PUT is deliberate: it is a full replace, so whatever the list held before,
    * including anything edited by hand in the Cloudflare dashboard, is gone
-   * afterwards. That is what makes D1 authoritative in practice rather than
+   * afterward. That is what makes D1 authoritative in practice rather than
    * only on paper. (PATCH on this resource appends and removes deltas; using it
    * would let manual edits survive, so it is not used anywhere.)
    */

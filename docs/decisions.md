@@ -462,7 +462,7 @@ helper reads current state before it writes ([CLAUDE.md](../CLAUDE.md) invariant
 `TARGETS` used to end with `schema`, so `./a51 deploy all` shipped every worker
 and *then* migrated the database.
 
-That is backwards the moment worker code reads a new column, and it fails
+That is backward the moment worker code reads a new column, and it fails
 quietly rather than loudly. The catcher's endpoint lookup catches its own errors
 and treats them as "no match". A worker deployed ahead of its column therefore
 answers `404` for **every endpoint on every black hole** until the schema step
@@ -612,7 +612,7 @@ Setup creates the Zero Trust organization, enables one-time PIN login, and puts 
 Access application with an allow policy in front of the dashboard.
 
 **Why:** the dashboard has no authentication of its own, and its API can read every
-capture and create endpoints. "Remember to lock this down afterwards" is how an
+capture and create endpoints. "Remember to lock this down afterward" is how an
 open dashboard happens. Making it a step means the default deployment is protected,
 there is no flag to skip it, and `doctor` treats "no Access application" as a
 failure with a live probe to back it up.

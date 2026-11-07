@@ -2,7 +2,7 @@
 
 Playbooks for the work itself: getting a callback to prove a finding, serving the
 response a target needs to reach the next step, driving email flows, and handling
-what you captured afterwards.
+what you captured afterward.
 
 If you have not deployed yet, start with
 [getting-started](getting-started.md).

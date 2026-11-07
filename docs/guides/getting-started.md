@@ -76,7 +76,7 @@ them by name and makes you type `TAKEOVER`. A fresh
 throwaway domain with only the default records gets a plain y/N instead.
 
 Mail is not optional here. The primary black hole always carries both roles.
-`./a51 black-holes add <host> http` still adds an HTTP-only catcher afterwards, on
+`./a51 black-holes add <host> http` still adds an HTTP-only catcher afterward, on
 any hostname, and leaves that zone's mail records alone.
 
 ### 5. Node.js 20+

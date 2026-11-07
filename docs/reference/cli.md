@@ -292,7 +292,7 @@ hex characters. It is sent as `Authorization: Bearer <key>`:
 - **The 64-hex tail is the credential**, 256 bits of entropy.
 
 Only `sha256(<the whole key>)` is stored, so **a key is shown exactly once**,
-when it is minted, and cannot be recovered afterwards. A lost key is replaced
+when it is minted, and cannot be recovered afterward. A lost key is replaced
 with `rotate-key`, never read back. Rotating takes effect immediately and
 breaks every agent registered with the old key; there is no dual-key window.
 

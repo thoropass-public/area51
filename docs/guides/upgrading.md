@@ -26,7 +26,7 @@ here writes to it. Autopilot reads `key_hash` live, so every key keeps working
 through the upgrade. Keys change only when you run `./a51 users rotate-key`.
 
 **Autopilot's fence is untouched.** It still has no `FILES` binding. The cleanup
-worker gains one so the monthly purge can delete an endpoint's object before the
+worker gains one so the purge can delete an endpoint's object before the
 row pointing at it.
 
 Why the dashboard moved is in

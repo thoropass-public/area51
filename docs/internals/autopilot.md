@@ -93,18 +93,47 @@ moment.
 Third, and it is a rule the dashboard enforces rather than this worker:
 **an endpoint under `/-/` cannot be archived.** Archiving retains a row while
 taking it out of service, and an agent-staged endpoint has no use for that
-state. It would be agent-owned, unserved, and deleted by the monthly purge
-regardless, which is three lifecycles at once. An agent-staged stub is either
+state. It would be agent-owned, unserved, and deleted by the purge regardless,
+which is three lifecycles at once. An agent-staged stub is either
 deleted, or renamed out of `/-/` from the dashboard, and that rename is exactly
 what converts it into an ordinary endpoint: it leaves Autopilot's reach, leaves
-the monthly purge, and becomes archivable like any other. Nothing an agent can
+the purge, and becomes archivable like any other. Nothing an agent can
 call reaches `archived`, and no archived row can exist under the prefix for one
 to find.
+
+## Endpoint naming
+
+The `/-/` prefix is enforced. What goes after it is a convention, carried in the
+server instructions and in the `autopilot_endpoints_upsert` description, so an
+agent reads it at connect and again at the moment it writes:
+
+```
+/-/<customer>/<readable-name>
+```
+
+An agent is told to work out whether it is on a pentest and who the customer is,
+and to put every endpoint for that engagement under `/-/<customer>/`, for example
+`/-/acme/stored-xss-1.js`. Both segments lowercase and hyphen-separated, named
+for what the endpoint does, with no random strings, uuids or timestamps.
+
+**Nothing rejects a path that ignores this.** It is guidance for the case where
+the agent is choosing, and a prompt that names an exact path wins. Enforcing it
+would mean refusing paths an operator deliberately asked for, and the prefix is
+the only thing that has to be a rule.
+
+What it buys is legibility. Searching the exact term `:autopilot: acme` in the
+dashboard pulls up one engagement's endpoints, and a reader can tell what a stub
+was for without opening it. An agent that cannot work out the customer is told
+to say so rather than guess, and to fall back to `/-/<readable-name>`.
+
+Note that namespacing changes nothing about retention: the cleanup worker deletes
+everything under `/-/` on its schedule regardless of which namespace it is in
+([cleanup.md](cleanup.md#the-autopilot-purge)).
 
 ## MCP tools
 
 `POST /mcp` speaks MCP's JSON-RPC 2.0 transport over a single HTTP request (no
-SSE, since every tool completes fast). `serverInfo.version` is `1.3.0`. It
+SSE, since every tool completes fast). `serverInfo.version` is `1.4.0`. It
 versions the **MCP surface**, not the product, and is bumped whenever a tool or
 its description changes ([development](../development.md#common-tasks)), so it
 deliberately does not track `package.json`.

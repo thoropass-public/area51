@@ -51,11 +51,11 @@ export async function getEndpoint({ params, env }) {
 //   * An endpoint under /-/ cannot be archived. Agent-staged endpoints are
 //     deleted or converted. Renaming one out of the prefix is the conversion,
 //     and that is also what takes it out of Autopilot's reach and out of the
-//     monthly purge. Archiving one would leave a row that is agent-owned,
+//     purge schedule. Archiving one would leave a row that is agent-owned,
 //     unserved, and purged next month regardless, which is three different
 //     lifecycles at once.
 //   * Renaming INTO /-/ is allowed, and hands the endpoint to Autopilot along
-//     with the monthly purge. Allowed because the fence is Autopilot's
+//     with the purge schedule. Allowed because the fence is Autopilot's
 //     constraint, not an operator's, but never silently: the dashboard confirms
 //     it, and an archived endpoint is refused outright rather than quietly
 //     unarchived.

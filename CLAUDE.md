@@ -132,10 +132,17 @@ schema, domain bindings and the Access policy.
    and there is **no body column in D1**. The raw `.eml` in R2 is the single
    source of the body, parsed client-side (dashboard) or via `email_raw` (agent).
 
-5. **Endpoints are exact-match** on `url.pathname` (`WHERE uri = ?`). No globs,
-   no regex, no trailing-slash equivalence. The table is the complete source of
-   truth. Don't add pattern matching without adding a separate table and
-   documenting precedence in decisions.md.
+5. **Endpoints are exact-match** on `url.pathname`
+   (`WHERE uri = ? AND archived = 0`). No globs, no regex, no trailing-slash
+   equivalence. The table is the complete source of truth. Don't add pattern
+   matching without adding a separate table and documenting precedence in
+   decisions.md.
+
+   `archived = 1` is part of the match, not a check after it: an archived
+   endpoint is retained but not served, so it answers 404 exactly as an absent
+   one does and a target cannot tell them apart. Endpoints under `/-/` are never
+   archived — an agent-staged stub is deleted, or renamed out of the prefix,
+   which is what converts it into an ordinary endpoint.
 
 6. **No frontend build step.** React, ReactDOM and Babel come from a CDN; JSX is
    transpiled in the browser. The three `dashboard/public/js/*.jsx` files share

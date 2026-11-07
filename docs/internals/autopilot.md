@@ -90,6 +90,17 @@ and destroy a payload a human staged. The `400` body spells out the dashboard pa
 to use instead, because that error string is the agent's only feedback at that
 moment.
 
+Third, and it is a rule the dashboard enforces rather than this worker:
+**an endpoint under `/-/` cannot be archived.** Archiving retains a row while
+taking it out of service, and an agent-staged endpoint has no use for that
+state — it would be agent-owned, unserved, and deleted by the monthly purge
+regardless, which is three lifecycles at once. An agent-staged stub is either
+deleted, or renamed out of `/-/` from the dashboard, and that rename is exactly
+what converts it into an ordinary endpoint: it leaves Autopilot's reach, leaves
+the monthly purge, and becomes archivable like any other. Nothing an agent can
+call reaches `archived`, and no archived row can exist under the prefix for one
+to find.
+
 ## MCP tools
 
 `POST /mcp` speaks MCP's JSON-RPC 2.0 transport over a single HTTP request (no

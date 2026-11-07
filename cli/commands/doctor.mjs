@@ -124,9 +124,20 @@ export async function run(args) {
         }
       }
       const endpointCols = (await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'PRAGMA table_info(endpoints)')).map((c) => c.name);
-      for (const col of ['r2_key', 'filename']) {
+      // `archived` is in here with the file columns because the catcher selects
+      // it on EVERY request: `WHERE uri = ? AND archived = 0`. Without the
+      // column that statement throws, the lookup is caught and treated as "no
+      // match", and every endpoint on every black hole answers 404 while
+      // nothing anywhere says why. The live probe below cannot catch it either,
+      // since it asks for a path that is supposed to 404.
+      const ENDPOINT_COLS = {
+        r2_key: { type: 'TEXT', breaks: 'file-backed endpoints will fail' },
+        filename: { type: 'TEXT', breaks: 'file-backed endpoints will fail' },
+        archived: { type: 'INTEGER NOT NULL DEFAULT 0', breaks: 'EVERY endpoint answers 404' },
+      };
+      for (const [col, spec] of Object.entries(ENDPOINT_COLS)) {
         if (!endpointCols.includes(col)) {
-          r.fail(`endpoints.${col} is missing, so file-backed endpoints will fail`, `Add it: ALTER TABLE endpoints ADD COLUMN ${col} TEXT;`);
+          r.fail(`endpoints.${col} is missing, so ${spec.breaks}`, `Run \`./a51 deploy schema\`, or add it by hand: ALTER TABLE endpoints ADD COLUMN ${col} ${spec.type};`);
         }
       }
       if (emailCols.length && endpointCols.length) r.ok('emails / endpoints columns match the current schema');

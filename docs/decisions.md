@@ -916,3 +916,10 @@ seconds later. Mid-engagement that is a window where callbacks stop being served
 and the only trace is `http_endpoint_lookup_failed` in the logs.
 
 Migrate, then ship the code that depends on the migration.
+
+`doctor` checks for the column too, alongside `r2_key` and `filename`. It is
+there because the failure is invisible from outside: the catcher's lookup throws
+on a missing column, the handler treats a lookup error as "no match", and every
+endpoint answers 404 with nothing in the output saying why. The live probe at the
+end of `doctor` cannot see it either, since it asks for a path that is supposed
+to 404.

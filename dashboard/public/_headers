@@ -57,6 +57,16 @@
   # frame-src 'self' is what permits the sandboxed srcdoc iframe the email
   # viewer mounts. Removing it breaks HTML email display.
   #
+  # img-src carries https: so a captured email's remote images render. That is a
+  # deliberate, operator-made trade and not a default to restore quietly: a
+  # remote image is a beacon, and loading one tells whoever sent the message the
+  # moment an operator opened it, from an address belonging to the engagement.
+  # `Referrer-Policy: no-referrer` above is what keeps the dashboard's own URL
+  # out of that request, so what leaks is the fetch itself, not where from.
+  # Plain http: is left out on purpose — the dashboard is https, so the browser
+  # blocks or upgrades mixed content whatever the policy says, and listing it
+  # would only suggest otherwise.
+  #
   # connect-src includes esm.sh because postal-mime is imported as an ES module
   # and resolves its own dependencies from there at runtime.
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://esm.sh; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://esm.sh; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'

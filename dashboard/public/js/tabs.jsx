@@ -1312,11 +1312,13 @@ function EmailRow({ row, active, matches, onOpen, onToggleRead, onToggleStar }) 
 // CSP allows `img-src 'self' data:`, a srcdoc iframe inherits that policy, and
 // widening it to `blob:` to save a base64 pass is not a trade worth making.
 //
-// REMOTE images are left exactly as they are, and the CSP blocks them. That is
-// not an oversight to fix later. A remote image in a captured email is a beacon:
-// loading it tells whoever sent the mail the exact moment an operator opened it,
-// from an address that belongs to the engagement. The viewer reports how many it
-// refused rather than loading them quietly or hiding that it did not.
+// REMOTE images are left exactly as they are and DO load: the CSP carries
+// `img-src ... https:` for them. Worth knowing what that costs, because it is a
+// deliberate choice rather than an accident — a remote image in a captured email
+// is a beacon, so rendering one tells whoever sent the message the moment an
+// operator opened it, from an address belonging to the engagement.
+// `Referrer-Policy: no-referrer` keeps the dashboard's own URL out of the
+// request; the fetch itself is the part that cannot be hidden.
 
 function base64FromBytes(content) {
   const bytes = content instanceof Uint8Array ? content : new Uint8Array(content);
@@ -1337,11 +1339,11 @@ function normalizeCid(v) {
 }
 
 // Rewrite every cid: reference in `html` that an attachment can satisfy.
-// Returns the rewritten HTML plus what could not be resolved, which the viewer
-// reports: `missing` is a cid the message referenced but shipped no part for (a
-// genuinely broken email), `remote` is an http(s) image the CSP will refuse.
+// Returns the rewritten HTML plus `missing`: a cid the message referenced but
+// shipped no part for, which the viewer reports because it is the one case the
+// reader would otherwise read as a bug in the dashboard rather than in the mail.
 function resolveInlineImages(html, attachments) {
-  if (!html) return { html: "", missing: 0, remote: 0 };
+  if (!html) return { html: "", missing: 0 };
 
   const byCid = new Map();
   for (const a of attachments || []) {
@@ -1392,14 +1394,12 @@ function resolveInlineImages(html, attachments) {
     },
   );
 
-  const remote = (out.match(/\s(?:src|background)\s*=\s*["']?https?:\/\//gi) || []).length;
-
   // `<base target="_blank">` is what makes a link in a captured email open in a
   // new tab instead of trying to navigate the frame. It is injected rather than
   // written onto each anchor because it also covers markup we never see, and a
   // message that sets its own <base> keeps it: the first one in the document
   // wins, so prepending ours only affects documents that declared none.
-  return { html: `<base target="_blank">${out}`, missing, remote };
+  return { html: `<base target="_blank">${out}`, missing };
 }
 
 function EmailModal({ id, starred, onToggleStar, onClose }) {
@@ -1556,15 +1556,6 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     </div>
   ) : (hasHtml && (!hasText || bodyView === "html")) ? (
     <div className="iframe-wrap">
-      {view && view.remote > 0 && (
-        <div className="notice">
-          <span className="glyph">∅</span>
-          <span>
-            {view.remote} remote image{view.remote === 1 ? "" : "s"} blocked. Loading one would
-            tell the sender you opened this. <strong>Download raw</strong> has the untouched message.
-          </span>
-        </div>
-      )}
       {view && view.missing > 0 && (
         <div className="notice">
           <span className="glyph">!</span>

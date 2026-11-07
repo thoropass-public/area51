@@ -22,12 +22,49 @@ scheduled(event, env, ctx)
    │      WHERE id NOT IN (SELECT id FROM requests ORDER BY ts DESC LIMIT ?)
    │     → keeps the newest N rows; deletes the rest. Database only.
    │
-   └─ purgeEmails(maxAgeDays = CLEANUP_EMAIL_MAX_AGE_DAYS)
-         1. SELECT id FROM emails WHERE ts < (now - M days) AND starred = 0
-         2. EML.delete([...emails/<id>.eml])   in batches of ≤ 1000 keys   ← R2 first
-         3. DELETE FROM emails WHERE id IN (...)  in batches of ≤ 100      ← then D1,
-            and only for the ids whose object delete succeeded
+   ├─ purgeEmails(maxAgeDays = CLEANUP_EMAIL_MAX_AGE_DAYS)
+   │     1. SELECT id FROM emails WHERE ts < (now - M days) AND starred = 0
+   │     2. EML.delete([...emails/<id>.eml])   in batches of ≤ 1000 keys   ← R2 first
+   │     3. DELETE FROM emails WHERE id IN (...)  in batches of ≤ 100      ← then D1,
+   │        and only for the ids whose object delete succeeded
+   │
+   └─ purgeAutopilotEndpoints()        ONLY on the first Sunday of the month
+         1. SELECT uri, r2_key FROM endpoints WHERE uri LIKE '/-/%'
+         2. FILES.delete([...r2_key])          for the rows that serve a file  ← R2 first
+         3. DELETE FROM endpoints WHERE uri IN (...)                           ← then D1
 ```
+
+## The monthly Autopilot purge
+
+On the first Sunday of each month the run also deletes **every** endpoint under
+Autopilot's `/-/` prefix. Hand-written endpoints are never touched: the prefix is
+the whole of the test.
+
+**Every one of them, with no age test, because there is nothing to test.** The
+`endpoints` table has no timestamp column — its contract is exact-match lookup by
+`uri` — and adding one to carry a monthly sweep would be a schema migration for a
+sweep that does not need it. Agent-staged stubs are engagement scratch; an agent
+restages one in a single call.
+
+One thing to know before staging something you care about: a file an operator
+uploaded to a `/-/` path from the dashboard is also under the prefix, and goes
+with the rest. A payload meant to outlive the month belongs at a path of its own.
+
+**It is a date test in code, not a cron expression**, and that is not stylistic.
+In a cron field set, restricting *both* day-of-month and day-of-week makes them an
+OR: `0 7 1-7 * SUN` fires on the 1st through the 7th **and** on every Sunday,
+which is most of the month. So the trigger stays the ordinary daily one and
+`isFirstSundayUtc(event.scheduledTime)` decides. The consequence is worth stating
+plainly: **the monthly purge rides on the daily run.** `CLEANUP_CRON` has to fire
+at least once a day for it to happen at all — the default does; a cron edited
+down to, say, Mondays would silently never purge.
+
+This worker therefore holds the `FILES` binding, so it can delete an endpoint's
+object before the row that points at it. That does not loosen Autopilot's fence:
+Autopilot still has no `FILES` binding, which is what stops an agent reaching a
+payload a human uploaded. This worker has no `fetch` handler and no domain — it
+cannot be asked for an object, it never reads the bucket, and it never writes
+to it.
 
 **Requests are trimmed by count.** `id NOT IN (… ORDER BY ts DESC LIMIT N)`
 expresses "keep the newest N" exactly, with no boundary or tie ambiguity. It

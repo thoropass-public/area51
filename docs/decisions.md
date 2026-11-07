@@ -778,7 +778,7 @@ The lock file is not committed. `npm install` regenerates it locally.
 review, merge or keep in sync in a project with exactly two direct dependencies.
 
 **What it costs, stated plainly:** installs are not reproducible. Both
-dependencies are caret-ranged (`postal-mime: ^3.0.0`, `wrangler: ^4.42.0`), so two
+dependencies are caret-ranged (`postal-mime: ^4.2.0`, `wrangler: ^4.42.0`), so two
 `npm install` runs weeks apart can resolve different minor or patch versions,
 including of `wrangler`, which bundles and uploads the Workers, and
 `postal-mime`, which parses attacker-controlled email inside the catcher. If a
@@ -838,10 +838,11 @@ reintroducing a blanket trademark claim over the project name.
 every whitespace run to a single space, before writing it to the `emails` row.
 The raw `.eml` in R2 is never touched.
 
-**Why:** postal-mime 3.0.0 changed how folded headers unfold. Per RFC 5322 it now
-removes the CRLF but *keeps* the whitespace that followed it, where 2.x had
-collapsed every run to one space. A subject wrapped by the sender's MTA therefore
-started arriving with embedded tabs and multi-space runs.
+**Why:** postal-mime 3.0.0 changed how folded headers unfold, and 4.x keeps that
+behavior. Per RFC 5322 it now removes the CRLF but *keeps* the whitespace that
+followed it, where 2.x had collapsed every run to one space. A subject wrapped by
+the sender's MTA therefore started arriving with embedded tabs and multi-space
+runs.
 
 That would have been cosmetic anywhere else, but the stored subject is the email
 list's **grouping key**: rows sharing an exact `(from_addr, subject)` pair collapse

@@ -52,8 +52,8 @@ function normalizeEmail(v) {
   return (m ? m[1] : s).toLowerCase();
 }
 
-// Collapse the whitespace that header folding leaves behind. postal-mime 3.x
-// unfolds per RFC 5322, which removes the CRLF but keeps the whitespace run
+// Collapse the whitespace that header folding leaves behind. postal-mime (3.x and
+// later) unfolds per RFC 5322, which removes the CRLF but keeps the whitespace run
 // that followed it, so a Subject wrapped by the sender's MTA now arrives
 // carrying tabs and multi-space runs where 2.x had already collapsed them.
 // This matters because the stored subject is the email list's grouping key

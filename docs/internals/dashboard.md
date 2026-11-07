@@ -64,17 +64,18 @@ Removing it breaks HTML email display.
 published as `window.PostalMime`, used to parse raw `.eml` in the browser.
 
 Note that the same message gets parsed by **two** copies of that library: the
-browser pins `postal-mime@3.0.0` in `index.html`, while the catcher bundles
-whatever `^3.0.0` in `package.json` resolved to at deploy time. They agree today;
+browser pins `postal-mime@4.2.0` in `index.html`, while the catcher bundles
+whatever `^4.2.0` in `package.json` resolved to at deploy time. They agree today;
 if the subject or attachment count in a list row ever disagrees with what the
 modal renders, this skew is the first thing to check. Bump both together.
 
 The headers block in the email modal collapses whitespace runs before rendering.
-postal-mime 3.x unfolds headers per RFC 5322, which drops the CRLF but keeps the
-whitespace that followed it, so `Received`, `DKIM-Signature` and the `ARC-*`
-headers Cloudflare adds would otherwise render with tabs and 8-space gaps in the
-middle of a value. This is display only: **Download raw** serves the stored
-`.eml` untouched, still folded, for anyone who needs the bytes as they arrived.
+postal-mime 3.x and later unfold headers per RFC 5322, which drops the CRLF but
+keeps the whitespace that followed it, so `Received`, `DKIM-Signature` and the
+`ARC-*` headers Cloudflare adds would otherwise render with tabs and 8-space
+gaps in the middle of a value. This is display only: **Download raw** serves the
+stored `.eml` untouched, still folded, for anyone who needs the bytes as they
+arrived.
 
 ## Files
 

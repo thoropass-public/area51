@@ -12,10 +12,21 @@ export async function listEndpoints({ request, env }) {
   // by showing them.
   const archived = url.searchParams.get('archived') === '1' ? 1 : 0;
 
+  // Agent-staged endpoints are a separate list, not a section of this one, and
+  // the split is made HERE rather than in the browser. That is the whole point.
+  //
+  // `/-/` sorts first under `ORDER BY uri ASC`: `-` is 0x2D, below `.`, `/`,
+  // the digits and both cases. So an engagement with more agent-staged
+  // endpoints than a page would fill the entire first page with them, and a
+  // browser-side filter would leave the operator looking at an empty list with
+  // a Load more button, their own endpoints still unfetched. Excluding them in
+  // SQL means a page of this list is a page of what you asked for.
+  const autopilot = url.searchParams.get('autopilot') === '1';
+
   // filename rides along so the list can mark file-backed rows without a second
   // query. Same row read, two more columns.
   let query = 'SELECT uri, status, r2_key, filename FROM endpoints';
-  const conditions = ['archived = ?'];
+  const conditions = ['archived = ?', autopilot ? "uri LIKE '/-/%'" : "uri NOT LIKE '/-/%'"];
   const params = [archived];
 
   if (cursor) {

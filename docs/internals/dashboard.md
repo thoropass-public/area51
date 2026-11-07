@@ -223,25 +223,30 @@ and the modal still showing what was typed. Renaming *into* `/-/` is allowed and
 confirmed first, because it hands the endpoint to Autopilot and to the monthly
 purge.
 
-Rows are shown in two groups. Hand-written endpoints come first in the order the
-API returned them; everything under Autopilot's `/-/` prefix is gathered below
-them behind a single **AUTOPILOT** row that folds the whole set away, collapsed
-on arrival. An engagement can leave dozens of agent-staged rows behind, and they
-used to bury the handful an operator wrote by hand.
+Agent-staged endpoints are **not in this list at all.** Everything under
+Autopilot's `/-/` prefix is excluded by the query, and the only way to see them
+is to search for the exact term `:autopilot:`, which switches the list over to
+them instead of narrowing within it.
 
-Search and pins are unaffected and reach every endpoint, `/-/` included: the
-filter is applied by the API, and the grouping only decides where a returned row
-is drawn. The group does follow the filter, though: open while one is active,
-closed again when it clears. A query whose matches all happen to be
-under `/-/` would otherwise draw them behind a collapsed row and read as "no
-results".
+The exclusion happens in SQL, and that part is not a preference. `/-/` sorts
+first under `ORDER BY uri ASC`, because `-` is 0x2D and sits below `.`, `/`, the
+digits and both cases. An engagement that leaves more agent-staged endpoints
+than fit on a page would therefore fill the entire first page with them. Filter
+them in the browser and the operator gets an empty list with a Load more button,
+their own endpoints not yet fetched; filter them in the query and a page of this
+list is a page of what they asked for.
 
-It is presentation only. The query, the cursor and `{n} loaded` are unchanged:
-the group row travels as a sentinel inside the row array that `ListView` maps
-over, so nothing about paging or the empty state had to learn about it. The
-`/-/` check is a copy of Autopilot's fence, which the worker enforces
-server-side; the two drifting would move a row to the wrong group and nothing
-more.
+`:autopilot:` is matched exactly, never as a substring, since `/foo:autopilot:bar`
+is a legal URI and searching for it should find that row rather than change
+which list you are on. It is stripped from the terms before they are sent, so
+`:autopilot: oauth` reads as "agent-staged endpoints matching oauth": the scope
+is ANDed, and the remaining terms are ORed among themselves as always. It works
+from a pin as well as from the input, so the scope can be made sticky by pinning
+it.
+
+There is deliberately **no hint in the interface** that the term exists, and no
+count of what is hidden. `{n} loaded` counts the rows on screen, which in the
+default list means hand-written endpoints only.
 
 The modal is in exactly one of two states. In **text mode** it shows Headers /
 Status / Body editors plus a **Serve a file** drop target ("Drop a file here or

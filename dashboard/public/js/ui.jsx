@@ -112,8 +112,16 @@ const API = {
   // `archived` selects which side of the list to read. The two are separate
   // views, never merged: the working list is unarchived endpoints and the
   // Archive view is the rest.
-  listEndpoints: ({ cursor, search, archived } = {}) =>
-    apiFetch('/api/endpoints' + qs({ cursor, search, archived: archived ? 1 : undefined })),
+  // `archived` selects which side of the list to read, `autopilot` selects
+  // whether it is the agent-staged set or everything else. Both are scopes, not
+  // filters: the server applies them in SQL and `search` narrows within them.
+  listEndpoints: ({ cursor, search, archived, autopilot } = {}) =>
+    apiFetch('/api/endpoints' + qs({
+      cursor,
+      search,
+      archived: archived ? 1 : undefined,
+      autopilot: autopilot ? 1 : undefined,
+    })),
   getEndpoint: (uri) =>
     apiFetch(`/api/endpoints/${encodeURIComponent(uri)}`),
   saveEndpoint: ({ uri, status, headers, body }) =>

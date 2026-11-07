@@ -185,84 +185,78 @@ Matching is per tab: `uri` for Endpoints, `url` for Requests, and
 belongs *exclusively* to ribbons; unread state uses a background tint so the two
 cues never collide.
 
-**Endpoints.** The list shows URI plus a color-coded status tag; headers and
+**Endpoints.** The list shows URI plus a color-coded status tag. Headers and
 body are fetched only when the modal opens. The leading row icon is a **copy
 button**: it copies `https://<active host><uri>` to the clipboard, flips to a
-check mark, and toasts the host it used (clicking it does not open the modal). The
-active host comes from the Home picker; with none selected the button toasts an
-error instead.
+check mark, and toasts the host it used. Clicking it does not open the modal. The
+active host comes from the Home picker, and with none selected the button toasts
+an error instead.
 
-The toolbar carries an **Archive** toggle beside *New endpoint*. It swaps the
-list rather than widening it: the working list is unarchived endpoints, the
-Archive view is the rest, and the two are never mixed. *New endpoint* is hidden
-inside the Archive view, since creating one there would file it straight into
-the list you are not looking at.
+*What the list contains.* Three things decide which rows you see, and none of
+them mix:
 
-Opening an archived endpoint gives a **read-only** modal: its path, status,
-headers and body (or the file it serves) are shown, and the only actions are
-Unarchive, Delete and Close. The editors are unmounted rather than disabled, the
-same treatment file mode gets. That is the UI half of a rule the API enforces on
-every write path, since the modal is not the only caller: rename, text upsert
-and file upload all answer `409` on an archived row. The point is that
-unarchiving returns what was archived, rather than whatever was edited into it
-while nothing was serving it.
+- **Archived endpoints are their own view.** The toolbar's **Archive** toggle
+  swaps the list rather than widening it. *New endpoint* is hidden inside the
+  Archive view, since creating one there would file it straight into the list
+  you are not looking at.
+- **Agent-staged endpoints are not in either view.** Everything under Autopilot's
+  `/-/` prefix is excluded by the query. Searching the exact term `:autopilot:`
+  switches the list over to them.
+- **Everything else is the working list.** `{n} loaded` counts the rows on
+  screen, so by default that means hand-written endpoints only.
 
-In the modal, **Archive** sits beside Delete, because it is the undo-able half of it.
-An archived endpoint keeps its row and its R2 object and simply stops being
-served, because the catcher's lookup filters on `archived = 0`. The button is
-*unmounted* for an endpoint under `/-/` rather than disabled, the same treatment
-the file-mode editors get: agent-staged endpoints are deleted, or renamed out of
-the prefix first, which is what converts one into an ordinary endpoint.
-
-**The URI is editable.** A rename is a primary-key `UPDATE`, and nothing else in
-either store is keyed by the URI. An endpoint's R2 object is keyed by a random
-UUID, so a file-backed endpoint keeps its object with no R2 call at all, and
-captured requests keep the URL they were actually made to. The rename is sent
-before the body write, so a name clash comes back as `409` with nothing changed
-and the modal still showing what was typed. Renaming *into* `/-/` is allowed and
-confirmed first, because it hands the endpoint to Autopilot and to the monthly
-purge.
-
-Agent-staged endpoints are **not in this list at all.** Everything under
-Autopilot's `/-/` prefix is excluded by the query, and the only way to see them
-is to search for the exact term `:autopilot:`, which switches the list over to
-them instead of narrowing within it.
-
-The exclusion happens in SQL, and that part is not a preference. `/-/` sorts
-first under `ORDER BY uri ASC`, because `-` is 0x2D and sits below `.`, `/`, the
-digits and both cases. An engagement that leaves more agent-staged endpoints
-than fit on a page would therefore fill the entire first page with them. Filter
-them in the browser and the operator gets an empty list with a Load more button,
-their own endpoints not yet fetched; filter them in the query and a page of this
-list is a page of what they asked for.
+The `/-/` exclusion happens in SQL rather than the browser, and the reason is
+paging. `/-/` sorts first under `ORDER BY uri ASC`, because `-` is 0x2D and sits
+below `.`, `/`, the digits and both cases. An engagement that leaves more
+agent-staged endpoints than fit on a page would fill the whole first page with
+them. Filtered in the browser, the operator gets an empty list with a *Load more*
+button under it and their own endpoints not yet fetched. Filtered in the query, a
+page of this list is a page of what they asked for.
 
 `:autopilot:` is matched exactly, never as a substring, since `/foo:autopilot:bar`
-is a legal URI and searching for it should find that row rather than change
-which list you are on. It is stripped from the terms before they are sent, so
-`:autopilot: oauth` reads as "agent-staged endpoints matching oauth": the scope
-is ANDed, and the remaining terms are ORed among themselves as always. It works
-from a pin as well as from the input, so the scope can be made sticky by pinning
-it.
+is a legal URI and searching for it should find that row rather than change which
+list you are on. It is stripped from the terms before they are sent, so
+`:autopilot: oauth` means "agent-staged endpoints matching oauth": the scope is
+ANDed and the remaining terms are ORed among themselves as always. It works from
+a pin as well as the input, so the scope can be made sticky by pinning it. There
+is deliberately no hint in the interface that the term exists, and no count of
+what is hidden.
 
-There is deliberately **no hint in the interface** that the term exists, and no
-count of what is hidden. `{n} loaded` counts the rows on screen, which in the
-default list means hand-written endpoints only.
+*The modal* is in exactly one of two states. In **text mode** it shows Headers /
+Status / Body editors plus a **Serve a file** drop target. Attaching a file
+switches to **file mode**: those three editors are *unmounted* rather than
+disabled, because a grayed-out field still invites a click. They are replaced by
+a chip showing filename, type and size with *Replace* and *Remove*. Saving in
+file mode POSTs the raw `File` as the request body so it streams, and files over
+25 MB are rejected before a byte leaves the browser. Opening an existing file
+endpoint never shows a response editor, and saving without touching anything is a
+no-op rather than a silent conversion to text.
 
-**Creating is not the same write as saving.** Both go through the same upsert,
-so the New endpoint modal sends `create` and the server answers `409` on a URI
-that is already taken instead of overwriting the row that holds it. Renaming
-onto a taken path was already refused; this makes the two answers agree.
+*Creating is not the same write as saving.* Both go through the same upsert, so
+the New endpoint modal sends `create` and the server answers `409` on a URI that
+is already taken rather than overwriting the row that holds it.
 
-The modal is in exactly one of two states. In **text mode** it shows Headers /
-Status / Body editors plus a **Serve a file** drop target ("Drop a file here or
-click to browse"). Attaching a file switches to
-**file mode**: those three editors are *unmounted* rather than disabled, because
-a grayed-out field still invites a click. They are replaced by a chip showing filename,
-type and size with *Replace* and *Remove*. Saving in file mode POSTs the raw
-`File` as the request body (so it streams); files over 25 MB are rejected before a
-byte leaves the browser. Opening an existing file endpoint never shows a response
-editor, and saving without touching anything is a no-op rather than a silent
-conversion to text.
+*The URI is editable*, and a rename is an ordinary primary-key `UPDATE`. Nothing
+else in either store is keyed by it: an endpoint's R2 object is keyed by a random
+UUID, so a file-backed endpoint keeps its object with no R2 call, and captured
+requests keep the URL they were actually made to. The rename is sent before the
+body write, so a name clash comes back as `409` with nothing changed and the
+modal still showing what was typed. Renaming *into* `/-/` is allowed and
+confirmed first, because it hands the endpoint to Autopilot and to the purge
+schedule.
+
+*Archiving* sits beside Delete, as the undo-able half of it. An archived endpoint
+keeps its row and its R2 object and stops being served, because the catcher's
+lookup filters on `archived = 0`. The button is unmounted for an endpoint under
+`/-/`: agent-staged endpoints are deleted, or renamed out of the prefix first,
+which is what converts one into an ordinary endpoint.
+
+Opening an archived endpoint gives a **read-only** modal showing its path,
+status, headers and body, or the file it serves. The only actions are Unarchive,
+Delete and Close. That is the visible half of a rule the API enforces on every
+write path, since the modal is not the only caller: rename, text upsert and file
+upload all answer `409` on an archived row. Unarchiving should return what was
+archived, not whatever was edited into it while nothing was serving it.
 
 **Requests.** The capture itself is read-only, and nothing edits a stored request.
 The modal pretty-prints a JSON body when it parses and shows it raw otherwise,

@@ -202,7 +202,7 @@ exists instead:
 - **`./a51 setup --dry-run`** resolves configuration and prints the plan without
   touching Cloudflare.
 - **Smoke tests** per component: [black-holes.md](internals/black-holes.md#deploying-and-testing),
-  [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#acting-on-retention-between-runs).
+  [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#acting-between-runs).
 
 If you add automated tests, the CLI is the tractable part: `cli/lib/cloudflare.mjs`
 honors `A51_API_BASE`, so the whole provisioning path can run against a local mock

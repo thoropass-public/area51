@@ -39,6 +39,7 @@ const DEFAULTS = {
   CLEANUP_REQUESTS_KEEP: '1000',
   CLEANUP_EMAIL_MAX_AGE_DAYS: '90',
   CLEANUP_CRON: '0 6 * * *',
+  CLEANUP_AUTOPILOT_PURGE: 'monthly',
 };
 
 /** Zero Trust team names allow lowercase letters, digits and dashes. */
@@ -241,6 +242,7 @@ export async function run(args) {
     CLEANUP_REQUESTS_KEEP: env.CLEANUP_REQUESTS_KEEP,
     CLEANUP_EMAIL_MAX_AGE_DAYS: env.CLEANUP_EMAIL_MAX_AGE_DAYS,
     CLEANUP_CRON: env.CLEANUP_CRON,
+    CLEANUP_AUTOPILOT_PURGE: env.CLEANUP_AUTOPILOT_PURGE,
   });
 
   // ── 4. plan + confirmation ────────────────────────────────────────────────

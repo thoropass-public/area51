@@ -155,6 +155,11 @@ documented in [internals/cleanup](../internals/cleanup.md#the-monthly-autopilot-
 It rides on the daily cleanup run, so `CLEANUP_CRON` has to fire at least once a
 day for it to happen at all. The default `0 6 * * *` does.
 
+Set `CLEANUP_AUTOPILOT_PURGE=off` in `.env` and redeploy the cleanup worker if
+you would rather it never ran. `monthly`, `weekly` and `daily` are the other
+values. You do not have to add the key: without it the worker falls back to
+`monthly`, which is the behavior described above.
+
 ### If step 3 goes wrong
 
 `git switch main` and `./a51 deploy all` puts the v1.0.0 workers back. The

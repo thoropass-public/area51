@@ -36,8 +36,20 @@ scheduled(event, env, ctx)
 
 ## The monthly Autopilot purge
 
-On the first Sunday of each month the run also deletes **every** endpoint under
-Autopilot's `/-/` prefix. Hand-written endpoints are never touched: the prefix is
+On the schedule `CLEANUP_AUTOPILOT_PURGE` names, the run also deletes **every**
+endpoint under Autopilot's `/-/` prefix. The value is one of:
+
+| | Runs on |
+|---|---|
+| `off` | never. The prefix grows until `./a51 purge` clears it by hand |
+| `daily` | every run |
+| `weekly` | Sundays |
+| `monthly` | the first Sunday of the month (default) |
+
+An unreadable value falls back to `monthly` rather than to `off`, the same way
+`intFromEnv` handles the two integer settings: a typo should not quietly disable
+retention, and it should not quietly enable a delete either. The schedule that
+was actually applied is in `cleanup_started` and `cleanup_finished`. Hand-written endpoints are never touched: the prefix is
 the whole of the test.
 
 **Every one of them, with no age test, because there is nothing to test.** The
@@ -50,14 +62,15 @@ One thing to know before staging something you care about: a file an operator
 uploaded to a `/-/` path from the dashboard is also under the prefix, and goes
 with the rest. A payload meant to outlive the month belongs at a path of its own.
 
-**It is a date test in code, not a cron expression**, and that is not stylistic.
+**They are date tests in code, not cron expressions**, and that is not stylistic.
 In a cron field set, restricting *both* day-of-month and day-of-week makes them an
 OR: `0 7 1-7 * SUN` fires on the 1st through the 7th **and** on every Sunday,
 which is most of the month. So the trigger stays the ordinary daily one and
 `isFirstSundayUtc(event.scheduledTime)` decides. The consequence is worth stating
-plainly: **the monthly purge rides on the daily run.** `CLEANUP_CRON` has to fire
-at least once a day for it to happen at all. The default does; a cron edited
-down to, say, Mondays would silently never purge.
+plainly: **every one of these rides on the daily run.** `CLEANUP_CRON` has to
+fire at least once a day for any of them to land on the right date. The default
+does; a cron edited down to Mondays would purge on Mondays under `weekly`, or
+never under `monthly`.
 
 This worker therefore holds the `FILES` binding, so it can delete an endpoint's
 object before the row that points at it. That does not loosen Autopilot's fence:

@@ -154,6 +154,7 @@ with `./a51 users` takes effect immediately, with no deploy.
 | Key | Default | Notes |
 |---|---|---|
 | `CLEANUP_REQUESTS_KEEP` | `1000` | Newest request rows to keep; the rest are deleted daily. Count-based because request volume is spiky. |
+| `CLEANUP_AUTOPILOT_PURGE` | `monthly` | How often the cleanup run deletes every endpoint under `/-/`, uploaded files included: `off`, `daily`, `weekly` (Sundays) or `monthly` (first Sunday). Rides on `CLEANUP_CRON`, which has to fire at least daily. An unreadable value falls back to `monthly`, never to `off`. Optional: a deployment without the key renders an empty value and the worker falls back, so an upgrade does not have to add it. |
 | `CLEANUP_EMAIL_MAX_AGE_DAYS` | `90` | Emails older than this are deleted, rows **and** their `.eml` objects. **Starred email is exempt and kept forever.** |
 | `CLEANUP_CRON` | `0 6 * * *` | Standard five-field cron, **UTC**. Must be quoted. Applied by `./a51 deploy cleanup`. |
 

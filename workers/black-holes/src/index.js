@@ -119,6 +119,11 @@ async function insertRequestLog(env, row) {
   }
 }
 
+// Served at /robots.txt when the endpoints table has no row for it. Hardcoded
+// rather than seeded into D1 so it cannot be deleted by accident, and so a
+// fresh black hole has it from its first request.
+const ROBOTS_TXT = 'User-agent: *\nDisallow: /\n';
+
 async function handleHttp(request, env, ctx) {
   const url = new URL(request.url);
   const route = url.pathname;
@@ -164,6 +169,30 @@ async function handleHttp(request, env, ctx) {
   }
 
   if (!endpoint) {
+    // Nothing in the table serves this path. One path gets an answer anyway.
+    //
+    // A black hole is public by necessity, because targets have to reach it, so
+    // it is also reachable by every crawler on the internet, and an indexed callback
+    // host is an engagement artifact sitting in a search result with the paths
+    // that were staged on it. This serves a blanket disallow so that does not
+    // happen by default.
+    //
+    // It runs AFTER the table lookup, never before, and that order is the whole
+    // of how it stays compatible with the exact-match rule: an operator who
+    // creates a /robots.txt endpoint is served THEIR row, and this is only what
+    // answers when the table has nothing. Staging a permissive robots.txt for a
+    // target that checks for one therefore still works.
+    //
+    // robots.txt is advisory. It stops the crawlers that honor it; it is not a
+    // control, and nothing here should be read as one.
+    if (route === '/robots.txt') {
+      log('http_robots_served', { id });
+      return new Response(ROBOTS_TXT, {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+
     log('http_endpoint_not_found', { id, route });
     return new Response('404! Not Found', { status: 404 });
   }

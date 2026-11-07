@@ -32,6 +32,18 @@ database_id = "${D1_DATABASE_ID}"
 binding = "EML"
 bucket_name = "${R2_BUCKET_NAME}"
 
+# Endpoint files. Held for one job: the monthly /-/ purge deletes an endpoint's
+# object before the row that points at it, and without this binding that purge
+# would have to skip every file-backed row and leave it behind forever.
+#
+# This does NOT loosen Autopilot's fence. Autopilot still has no FILES binding,
+# which is what stops an agent reading, replacing or deleting a payload a human
+# uploaded. This worker has no fetch handler and no domain: it cannot be asked
+# for an object by anyone, it never reads the bucket, and it never writes to it.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "${R2_FILES_BUCKET_NAME}"
+
 # Retention thresholds, tunable from .env without a code edit. Quoted so they
 # arrive as strings; the worker parses them with a safe integer fallback.
 [vars]

@@ -1,0 +1,5 @@
+# The dashboard sits behind Cloudflare Access, so a crawler gets a login page
+# rather than anything of yours. This is here so that stays true if Access is
+# ever misconfigured, and so the answer does not depend on it.
+User-agent: *
+Disallow: /

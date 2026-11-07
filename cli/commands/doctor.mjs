@@ -167,7 +167,11 @@ export async function run(args) {
   const WORKER_CHECKS = [
     { target: 'black-holes', label: 'Black Holes', name: env.WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
     { target: 'autopilot', label: 'Autopilot', name: env.AGENT_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
-    { target: 'cleanup', label: 'Cleanup', name: env.CLEANUP_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
+    // Cleanup carries FILES so the monthly /-/ purge can delete an endpoint's
+    // object before its row. Autopilot is still forbidden it, which is the
+    // binding rule that actually matters: it is what stops an agent reaching a
+    // payload a human uploaded.
+    { target: 'cleanup', label: 'Cleanup', name: env.CLEANUP_WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
     // The dashboard writes the FILES bucket, and nothing else does, so it needs
     // the binding the other two are forbidden. As a Pages project it
     // could not be checked here at all: its bindings lived in the Pages API, on

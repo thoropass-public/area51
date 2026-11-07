@@ -53,7 +53,19 @@ that rule over the API.
    exactly as an absent one, so a target cannot tell the two apart, which is
    the only thing it should be able to tell.
 
-6. **No row** → `404! Not Found`.
+6. **No row** → `404! Not Found`, with one exception: `/robots.txt` is answered
+   with a hardcoded `User-agent: * / Disallow: /`.
+
+   A black hole is public by necessity, because targets have to reach it, which
+   means every crawler can too, and an indexed callback host is an engagement
+   artifact sitting in a search result alongside the paths staged on it.
+
+   The order is what keeps this compatible with exact-match routing: the table is
+   consulted **first**, so an operator who creates a `/robots.txt` endpoint is
+   served their row, and the hardcoded one only answers when the table has
+   nothing. Staging a permissive `robots.txt` for a target that reads one still
+   works. It is advisory in any case: it stops crawlers that honor it, and is
+   not a control.
 7. **Row with `r2_key`** (file-backed) → `env.FILES.get(key)` and stream the
    object back with `200` and its own stored `Content-Type` (falling back to
    `application/octet-stream`), served inline. R2 returns a stream, so object size
@@ -145,6 +157,7 @@ live with `npx wrangler tail area51-black-holes`.
 | `http_endpoint_lookup_failed` | the D1 lookup threw |
 | `http_file_served` | file-backed endpoint streamed from R2 |
 | `http_file_missing` | the row has an `r2_key` but the object is gone → 404 |
+| `http_robots_served` | `/robots.txt` with no row in the table → the hardcoded disallow |
 | `http_file_lookup_failed` / `http_file_binding_missing` | R2 GET threw / the `FILES` binding is absent |
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the fire-and-forget request log |
 | `email_received` | top of the email handler (includes envelope sender and raw size) |

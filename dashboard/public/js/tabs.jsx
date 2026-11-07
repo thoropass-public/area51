@@ -1490,7 +1490,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
                     <span className="caret"><Icon.chevron/></span>
                     Headers <span style={{color:"var(--n4)", fontWeight:400}}>· {body.parsed.headers.length}</span>
                   </summary>
-                  {/* Whitespace runs are collapsed for display. postal-mime 3.x unfolds
+                  {/* Whitespace runs are collapsed for display. postal-mime (3.x and later) unfolds
                       per RFC 5322, keeping the whitespace that folding introduced, so
                       long values (Received, DKIM-Signature, ARC-*) would otherwise render
                       with tabs and 8-space gaps mid-value. One header still occupies one

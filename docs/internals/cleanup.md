@@ -69,7 +69,7 @@ manual purge is framed.
 
 On the days `CLEANUP_AUTOPILOT_PURGE` names, the run also deletes **every**
 endpoint under Autopilot's `/-/` prefix. Hand-written endpoints are never
-touched. The prefix is the entire test.
+touched: the prefix is the only thing it matches on.
 
 | Value | Runs on |
 |---|---|
@@ -94,8 +94,7 @@ makes them an OR rather than an AND: `0 7 1-7 * SUN` fires on the 1st through th
 7th *and* on every Sunday, which is most of the month. So the trigger stays the
 ordinary daily one and the handler decides which days count.
 
-The consequence is worth stating plainly: **every schedule rides on the daily
-run.** `CLEANUP_CRON` has to fire at least once a day for any of them to land on
+So **every schedule rides on the daily run.** `CLEANUP_CRON` has to fire at least once a day for any of them to land on
 the right date. The default does. A cron edited down to Mondays would purge on
 Mondays under `weekly`, and never under `monthly`.
 

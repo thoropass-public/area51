@@ -397,8 +397,8 @@ Add → Custom Domain → the dashboard hostname.
   preview deployment (`main.<project>.pages.dev`, `<hash>.<project>.pages.dev`).
   Access is enforced per hostname, so covering only the custom domain left those
   an **unauthenticated bypass** straight into every captured request and email.
-  The dashboard Worker answers on one name, so one destination is the whole
-  list and there is nothing extra to forget.
+  The dashboard Worker answers on one name, so the list has one entry and there
+  is nothing extra to forget.
 
 *Manual equivalent:* Zero Trust → Access → Applications → *Add an application* →
 Self-hosted → add the dashboard hostname as a public hostname destination →

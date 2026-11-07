@@ -341,11 +341,15 @@ Email HTML is rendered as:
 />
 ```
 
-The sandbox carries exactly two tokens, and what it still withholds is the part
-that matters: **no `allow-scripts`**, so nothing in the message executes; **no
-`allow-same-origin`**, so the frame keeps an opaque origin and can reach neither
-the dashboard's DOM nor its cookies; **no `allow-forms`**; and no
-`allow-top-navigation`, so the message cannot move the tab under you. Email
+The sandbox carries exactly two tokens. What it still withholds is the part that
+matters:
+
+- **no `allow-scripts`**, so nothing in the message executes
+- **no `allow-same-origin`**, so the frame keeps an opaque origin and can reach
+  neither the dashboard's DOM nor its cookies
+- **no `allow-forms`**
+- **no `allow-top-navigation`**, so the message cannot move the tab under you
+ Email
 arrives from attackers by definition. **Those four stay off.**
 
 The two that are on exist so a link in a captured email opens in a new tab. An
@@ -374,7 +378,8 @@ in a captured email is a beacon, so rendering one tells whoever sent the message
 the moment an operator opened it, from an address belonging to the engagement.
 `Referrer-Policy: no-referrer` keeps the dashboard's own URL out of the request,
 so what leaks is the fetch, not where it came from. Narrowing `img-src` back to
-`'self' data:` is the whole of the revert if an engagement ever needs it.
+Narrowing `img-src` back to `'self' data:` reverts it, if an engagement ever
+needs that.
 
 Plain `http:` images are not listed and will still not render: the dashboard is
 https, so the browser blocks or upgrades mixed content whatever the policy says.

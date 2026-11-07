@@ -463,10 +463,10 @@ helper reads current state before it writes ([CLAUDE.md](../CLAUDE.md) invariant
 and *then* migrated the database.
 
 That is backwards the moment worker code reads a new column, and it fails
-quietly rather than loudly: the catcher's endpoint lookup catches its own errors
-and treats them as "no match", so a worker deployed ahead of its column would
-answer `404` for **every endpoint on every black hole** until the schema step ran
-seconds later. Mid-engagement that is a window where callbacks stop being served
+quietly rather than loudly. The catcher's endpoint lookup catches its own errors
+and treats them as "no match". A worker deployed ahead of its column therefore
+answers `404` for **every endpoint on every black hole** until the schema step
+runs, seconds later. Mid-engagement that is a window where callbacks stop being served
 and the only trace is `http_endpoint_lookup_failed` in the logs.
 
 Migrate, then ship the code that depends on the migration.
@@ -504,11 +504,11 @@ Access app has one destination because there is only one thing to guard.
 **With one window where that is not yet true, and it needed handling.** During an
 upgrade both products exist: the Worker is deployed, and the old Pages project is
 still there, still bound to D1 and both R2 buckets, still answering on its
-`pages.dev` names. Writing the Access application is a full `PUT`, so the obvious
-version of this change, listing the Worker's hostname and nothing else, would have
-*removed* the destinations that were guarding those names and left the upgrade
-strictly worse than the thing it replaced: shut on the name the operator checks,
-open on the two they have stopped thinking about. So `ensureAccess` derives the
+`pages.dev` names. Writing the Access application is a full `PUT`. The obvious
+version of this change, listing the Worker's hostname and nothing else, would
+have *removed* the destinations guarding those names. That leaves the upgrade
+worse than the thing it replaced: shut on the name the operator checks, open on
+the two they have stopped thinking about. So `ensureAccess` derives the
 list from what the dashboard is reachable at rather than what it ought to be
 reachable at: a leftover project keeps its names guarded, with a follow-up saying
 to retire it, and the entries go once it is gone.

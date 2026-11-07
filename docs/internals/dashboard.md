@@ -198,6 +198,15 @@ Archive view is the rest, and the two are never mixed. *New endpoint* is hidden
 inside the Archive view, since creating one there would file it straight into
 the list you are not looking at.
 
+Opening an archived endpoint gives a **read-only** modal: its path, status,
+headers and body (or the file it serves) are shown, and the only actions are
+Unarchive, Delete and Close. The editors are unmounted rather than disabled, the
+same treatment file mode gets. That is the UI half of a rule the API enforces on
+every write path, since the modal is not the only caller — rename, text upsert
+and file upload all answer `409` on an archived row. The point is that
+unarchiving returns what was archived, rather than whatever was edited into it
+while nothing was serving it.
+
 In the modal, **Archive** sits beside Delete — it is the undo-able half of it.
 An archived endpoint keeps its row and its R2 object and simply stops being
 served, because the catcher's lookup filters on `archived = 0`. The button is

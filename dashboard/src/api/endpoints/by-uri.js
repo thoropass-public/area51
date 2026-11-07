@@ -1,4 +1,4 @@
-import { json, errResp, AUTOPILOT_PREFIX, isAutopilotUri } from '../shared.js';
+import { json, errResp, AUTOPILOT_PREFIX, isAutopilotUri, ARCHIVED_FROZEN } from '../shared.js';
 
 // Detail. For a file-backed row (r2_key set) the response carries a `file`
 // object instead of a meaningful body/headers/status to edit: the modal renders
@@ -77,6 +77,12 @@ export async function patchEndpoint({ params, request, env }) {
 
   if (!nextUri) return errResp('URI is required', 400);
   if (!nextUri.startsWith('/')) return errResp('URI must start with /', 400);
+
+  // An archived row is frozen. The ONE write it accepts is the one that
+  // unarchives it, so a rename is refused here even though the same call could
+  // technically carry both — "unarchive and move it somewhere else" is two
+  // decisions, and the second one belongs to an endpoint that is being served.
+  if (row.archived && nextUri !== uri) return errResp(ARCHIVED_FROZEN, 409);
 
   if (nextArchived === 1 && isAutopilotUri(nextUri)) {
     return errResp(

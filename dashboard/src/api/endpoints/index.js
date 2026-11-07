@@ -1,4 +1,4 @@
-import { PAGE_SIZE, json, errResp, parseHeaderLines, deleteEndpointFile } from '../shared.js';
+import { PAGE_SIZE, json, errResp, parseHeaderLines, deleteEndpointFile, ARCHIVED_FROZEN } from '../shared.js';
 
 export async function listEndpoints({ request, env }) {
   const url = new URL(request.url);
@@ -62,7 +62,12 @@ export async function upsertEndpoint({ request, env }) {
   const headersJson = JSON.stringify(headersObj);
   const bodyText = typeof body === 'string' ? body : '';
 
-  const existing = await env.DB.prepare('SELECT r2_key FROM endpoints WHERE uri = ?').bind(uri).first();
+  const existing = await env.DB.prepare('SELECT r2_key, archived FROM endpoints WHERE uri = ?').bind(uri).first();
+  // An upsert onto an archived row would quietly edit something that is not
+  // being served, and leave it archived. Refused rather than silently
+  // unarchived: resurrecting an endpoint is a decision, not a side effect of
+  // pressing Save.
+  if (existing && existing.archived) return errResp(ARCHIVED_FROZEN, 409);
   const previousKey = existing && existing.r2_key;
 
   await env.DB.prepare(

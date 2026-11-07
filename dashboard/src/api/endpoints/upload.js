@@ -1,5 +1,5 @@
 import {
-  json, errResp, MAX_UPLOAD_BYTES, FILE_ENDPOINT_STATUS,
+  json, errResp, MAX_UPLOAD_BYTES, FILE_ENDPOINT_STATUS, ARCHIVED_FROZEN,
   sanitizeContentType, sanitizeFilename, deleteEndpointFile,
 } from '../shared.js';
 
@@ -64,7 +64,11 @@ export async function uploadEndpointFile({ request, env }) {
 
   // The object this URI currently points at (if any). It is deleted after the
   // row is successfully repointed at the new key.
-  const existing = await env.DB.prepare('SELECT r2_key FROM endpoints WHERE uri = ?').bind(uri).first();
+  const existing = await env.DB.prepare('SELECT r2_key, archived FROM endpoints WHERE uri = ?').bind(uri).first();
+  // Checked BEFORE the object is written, not after: the refusal has to cost
+  // nothing, and an upload that streamed into R2 first would leave a stray key
+  // behind on every attempt.
+  if (existing && existing.archived) return errResp(ARCHIVED_FROZEN, 409);
   const previousKey = existing && existing.r2_key;
 
   // Fresh random key per upload rather than one derived from the URI: replacing

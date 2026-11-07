@@ -476,6 +476,11 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const fileMode = !!(file || savedFile);
+  // An archived endpoint is frozen: the modal shows what it holds and offers
+  // only Unarchive and Delete. The editors are unmounted rather than disabled,
+  // the same treatment file mode gets — a greyed-out field still invites a
+  // click, and the server refuses the write anyway.
+  const frozen = mode === "edit" && form.archived;
 
   const pickFile = (f) => {
     if (!f) return;
@@ -576,22 +581,50 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
                   update — nothing else in either store is keyed by the URI, so
                   a file-backed endpoint keeps its object — and the write is
                   applied by Save, not as you type. */}
-              <input
-                type="text"
-                placeholder="/api/v1/callback"
-                value={form.uri}
-                onChange={(e) => update("uri", e.target.value)}
-                autoFocus={mode === "new"}
-                spellCheck={false}
-              />
+              {frozen ? (
+                <div className="readonly-value">{form.uri}</div>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="/api/v1/callback"
+                  value={form.uri}
+                  onChange={(e) => update("uri", e.target.value)}
+                  autoFocus={mode === "new"}
+                  spellCheck={false}
+                />
+              )}
               <div className="helper">
-                {mode === "edit" && form.uri.trim() !== uri
-                  ? <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>
-                  : "Path the black hole will serve. Must start with /"}
+                {frozen
+                  ? "Archived — this path is not served. Unarchive it to make any change."
+                  : mode === "edit" && form.uri.trim() !== uri
+                    ? <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>
+                    : "Path the black hole will serve. Must start with /"}
               </div>
             </div>
 
-            {fileMode ? (
+            {frozen ? (
+              <div className="field">
+                {savedFile ? (
+                  <>
+                    <label>Serves a file</label>
+                    <div className="readonly-value">
+                      {savedFile.filename || "(unnamed)"}
+                      {savedFile.content_type ? ` · ${savedFile.content_type}` : ""}
+                      {savedFile.missing ? " · object missing" : ""}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label>Status</label>
+                    <div className="readonly-value">{form.status}</div>
+                    <label>Headers</label>
+                    <pre className="code-block wrap">{form.headers || "(none)"}</pre>
+                    <label>Body</label>
+                    <pre className="code-block wrap">{form.body || "(empty)"}</pre>
+                  </>
+                )}
+              </div>
+            ) : fileMode ? (
               <FileEndpointField
                 file={file}
                 savedFile={savedFile}
@@ -665,12 +698,14 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
           </button>
         )}
         <div className="spacer"/>
-        <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={save} disabled={saving || loading}>
-          {saving
-            ? <><span className="spinner"/> {file ? "uploading" : "saving"}</>
-            : (mode === "new" ? "Create" : "Save changes")}
-        </button>
+        <button className="btn ghost" onClick={onClose}>{frozen ? "Close" : "Cancel"}</button>
+        {!frozen && (
+          <button className="btn primary" onClick={save} disabled={saving || loading}>
+            {saving
+              ? <><span className="spinner"/> {file ? "uploading" : "saving"}</>
+              : (mode === "new" ? "Create" : "Save changes")}
+          </button>
+        )}
       </div>
     </Modal>
   );

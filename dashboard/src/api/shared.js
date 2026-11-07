@@ -6,6 +6,18 @@ export const PAGE_SIZE = 50;
 // archived, and renaming it out of the prefix is what converts it into an
 // ordinary endpoint.
 export const AUTOPILOT_PREFIX = '/-/';
+
+// An archived endpoint is FROZEN: unarchive it or delete it, nothing else.
+//
+// The point of archiving is that the row is exactly what it was when it stopped
+// being served, so that unarchiving puts back what you archived rather than
+// whatever was edited into it meanwhile. Allowing edits would also mean a path
+// could be rewritten, re-bodied or re-filed while nothing on the black hole
+// reflected any of it — a draft hiding inside a retention feature.
+//
+// Enforced on every write path rather than in the modal, because the modal is
+// not the only caller.
+export const ARCHIVED_FROZEN = 'This endpoint is archived. Unarchive it before changing it, or delete it.';
 export const isAutopilotUri = (uri) => String(uri || '').startsWith(AUTOPILOT_PREFIX);
 
 // Every /api/* response carries `no-store`, and that is load-bearing rather

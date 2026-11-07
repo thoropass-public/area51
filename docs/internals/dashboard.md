@@ -314,11 +314,20 @@ satisfy — attribute form and CSS `url()` — to a `data:` URL built from that
 part's bytes. `data:` rather than `blob:` because the CSP already allows
 `img-src 'self' data:` and a srcdoc iframe inherits it.
 
-**Remote images are deliberately not loaded**, and the CSP is what refuses them.
-A remote image in a captured email is a beacon: fetching it tells whoever sent
-the message the moment an operator opened it, from an address belonging to the
-engagement. The viewer reports the count it blocked, and the count the message
-referenced but never attached, rather than leaving either looking like a bug.
+**Remote images do load**, and the CSP carries `img-src ... https:` for them.
+Know what that costs, because it was chosen rather than inherited: a remote image
+in a captured email is a beacon, so rendering one tells whoever sent the message
+the moment an operator opened it, from an address belonging to the engagement.
+`Referrer-Policy: no-referrer` keeps the dashboard's own URL out of the request,
+so what leaks is the fetch, not where it came from. Narrowing `img-src` back to
+`'self' data:` is the whole of the revert if an engagement ever needs it.
+
+Plain `http:` images are not listed and will still not render: the dashboard is
+https, so the browser blocks or upgrades mixed content whatever the policy says.
+
+The viewer reports only the images the message *referenced but never attached* —
+a broken `cid:` — because that is the case a reader would otherwise take for a
+bug in the dashboard rather than in the mail.
 
 ## Expired session handling
 

@@ -160,6 +160,41 @@ function effectiveSearch(input, pins) {
 // Endpoints
 // ----------------------------------------------------------------
 
+// Autopilot's fence, mirrored from the worker. Every endpoint an agent can
+// create, read or delete lives under this prefix, and the worker enforces it
+// server-side — this copy only decides where a row is DISPLAYED, so the two
+// drifting would be a cosmetic bug, never a security one.
+const AUTOPILOT_PREFIX = "/-/";
+
+const isAutopilotUri = (uri) => String(uri || "").startsWith(AUTOPILOT_PREFIX);
+
+// A collapsed-by-default group header, injected into the row list as a sentinel
+// rather than rendered around it.
+//
+// Agent-staged endpoints pile up: an engagement can leave dozens of /-/ rows
+// behind, and they buried the handful an operator wrote by hand. They are now
+// held below everything else behind one row that folds them away, which is the
+// whole feature — the list is still one flat query, still one cursor, and still
+// sorted the way the API returned it within each group.
+function AutopilotGroupRow({ count, open, onToggle }) {
+  return (
+    <div
+      className={`row group-row${open ? " open" : ""}`}
+      onClick={onToggle}
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
+    >
+      <span className="caret"><Icon.chevron/></span>
+      <span className="group-label">AUTOPILOT</span>
+      <span className="group-meta">
+        {count} loaded · staged by agents under <span className="mono">{AUTOPILOT_PREFIX}</span>
+      </span>
+    </div>
+  );
+}
+
 function EndpointsTab() {
   const toast = useToast();
   const confirm = useConfirm();
@@ -173,6 +208,9 @@ function EndpointsTab() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
+  // Collapsed on arrival: the point of the group is that these are not what you
+  // came to look at.
+  const [autopilotOpen, setAutopilotOpen] = useState(false);
   const [modal, setModal] = useState(null); // {mode:'edit'|'new', uri?}
 
   const fetchFirst = useCallback(async () => {
@@ -239,6 +277,25 @@ function EndpointsTab() {
     toast("Endpoint deleted", "success");
   };
 
+  // Hand-written endpoints keep their order and stay on top; agent-staged ones
+  // are gathered underneath behind their group row. The group row travels as a
+  // sentinel IN the row array because ListView renders `rows.map(renderRow)` and
+  // nothing else — no change to ListView, and the loader, empty state and
+  // "load more" below it keep working on the real rows.
+  const { manual, autopilot } = useMemo(() => {
+    const manual = [];
+    const autopilot = [];
+    for (const r of rows) (isAutopilotUri(r.uri) ? autopilot : manual).push(r);
+    return { manual, autopilot };
+  }, [rows]);
+
+  const listRows = useMemo(() => {
+    if (!autopilot.length) return manual;
+    const out = [...manual, { __group: "autopilot", count: autopilot.length }];
+    if (autopilotOpen) out.push(...autopilot);
+    return out;
+  }, [manual, autopilot, autopilotOpen]);
+
   return (
     <>
       <ListView
@@ -246,9 +303,11 @@ function EndpointsTab() {
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
         pinPlaceholder="Search Endpoints…"
-        rows={rows} loading={loading} hasMore={hasMore}
+        rows={listRows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="endpoint-grid"
+        // The real row count, not the display list's: the group row is
+        // furniture, and "{n} loaded" has to keep meaning rows.
         total={rows.length}
         header={<>
           <span></span>
@@ -261,7 +320,14 @@ function EndpointsTab() {
             <span className="plus">+</span> New endpoint
           </button>
         }
-        renderRow={(r) => (
+        renderRow={(r) => (r.__group === "autopilot" ? (
+          <AutopilotGroupRow
+            key="__autopilot"
+            count={r.count}
+            open={autopilotOpen}
+            onToggle={() => setAutopilotOpen((v) => !v)}
+          />
+        ) : (
           <EndpointRow
             key={r.uri}
             row={r}
@@ -269,7 +335,7 @@ function EndpointsTab() {
             matches={pinMatches(pins, colors, r.uri)}
             onOpen={() => open(r.uri)}
           />
-        )}
+        ))}
       />
       {modal && (
         <EndpointModal

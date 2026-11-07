@@ -192,6 +192,19 @@ check mark, and toasts the host it used (clicking it does not open the modal). T
 active host comes from the Home picker; with none selected the button toasts an
 error instead.
 
+Rows are shown in two groups. Hand-written endpoints come first in the order the
+API returned them; everything under Autopilot's `/-/` prefix is gathered below
+them behind a single **AUTOPILOT** row that folds the whole set away, collapsed
+on arrival. An engagement can leave dozens of agent-staged rows behind, and they
+used to bury the handful an operator wrote by hand.
+
+It is presentation only. The query, the cursor and `{n} loaded` are unchanged —
+the group row travels as a sentinel inside the row array that `ListView` maps
+over, so nothing about paging or the empty state had to learn about it. The
+`/-/` check is a copy of Autopilot's fence, which the worker enforces
+server-side; the two drifting would move a row to the wrong group and nothing
+more.
+
 The modal is in exactly one of two states. In **text mode** it shows Headers /
 Status / Body editors plus a **Serve a file** drop target ("Drop a file here or
 click to browse"). Attaching a file switches to

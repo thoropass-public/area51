@@ -58,8 +58,8 @@ catches it. Don't grow this into a general test suite without reading
 
 ## Making a change
 
-1. Fork and branch from `main`, naming it something like `fix/mail-parse` or
-   `feat/blocklist-cidr`.
+1. Fork and branch from `next`, the default branch, naming it something like
+   `fix/mail-parse` or `feat/blocklist-cidr`.
 2. Keep the change focused. One logical change per PR.
 3. **Match the surrounding style.** These files carry unusually thorough "why"
    comments; preserve them.
@@ -75,7 +75,7 @@ catches it. Don't grow this into a general test suite without reading
 
 ## Pull requests
 
-Open the PR against `main` with a clear description of what changed, why, and
+Open the PR against `next` with a clear description of what changed, why, and
 how you verified it. A maintainer will review it. Please be patient: this is a
 community project maintained on a best-effort basis.
 

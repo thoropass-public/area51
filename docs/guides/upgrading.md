@@ -119,6 +119,12 @@ list, and rewrites the application itself.
 Then check **Zero Trust → Access → Applications → AREA 51 dashboard →
 Destinations** by hand. You want exactly one: your dashboard hostname.
 
+Before this point three destinations is the **correct** state, not a bug. While
+the Pages project is alive it still answers on `<project>.pages.dev` and every
+`*.pages.dev` preview with its D1 and R2 bindings attached, so setup keeps those
+names guarded rather than narrowing to the Worker and leaving them open. The
+extra entries go when the project does.
+
 `doctor` reports the policy count, not the destination list, so it shows green
 either way. This is the one step of the upgrade it cannot verify for you.
 
@@ -139,26 +145,25 @@ Then try the new behavior:
 | Feature | Check |
 |---|---|
 | robots.txt | `curl https://<black-hole>/robots.txt` returns `Disallow: /` |
-| Archive | Archive an endpoint; `curl` it and get a 404; find it under **Archive**; unarchive it and it serves again |
-| Rename | Rename an endpoint; the old path 404s, the new one serves |
-| Autopilot group | Stage a `/-/` endpoint; a collapsed **AUTOPILOT** row appears below your own |
+| Archive | Archive an endpoint. `curl` it and get a 404, find it under **Archive**, unarchive it and it serves again |
+| Rename | Rename an endpoint. The old path 404s, the new one serves |
+| Autopilot endpoints | Stage one under `/-/`. It does not appear in the list; searching `:autopilot:` shows it |
 | Inline images | Send yourself an email with an inline image to a mail black hole and open it |
 
-### After you finish
+### Decide what the purge should do
 
-**The monthly purge deletes every `/-/` endpoint on the first Sunday of each
-month**, including a file an operator uploaded to a `/-/` path from the
-dashboard. Move anything under that prefix that you want to keep to a path
-outside it. This is the one thing in v1.1.0 that destroys data, and it is
-documented in [internals/cleanup](../internals/cleanup.md#the-monthly-autopilot-purge).
+v1.1.0 adds one job that deletes data on a timer. By default the cleanup run
+deletes **every** endpoint under `/-/` on the first Sunday of each month,
+including any file an operator uploaded to such a path from the dashboard.
 
-It rides on the daily cleanup run, so `CLEANUP_CRON` has to fire at least once a
-day for it to happen at all. The default `0 6 * * *` does.
+Decide this now rather than in a month. `CLEANUP_AUTOPILOT_PURGE` in `.env`
+takes `off`, `daily`, `weekly` or `monthly`, and you do not have to add the key:
+without it the worker uses `monthly`. Redeploy the cleanup worker after a
+change. Full detail in
+[internals/cleanup](../internals/cleanup.md#the-autopilot-purge).
 
-Set `CLEANUP_AUTOPILOT_PURGE=off` in `.env` and redeploy the cleanup worker if
-you would rather it never ran. `monthly`, `weekly` and `daily` are the other
-values. You do not have to add the key: without it the worker falls back to
-`monthly`, which is the behavior described above.
+Whatever you choose, move anything under `/-/` that you want to keep to a path
+outside the prefix.
 
 ### If step 3 goes wrong
 

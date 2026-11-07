@@ -161,7 +161,7 @@ async function assertApexCapturesMail(cf, accountId, env, zone, hostname, roles)
  *
  * An apex mail add hands the zone's inbound mail to the catcher, and Email
  * Routing writes and LOCKS its MX to do it. That is not something to discover
- * afterwards, so it always asks. A subdomain add only touches records at that one
+ * afterward, so it always asks. A subdomain add only touches records at that one
  * name, so it asks only when something is actually in the way.
  *
  * Either way, when records will really be lost they are named and the gate

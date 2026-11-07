@@ -373,7 +373,7 @@ export async function run(args) {
       // addresses, it holds a reference to a Zero Trust email list, and the
       // addresses live in that list's items. A check that only reads inline
       // `email` rules sees an empty policy and reports every operator as locked
-      // out, which is exactly backwards, and alarming enough to send someone
+      // out, which is exactly backward, and alarming enough to send someone
       // "fixing" a deployment that was fine.
       if (usersReadable && users.length) {
         const enforced = new Set();

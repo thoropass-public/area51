@@ -540,7 +540,7 @@ async function confirmZoneTakeover(cf, zone, env, { dryRun = false } = {}) {
 
   return typeToConfirm(
     'TAKEOVER',
-    `${zone.name} already serves traffic or mail. Continuing breaks it, and the\nMX records Email Routing writes are locked afterwards.`,
+    `${zone.name} already serves traffic or mail. Continuing breaks it, and the\nMX records Email Routing writes are locked afterward.`,
   );
 }
 

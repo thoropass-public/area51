@@ -76,7 +76,7 @@ them by name and makes you type `TAKEOVER`. A fresh
 throwaway domain with only the default records gets a plain y/N instead.
 
 Mail is not optional here. The primary black hole always carries both roles.
-`./a51 black-holes add <host> http` still adds an HTTP-only catcher afterwards, on
+`./a51 black-holes add <host> http` still adds an HTTP-only catcher afterward, on
 any hostname, and leaves that zone's mail records alone.
 
 ### 5. Node.js 20+
@@ -397,9 +397,8 @@ Add → Custom Domain → the dashboard hostname.
   preview deployment (`main.<project>.pages.dev`, `<hash>.<project>.pages.dev`).
   Access is enforced per hostname, so covering only the custom domain left those
   an **unauthenticated bypass** straight into every captured request and email.
-  Setup used to read the project back, discover its real subdomain, and write
-  three destinations; `doctor` failed the deployment if either extra one went
-  missing. None of that is needed now, and none of it can be forgotten.
+  The dashboard Worker answers on one name, so the list has one entry and there
+  is nothing extra to forget.
 
 *Manual equivalent:* Zero Trust → Access → Applications → *Add an application* →
 Self-hosted → add the dashboard hostname as a public hostname destination →

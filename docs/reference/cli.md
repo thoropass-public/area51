@@ -280,9 +280,7 @@ re-pushes the Access allow-list derived from it. That is also why there is no
 the Zero Trust organization, the One-time PIN login method, the application, its
 allow policy, and its destination. There is exactly one destination,
 `DASHBOARD_HOSTNAME`, because the dashboard worker has `workers_dev` and
-`preview_urls` off and answers on no other name. As a Pages project it also
-answered on `<project>.pages.dev` and every `*.pages.dev` preview, so all three
-had to be listed or the rest were an unauthenticated bypass.
+`preview_urls` off and answers on no other name.
 
 ### Keys
 
@@ -294,7 +292,7 @@ hex characters. It is sent as `Authorization: Bearer <key>`:
 - **The 64-hex tail is the credential**, 256 bits of entropy.
 
 Only `sha256(<the whole key>)` is stored, so **a key is shown exactly once**,
-when it is minted, and cannot be recovered afterwards. A lost key is replaced
+when it is minted, and cannot be recovered afterward. A lost key is replaced
 with `rotate-key`, never read back. Rotating takes effect immediately and
 breaks every agent registered with the old key; there is no dual-key window.
 

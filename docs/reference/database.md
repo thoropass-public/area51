@@ -166,7 +166,7 @@ exists:
 
 **Only the hash is stored.** A key is printed once, when
 `./a51 users add` / `./a51 users rotate-key` mints it, and cannot be recovered
-afterwards. Rotating writes a new `key_id` and `key_hash`, which revokes the old
+afterward. Rotating writes a new `key_id` and `key_hash`, which revokes the old
 key instantly. There is no dual-key window.
 
 Because Autopilot reads this table live, adding or revoking an operator takes

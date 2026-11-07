@@ -126,6 +126,12 @@ schema, domain bindings and the Access policy.
    endpoint serves a file but can never read, replace, or delete that object.
    The 60-minute read window is enforced in D1, never trusted from the caller.
 
+   Two rules follow from the fence and are enforced by the dashboard, not by
+   Autopilot: an endpoint under `/-/` **cannot be archived**, and the cleanup
+   worker **deletes every one of them** on the `CLEANUP_AUTOPILOT_PURGE`
+   schedule, uploaded files included. Nothing under the prefix is long-lived
+   storage.
+
 4. **All-or-nothing email capture.** A captured email means both the R2 `.eml`
    object and the D1 row exist. On any failure, both are rolled back and the
    original is forwarded to `FALLBACK_ADDRESS`. There are no marker/partial rows,
@@ -160,9 +166,8 @@ schema, domain bindings and the Access policy.
      asset layer serves them free and unlimited without entering the Worker. The
      Worker gets no `assets` `binding` either, because it never serves an asset.
 
-7. **Dashboard routing is an explicit table, and literal paths win.** Pages
-   derived routes from the `functions/` directory and resolved precedence for
-   free. `dashboard/src/index.js` now holds the `ROUTES` table and
+7. **Dashboard routing is an explicit table, and literal paths win.**
+   `dashboard/src/index.js` holds the `ROUTES` table and
    `dashboard/src/router.js` matches it. Two properties must hold: a **literal
    path is settled before any `:param` route, including when the method does not
    match** (that answers 405, it does not fall through; otherwise

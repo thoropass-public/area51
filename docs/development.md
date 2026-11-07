@@ -41,9 +41,8 @@ Use a throwaway zone for this, not the one carrying an engagement.
 **What a local server did give you,** for the record, in case someone wants to
 bring it back: a reload loop for the dashboard's JSX and its API, against an
 empty local D1 and R2, which could never see real captured data. That is what
-made it weak enough to drop. Note that the dashboard is a Worker with static
-assets now, so the relevant command would be `wrangler dev` from `dashboard/`,
-not the `wrangler pages dev` this paragraph used to name.
+made it weak enough to drop. If you do want it, the command is `wrangler dev`
+from `dashboard/`.
 
 **Exercising the cleanup worker.** It has no `fetch` handler, so its only trigger
 is the cron. To act on retention now, use `./a51 purge`, which does the same work
@@ -192,17 +191,15 @@ exists instead:
 - **`node dashboard/src/router.test.mjs`** is the exception, and the only test
   file here. Plain node, no dependencies, no framework. It pins the dashboard's
   API route precedence, which is the one behavior in this repository that fails
-  *silently*: Cloudflare Pages used to resolve which route won when two matched,
-  invisibly and for free, and `dashboard/src/router.js` has to do it itself now.
-  Get it wrong and nothing throws, nothing fails to deploy, and `doctor` sees a
-  healthy dashboard. The request just reaches the wrong handler and returns a
+  *silently*. Get it wrong and nothing throws, nothing fails to deploy, and
+  `doctor` sees a healthy dashboard. The request just reaches the wrong handler and returns a
   believable 404. It parses the route table out of `src/index.js`, so a route
   added there is covered automatically. Run it after touching the router or that
   table. See [decisions.md](decisions.md#one-test-file-for-route-precedence-and-only-that).
 - **`./a51 setup --dry-run`** resolves configuration and prints the plan without
   touching Cloudflare.
 - **Smoke tests** per component: [black-holes.md](internals/black-holes.md#deploying-and-testing),
-  [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#acting-on-retention-between-runs).
+  [autopilot.md](internals/autopilot.md#smoke-tests), [cleanup.md](internals/cleanup.md#acting-between-runs).
 
 If you add automated tests, the CLI is the tractable part: `cli/lib/cloudflare.mjs`
 honors `A51_API_BASE`, so the whole provisioning path can run against a local mock

@@ -33,7 +33,7 @@ Plus two cross-cutting documents everyone reads eventually:
 
 ## Guides
 
-Task-oriented. Read top to bottom the first time; skim by heading afterwards.
+Task-oriented. Read top to bottom the first time; skim by heading afterward.
 
 | Document | Covers |
 |---|---|

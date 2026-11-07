@@ -456,6 +456,20 @@ A Worker with `workers_dev = false` and `preview_urls = false` has exactly one
 hostname. There is no second URL to enumerate, keep in sync, or leave open. The
 Access app has one destination because there is only one thing to guard.
 
+**With one window where that is not yet true, and it needed handling.** During an
+upgrade both products exist: the Worker is deployed, and the old Pages project is
+still there, still bound to D1 and both R2 buckets, still answering on its
+`pages.dev` names. Writing the Access application is a full `PUT`, so the obvious
+version of this change — list the Worker's hostname and nothing else — would have
+*removed* the destinations that were guarding those names and left the upgrade
+strictly worse than the thing it replaced: shut on the name the operator checks,
+open on the two they have stopped thinking about. So `ensureAccess` derives the
+list from what the dashboard is reachable at rather than what it ought to be
+reachable at: a leftover project keeps its names guarded, with a follow-up saying
+to retire it, and the entries fall away by themselves once it is gone. Two
+independent sources feed that (the Pages listing, and any `pages.dev` entry
+already on the live application) so narrowing the list takes two failures at once.
+
 Cloudflare also now recommends Workers over Pages for new projects, and ships new
 features only there — but that was the tiebreaker, not the reason.
 

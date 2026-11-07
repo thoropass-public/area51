@@ -119,7 +119,7 @@ export async function run() {
   plain(`  buckets    ${env.R2_BUCKET_NAME}, ${env.R2_FILES_BUCKET_NAME}`);
   plain('');
 
-  if (!(await typeToConfirm('REMOVE', 'Step 1 of 2 — this deletes the four Workers, the dashboard DNS record and the Access application.\nCaptured data is NOT touched by this step.'))) {
+  if (!(await typeToConfirm('REMOVE', 'Step 1 of 2. This deletes the four Workers, the dashboard DNS record and the Access application.\nCaptured data is NOT touched by this step.'))) {
     plain('  Canceled. Nothing was changed.');
     closePrompts();
     return 1;
@@ -143,7 +143,7 @@ export async function run() {
 
   // Deleting a worker takes its Custom Domains and the DNS records Cloudflare
   // manages for them with it, so this is a sweep for a leftover rather than the
-  // main event — a record from an older deployment, or one a failed delete above
+  // main event: a record from an older deployment, or one a failed delete above
   // left behind.
   if (env.DASHBOARD_HOSTNAME) {
     try {
@@ -192,12 +192,12 @@ export async function run() {
   plain('');
   if (!(await confirm('  Also delete the database and both R2 buckets (every captured request and email)?', false))) {
     plain('');
-    plain('  Compute removed. Data kept — re-run `./a51 setup` to rebuild on top of it.');
+    plain('  Compute removed. Data kept. Re-run `./a51 setup` to rebuild on top of it.');
     closePrompts();
     return 0;
   }
 
-  if (!(await typeToConfirm('DELETE-DATA', 'Step 2 of 2 — this permanently deletes every captured request, every captured\nemail (rows AND raw .eml objects), every endpoint and every uploaded payload.'))) {
+  if (!(await typeToConfirm('DELETE-DATA', 'Step 2 of 2. This permanently deletes every captured request, every captured\nemail (rows AND raw .eml objects), every endpoint and every uploaded payload.'))) {
     plain('  Canceled. Data kept.');
     closePrompts();
     return 1;
@@ -255,7 +255,7 @@ export async function run() {
           const results = await Promise.allSettled(batch.map((k) => cf.deleteR2Object(accountId, bucket, k)));
           for (const r of results) { if (r.status === 'fulfilled') deleted += 1; else failed += 1; }
         }
-        if (failed) warn(`  ${failed} object${failed === 1 ? '' : 's'} in ${bucket} could not be deleted — the bucket delete below may fail`);
+        if (failed) warn(`  ${failed} object${failed === 1 ? '' : 's'} in ${bucket} could not be deleted, so the bucket delete below may fail`);
         ok(`emptied ${bucket} (${deleted} object${deleted === 1 ? '' : 's'} deleted)`);
       }
 
@@ -268,7 +268,7 @@ export async function run() {
   }
 
   plain('');
-  plain('  Gone. `.env` still holds your token and settings — delete it too if you are done.');
+  plain('  Gone. `.env` still holds your token and settings. Delete it too if you are done.');
   closePrompts();
   return 0;
 }

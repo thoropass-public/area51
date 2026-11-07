@@ -46,11 +46,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function authFixHint(permission, { zone = null, extra = null } = {}) {
   const lines = [
     `This is an auth-shaped error, which has more than one possible cause:`,
-    `  • A just-created/edited token can take up to a minute to propagate — wait and re-run \`./a51 setup\`.`,
+    `  • A just-created/edited token can take up to a minute to propagate. Wait and re-run \`./a51 setup\`.`,
     `  • The token needs ${permission}.`,
   ];
   if (zone) {
-    lines.push(`  • The token's Zone Resources must INCLUDE ${zone} (or "All zones") — a zone permission scoped elsewhere fails the same way.`);
+    lines.push(`  • The token's Zone Resources must INCLUDE ${zone} (or "All zones"). A zone permission scoped elsewhere fails the same way.`);
   }
   if (extra) lines.push(`  • ${extra}`);
   return lines.join('\n');
@@ -75,7 +75,7 @@ export async function attempt(followUps, label, fn, fixHint) {
     return { ok: true, value: await fn() };
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
-    const hint = fixHint || 'Fix the cause above, then re-run — steps that already succeeded report `·` and do their work again only if something changed.';
+    const hint = fixHint || 'Fix the cause above, then re-run. Steps that already succeeded report `·` and do their work again only if something changed.';
     degraded(
       followUps,
       `${label}: ${message}`,
@@ -181,7 +181,7 @@ export async function ensureDatabase(cf, accountId, name, knownId) {
       skip(`D1 database ${color.bold(db.name)} already exists (${knownId})`);
       return { id: knownId, created: false, name: db.name };
     } catch {
-      warn(`D1_DATABASE_ID in .env (${knownId}) no longer resolves — looking the database up by name`);
+      warn(`D1_DATABASE_ID in .env (${knownId}) no longer resolves, so looking the database up by name`);
     }
   }
   const { created, database } = await cf.ensureD1Database(accountId, name);
@@ -198,7 +198,7 @@ export async function ensureDatabase(cf, accountId, name, knownId) {
 /**
  * `ALTER TABLE <t> ADD COLUMN <c> …` → `{ table, column }`, else null.
  *
- * Only this one statement shape is recognised, and deliberately so: it is the
+ * Only this one statement shape is recognized, and deliberately so: it is the
  * only one in db/schema.sql that is not already idempotent. Everything else
  * there is `CREATE … IF NOT EXISTS` and re-runs for free.
  */
@@ -272,7 +272,7 @@ export async function ensureBuckets(cf, accountId, { emails, files }, followUps)
         followUps,
         `could not create R2 bucket ${name}: ${err.message}`,
         isAuthError(err)
-          ? authFixHint('Account · Workers R2 Storage:Edit', { extra: 'R2 must also be ENABLED on the account first (dashboard → R2 → Get started) — the API cannot enable it for you.' })
+          ? authFixHint('Account · Workers R2 Storage:Edit', { extra: 'R2 must also be ENABLED on the account first (dashboard → R2 → Get started). The API cannot enable it for you.' })
           : `Create it by hand: dashboard → R2 → Create bucket → name it "${name}".`,
       );
     }
@@ -554,7 +554,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps, hostna
       if (mx.length) {
         const shown = mx.slice(0, 3).map((r) => r.content).join(', ');
         warn(`${zone.name} already has ${mx.length} MX record${mx.length === 1 ? '' : 's'} (${shown}${mx.length > 3 ? ', …' : ''}).`);
-        warn('  Enabling Email Routing adds and LOCKS its own MX for the whole zone — this takes over inbound mail and breaks existing delivery. Use a domain with no prior mail (see docs/guides/getting-started.md).');
+        warn('  Enabling Email Routing adds and LOCKS its own MX for the whole zone. This takes over inbound mail and breaks existing delivery. Use a domain with no prior mail (see docs/guides/getting-started.md).');
       }
     } catch { /* preflight only; never block the enable on a failed lookup */ }
 
@@ -569,7 +569,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps, hostna
           followUps,
           `could not enable Email Routing on ${zone.name}: ${err.message}`,
           authFixHint(
-            `Zone · Zone Settings:Edit on ${zone.name} — enabling Email Routing writes and locks MX/SPF DNS records, which is a Zone Settings write, NOT "Email Routing Rules". This is the usual cause of a [10000] error here.`,
+            `Zone · Zone Settings:Edit on ${zone.name}. Enabling Email Routing writes and locks MX/SPF DNS records, which is a Zone Settings write, NOT "Email Routing Rules". This is the usual cause of a [10000] error here.`,
             { zone: zone.name, extra: `Or enable it by hand: dashboard → ${zone.name} → Email → Email Routing → Get started.` },
           ),
         );
@@ -604,7 +604,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps, hostna
 /** Register the fallback inbox as an Email Routing destination address. */
 export async function ensureDestinationAddress(cf, accountId, address, followUps) {
   if (!address) {
-    warn('FALLBACK_ADDRESS is empty — a failed email capture will have nowhere to forward to');
+    warn('FALLBACK_ADDRESS is empty, so a failed email capture will have nowhere to forward to');
     return;
   }
   try {
@@ -615,11 +615,11 @@ export async function ensureDestinationAddress(cf, accountId, address, followUps
       return;
     }
     if (existing) {
-      warn(`fallback inbox ${color.bold(address)} is registered but NOT verified — click the link Cloudflare emailed you`);
+      warn(`fallback inbox ${color.bold(address)} is registered but NOT verified. Click the link Cloudflare emailed you`);
       return;
     }
     await cf.createDestinationAddress(accountId, address);
-    warn(`registered ${color.bold(address)} as a destination — check that inbox and click Cloudflare's verification link`);
+    warn(`registered ${color.bold(address)} as a destination. Check that inbox and click Cloudflare's verification link`);
   } catch (err) {
     degraded(
       followUps,
@@ -659,8 +659,9 @@ export async function upsertDomainRow(cf, accountId, databaseId, hostname, roles
  * `attachBlackHoleDomain`. The black hole hostname is one an operator typed
  * TAKEOVER against, having been shown the exact records it would replace, so
  * that helper is allowed to clear the name. Nobody is ever asked to confirm a
- * takeover of `area51.<zone>` or `autopilot.<zone>` — setup derives those and
- * never prompts — so an occupied name is reported and skipped, never seized.
+ * takeover of `area51.<zone>` or `autopilot.<zone>`, because setup derives
+ * those and never prompts, so an occupied name is reported and skipped rather
+ * than seized.
  * See CLAUDE.md and docs/decisions.md#a-confirmed-takeover-clears-the-name-itself.
  *
  * `attachWorkerDomain` is a PUT, so re-running against a live deployment simply
@@ -696,7 +697,7 @@ export async function ensureWorkerHostname(cf, accountId, { hostname, workerName
         `${hostname} is already held by something else, so it was not bound to ${workerName}`,
         [
           `Free the name, then re-run \`./a51 setup\`. Whatever holds it is one of:`,
-          `  • a Cloudflare Pages project — including this dashboard's own, if this`,
+          `  • a Cloudflare Pages project, including this dashboard's own, if this`,
           `    deployment predates the move to a Worker: dashboard → Workers & Pages`,
           `    → <project> → Custom domains → remove ${hostname} (then delete the`,
           `    project once the Worker serves the name).`,
@@ -766,7 +767,7 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
       // A stale id in .env is not fatal: fall through to name lookup, then to
       // creating a fresh list. Saying so matters, because the old list is left
       // behind on the account rather than cleaned up.
-      warn(`ACCESS_LIST_ID ${wanted} no longer resolves — looking for "${ACCESS_LIST_NAME}" instead`);
+      warn(`ACCESS_LIST_ID ${wanted} no longer resolves, so looking for "${ACCESS_LIST_NAME}" instead`);
     }
   }
 
@@ -779,7 +780,7 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
 
   const created = await cf.createZeroTrustList(accountId, {
     name: ACCESS_LIST_NAME,
-    description: 'Operators who may open the AREA 51 dashboard. Managed by `./a51 users` — edits here are overwritten.',
+    description: 'Operators who may open the AREA 51 dashboard. Managed by `./a51 users`; edits here are overwritten.',
     items: [],
   });
   ok(`created the operator list ${color.bold(ACCESS_LIST_NAME)}`);
@@ -882,7 +883,7 @@ export async function ensureAccess(cf, accountId, opts) {
         `could not create a Zero Trust organization (${authDomain}): ${err.message}`,
         [
           'This can fail for a few reasons:',
-          '  • Team names are globally unique — if taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 users sync`.',
+          '  • Team names are globally unique. If one is taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 users sync`.',
           `  • ${ZT_ACTIVATE}`,
           '  • The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit (and a just-edited token may need a minute to propagate).',
         ].join('\n'),
@@ -904,7 +905,7 @@ export async function ensureAccess(cf, accountId, opts) {
     } else {
       const created = await cf.createOneTimePinProvider(accountId);
       otpId = created && created.id;
-      ok('enabled One-time PIN login (Access emails a code — no IdP to configure)');
+      ok('enabled One-time PIN login (Access emails a code, no IdP to configure)');
     }
   } catch (err) {
     warn(`could not confirm the One-time PIN login method: ${err.message}`);
@@ -932,7 +933,7 @@ export async function ensureAccess(cf, accountId, opts) {
   // thinking about.
   //
   // So a leftover project keeps its names guarded, and the extra entries fall
-  // away by themselves once it is gone — which is the only state in which one
+  // away by themselves once it is gone, which is the only state in which one
   // destination is the whole truth. The list itself is assembled further down,
   // where the live application has been read and its own entries can be carried
   // across.
@@ -973,7 +974,7 @@ export async function ensureAccess(cf, accountId, opts) {
         include: [{ email_list: { id: listId } }],
       }]
     : [{
-        name: 'AREA 51 — no operators',
+        name: 'AREA 51: no operators',
         decision: 'deny',
         include: [{ everyone: {} }],
       }];
@@ -988,7 +989,7 @@ export async function ensureAccess(cf, accountId, opts) {
   // captured request.
   const gate = operatorCount > 0
     ? `${operatorCount} operator${operatorCount === 1 ? '' : 's'} via the list`
-    : color.yellow('DENY ALL — no operators');
+    : color.yellow('DENY ALL: no operators');
 
   try {
     const apps = (await cf.listAccessApps(accountId)) || [];
@@ -1022,11 +1023,11 @@ export async function ensureAccess(cf, accountId, opts) {
       ok(`Access application protects ${color.bold(hostname)} (${gate})`);
     }
     if (destinations.length > 1) {
-      warn(`Access also guards ${destinations.slice(1).map((d) => d.uri).join(', ')} — a Pages project still serves this dashboard (see follow-ups)`);
+      warn(`Access also guards ${destinations.slice(1).map((d) => d.uri).join(', ')}, because a Pages project still serves this dashboard (see follow-ups)`);
     }
     info(color.dim(operatorCount > 0
       ? `allow-list: the "${ACCESS_LIST_NAME}" list (${listId})`
-      : 'no operators — the dashboard is closed to everyone until one is added'));
+      : 'no operators, so the dashboard is closed to everyone until one is added'));
   } catch (err) {
     const manual = `Configure it by hand: dashboard → Zero Trust → Access → Applications → Add an application\n→ Self-hosted → domain ${hostname} → policy Allow / Emails in list "${ACCESS_LIST_NAME}".`;
     degraded(

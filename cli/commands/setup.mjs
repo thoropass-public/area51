@@ -153,8 +153,8 @@ export async function run(args) {
   plain('');
   plain(`    ${color.dim('HTTP callbacks ')}  https://${color.bold(zoneName)}/<anything>`);
   plain(`    ${color.dim('Email callbacks')}  <anything>@${color.bold(zoneName)}`);
-  plain(`    ${color.dim('AREA 51        ')}  https://${env.DASHBOARD_HOSTNAME} ${color.dim('— the dashboard, behind Cloudflare Access')}`);
-  plain(`    ${color.dim('Autopilot      ')}  https://${env.AUTOPILOT_HOSTNAME} ${color.dim('— MCP / REST for agents, per-operator key')}`);
+  plain(`    ${color.dim('AREA 51        ')}  https://${env.DASHBOARD_HOSTNAME} ${color.dim('the dashboard, behind Cloudflare Access')}`);
+  plain(`    ${color.dim('Autopilot      ')}  https://${env.AUTOPILOT_HOSTNAME} ${color.dim('MCP / REST for agents, per-operator key')}`);
   plain('');
 
   if (!(await confirmZoneTakeover(cf, zone, env, { dryRun }))) {
@@ -209,7 +209,7 @@ export async function run(args) {
     skip(`${existingOperators.length} operator${existingOperators.length === 1 ? '' : 's'} already configured: ${existingOperators.map((u) => u.email).join(', ')}`);
   } else {
     plain('');
-    plain('  The dashboard has no login of its own — Cloudflare Access is the only thing');
+    plain('  The dashboard has no login of its own. Cloudflare Access is the only thing');
     plain('  keeping it private. Cloudflare emails a one-time PIN to this address, so it');
     plain('  must be a real inbox you can read (not an address on the black-hole domain).');
     plain('');
@@ -283,7 +283,7 @@ export async function run(args) {
   let canUpload = true;
   if (!wranglerBin()) {
     canUpload = false;
-    warn('wrangler is not installed — provisioning will continue, but no code can be uploaded');
+    warn('wrangler is not installed, so provisioning will continue but no code can be uploaded');
     followUps.push({
       label: 'no code was uploaded (wrangler is not installed)',
       detail: 'Run `npm install` in the repository root, then `./a51 deploy all`.',
@@ -335,7 +335,7 @@ export async function run(args) {
     // scrolls away, `./a51 users rotate-key` issues another.
     mintedKey = seeded.value;
     if (mintedKey) ok(`added ${color.bold(firstOperator)} as an operator ${color.dim(`(key id ${mintedKey.keyId})`)}`);
-    else if (seeded.ok && firstOperator) skip(`${firstOperator} is already an operator — keeping their existing key`);
+    else if (seeded.ok && firstOperator) skip(`${firstOperator} is already an operator, so keeping their existing key`);
 
     // Everyone in the table, which from here on is the only allow-list there is.
     const listed = await attempt(
@@ -348,7 +348,7 @@ export async function run(args) {
   } else {
     // Everything downstream binds to this id. Say so once, here, rather than
     // letting four later steps fail for the same reason.
-    warn('no database id — the workers and the dashboard cannot be bound to storage');
+    warn('no database id, so the workers and the dashboard cannot be bound to storage');
   }
   await attempt(
     followUps,
@@ -361,7 +361,7 @@ export async function run(args) {
 
   step(`Deploy ${WORKER_TARGETS['black-holes'].label}`);
   if (skipUploads) {
-    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+    skip(canUpload ? 'skipped, no database id to bind' : 'skipped, wrangler is not installed');
   } else if (!deployWorker('black-holes', env).ok) {
     followUps.push({ label: `${env.WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy black-holes`.' });
   }
@@ -371,14 +371,14 @@ export async function run(args) {
   // its credentials travel with the database rather than with the deploy. That
   // is what makes `./a51 users add` take effect without one.
   if (skipUploads) {
-    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+    skip(canUpload ? 'skipped, no database id to bind' : 'skipped, wrangler is not installed');
   } else if (!deployWorker('autopilot', env).ok) {
     followUps.push({ label: `${env.AGENT_WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy autopilot`.' });
   }
 
   step(`Deploy ${WORKER_TARGETS.cleanup.label}`);
   if (skipUploads) {
-    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+    skip(canUpload ? 'skipped, no database id to bind' : 'skipped, wrangler is not installed');
   } else if (deployWorker('cleanup', env).ok) {
     ok(`retention cron registered: ${env.CLEANUP_CRON} (UTC)`);
   } else {
@@ -389,11 +389,11 @@ export async function run(args) {
   // Its D1 and R2 bindings are declared in dashboard/wrangler.toml.template and
   // travel with this upload. As a Pages project they existed only in
   // Cloudflare's API and had to be PATCHed on BEFORE the first upload, or every
-  // /api/* call 500d for a missing DB binding — which is why this used to be a
+  // /api/* call 500d for a missing DB binding. That is why this used to be a
   // create-then-patch-then-upload-then-maybe-patch-and-reupload dance instead of
   // one line.
   if (skipUploads) {
-    skip(canUpload ? 'skipped — no database id to bind' : 'skipped — wrangler is not installed');
+    skip(canUpload ? 'skipped, no database id to bind' : 'skipped, wrangler is not installed');
   } else if (!deployWorker('dashboard', env).ok) {
     followUps.push({ label: `${env.DASHBOARD_WORKER_NAME} failed to deploy`, detail: 'Fix the error above, then run `./a51 deploy dashboard`.' });
   }
@@ -421,11 +421,11 @@ export async function run(args) {
   }
 
   // Both derived hostnames bind the same way: a Custom Domain on their worker,
-  // with Cloudflare managing the DNS record. Neither is ever seized — see
+  // with Cloudflare managing the DNS record. Neither is ever seized; see
   // ensureWorkerHostname.
   step('Autopilot hostname');
   if (!autopilotHostFree) {
-    skip(`${env.AUTOPILOT_HOSTNAME} skipped — a foreign DNS record is in the way (see follow-ups)`);
+    skip(`${env.AUTOPILOT_HOSTNAME} skipped, a foreign DNS record is in the way (see follow-ups)`);
   } else {
     await ensureWorkerHostname(cf, accountId, {
       hostname: env.AUTOPILOT_HOSTNAME,
@@ -437,7 +437,7 @@ export async function run(args) {
   // ── 8. dashboard hostname ─────────────────────────────────────────────────
   step('Dashboard hostname');
   if (!dashboardHostFree) {
-    skip(`${env.DASHBOARD_HOSTNAME} skipped — a foreign DNS record is in the way (see follow-ups)`);
+    skip(`${env.DASHBOARD_HOSTNAME} skipped, a foreign DNS record is in the way (see follow-ups)`);
   } else {
     await ensureWorkerHostname(cf, accountId, {
       hostname: env.DASHBOARD_HOSTNAME,
@@ -480,7 +480,7 @@ export async function run(args) {
       hint(f.detail);
       plain('');
     });
-    plain(`  Everything else is provisioned. Re-run ${color.bold('./a51 setup')} after fixing these —`);
+    plain(`  Everything else is provisioned. Re-run ${color.bold('./a51 setup')} after fixing these:`);
     plain('  it only changes what is still wrong.');
     closePrompts();
     return 2;
@@ -578,7 +578,7 @@ async function findDerivedHostnameConflicts(cf, accountId, zone, env) {
     // operator deliberately pointed at another zone in .env is theirs to own,
     // and its provisioning step resolves its own zone anyway.
     if (check.hostname !== zone.name && !check.hostname.endsWith(`.${zone.name}`)) {
-      skip(`${check.hostname} is outside ${zone.name} — left to its provisioning step`);
+      skip(`${check.hostname} is outside ${zone.name}, so it is left to its provisioning step`);
       continue;
     }
     let conflict = null;
@@ -615,7 +615,7 @@ function printSummary(env, roles, mintedKey, accessProtected) {
   // The two callback surfaces are listed separately and spelled out in full.
   // Merging them into one "any address @<host>" line is what used to hand out
   // a mail domain that did not exist whenever the black hole was a subdomain.
-  plain(`  ${color.bold('Black hole')} ${color.dim('— point targets at these:')}`);
+  plain(`  ${color.bold('Black hole')} ${color.dim('point targets at these:')}`);
   plain('');
   plain(`    HTTP callbacks   ${color.cyan(`https://${env.BLACK_HOLE_HOSTNAME}/<anything>`)}`);
   if (roles.includes('mail')) {
@@ -626,7 +626,7 @@ function printSummary(env, roles, mintedKey, accessProtected) {
   // live deployment there is no new key. The existing one still works and
   // cannot be reprinted, so point at the command that replaces it instead.
   if (mintedKey) {
-    plain(`  ${color.bold('Your Autopilot key')} ${color.dim('— shown once, now:')}`);
+    plain(`  ${color.bold('Your Autopilot key')} ${color.dim('shown once, now:')}`);
     plain('');
     plain(`    ${color.bold(color.green(mintedKey.key))}`);
     plain('');
@@ -635,7 +635,7 @@ function printSummary(env, roles, mintedKey, accessProtected) {
     for (const line of mcpRegisterLines(env.AUTOPILOT_HOSTNAME, mintedKey.key)) plain(`    ${line}`);
     plain('');
   } else {
-    plain(`  ${color.bold('Autopilot')} ${color.dim('— the existing operators keep their keys')}`);
+    plain(`  ${color.bold('Autopilot')} ${color.dim('the existing operators keep their keys')}`);
     plain('');
     plain('    Only a hash of each is stored, so none can be shown again. If one is lost:');
     plain('      ./a51 users rotate-key <email>');

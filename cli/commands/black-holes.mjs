@@ -45,7 +45,7 @@ function rolesOf(row) {
 }
 
 async function list(cf, accountId, env) {
-  heading(`Black holes ${color.dim(`— worker ${env.WORKER_NAME}`)}`);
+  heading(`Black holes ${color.dim(`worker ${env.WORKER_NAME}`)}`);
   const rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
   if (!rows.length) {
     plain('');
@@ -99,7 +99,7 @@ async function list(cf, accountId, env) {
     warn(`${unbound} host${unbound === 1 ? '' : 's'} with the http role ${unbound === 1 ? 'is' : 'are'} not bound to ${env.WORKER_NAME}`);
     hint('Fix with `./a51 doctor --fix`, or re-add the host.');
   } else if (!boundKnown) {
-    skip('could not read the worker\'s Custom Domains — BOUND is unknown (needs Zone · Workers Routes:Edit)');
+    skip('could not read the worker\'s Custom Domains, so BOUND is unknown (needs Zone · Workers Routes:Edit)');
   }
   info(color.dim(`${rows.length} black hole${rows.length === 1 ? '' : 's'} · database ${env.D1_DATABASE_NAME}`));
   plain('');
@@ -146,7 +146,7 @@ async function assertApexCapturesMail(cf, accountId, env, zone, hostname, roles)
     '',
     `  Email Routing is enabled per name, but the catch-all that delivers mail to`,
     `  ${env.WORKER_NAME} is zone-wide. It covers ${zone.name} and every enabled`,
-    `  subdomain of it — and it only exists once ${zone.name} itself is a mail`,
+    `  subdomain of it, and it only exists once ${zone.name} itself is a mail`,
     `  black hole. Enabling ${hostname} first would lock MX records whose mail`,
     `  has nowhere to go.`,
     '',
@@ -173,7 +173,7 @@ async function confirmAdd(cf, zone, hostname, roles, isApex) {
   const wantsMail = roles.includes('mail');
 
   plain('');
-  plain(`  ${color.bold(hostname)} ${color.dim(`— ${roles.join(', ')}`)}`);
+  plain(`  ${color.bold(hostname)} ${color.dim(`${roles.join(', ')}`)}`);
   plain('');
   if (roles.includes('http')) plain(`    ${color.dim('HTTP callbacks ')}  https://${hostname}/<anything>`);
   if (wantsMail) plain(`    ${color.dim('Email callbacks')}  <anything>@${hostname}`);
@@ -319,10 +319,10 @@ async function remove(cf, accountId, env, hostname) {
   if (zone && zone.name !== hostname) {
     warn(`${hostname} keeps its own MX records, still locked by Email Routing.`);
     plain(color.dim('    Mail sent to it is still accepted and still captured, because the zone'));
-    plain(color.dim(`    catch-all covers it. There is no per-name disable in the API — remove it`));
+    plain(color.dim(`    catch-all covers it. There is no per-name disable in the API, so remove it`));
     plain(color.dim(`    at: dashboard → ${zone.name} → Email → Email Routing → Settings → Subdomains.`));
   } else if (zone) {
-    warn(`Email Routing on ${zone.name} was left untouched — it is a zone-wide setting.`);
+    warn(`Email Routing on ${zone.name} was left untouched. It is a zone-wide setting.`);
     plain(color.dim(`    Disable it at: dashboard → ${zone.name} → Email → Email Routing, if no other`));
     plain(color.dim('    black hole on that zone still needs mail capture.'));
     plain(color.dim('    `./a51 destroy` offers to do it as part of a full teardown.'));

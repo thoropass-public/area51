@@ -17,7 +17,7 @@
 import { plain, color } from './log.mjs';
 
 export function printTokenPermissions() {
-  plain(`  ${color.bold('API token')} ${color.dim('— 14 permissions · My Profile → API Tokens → Create Token → Custom token')}`);
+  plain(`  ${color.bold('API token')} ${color.dim('14 permissions · My Profile → API Tokens → Create Token → Custom token')}`);
   plain('');
   plain(`    ${color.bold('Account scope')}`);
   plain(`      ${color.bold('Edit')}   Workers Scripts · D1 · Workers R2 Storage · Cloudflare Pages`);

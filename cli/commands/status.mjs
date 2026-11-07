@@ -20,7 +20,7 @@ const unset = color.dim('(not set)');
 export async function run() {
   const { env, cf, accountId } = await loadContext();
 
-  heading(`AREA 51 ${color.dim('— deployment status')}`);
+  heading(`AREA 51 ${color.dim('deployment status')}`);
 
   section('Account');
   kv('account', accountId);
@@ -52,7 +52,7 @@ export async function run() {
 
   plain('');
   info(color.dim('This reads .env and checks which Workers exist. To verify bindings, DNS,'));
-  info(color.dim('routing and policies against Cloudflare — and probe the live hosts — run'));
+  info(color.dim('routing and policies against Cloudflare, and probe the live hosts, run'));
   info(color.dim('`./a51 doctor`.'));
   plain('');
   return 0;
@@ -66,7 +66,7 @@ export async function run() {
  */
 async function printBlackHoles(cf, accountId, env) {
   if (!env.D1_DATABASE_ID) {
-    plain(`  ${sym.warn} ${color.yellow('no database yet — run ./a51 setup')}`);
+    plain(`  ${sym.warn} ${color.yellow('no database yet, run ./a51 setup')}`);
     return;
   }
 
@@ -78,7 +78,7 @@ async function printBlackHoles(cf, accountId, env) {
     return;
   }
   if (!rows.length) {
-    plain(`  ${sym.warn} ${color.yellow('none configured')} ${color.dim('— ./a51 black-holes add <host>')}`);
+    plain(`  ${sym.warn} ${color.yellow('none configured')} ${color.dim('./a51 black-holes add <host>')}`);
     return;
   }
 
@@ -109,7 +109,7 @@ async function printBlackHoles(cf, accountId, env) {
  */
 async function printUsers(cf, accountId, env) {
   if (!env.D1_DATABASE_ID) {
-    plain(`  ${sym.warn} ${color.yellow('no database yet — run ./a51 setup')}`);
+    plain(`  ${sym.warn} ${color.yellow('no database yet, run ./a51 setup')}`);
     return;
   }
   let users = [];
@@ -120,7 +120,7 @@ async function printUsers(cf, accountId, env) {
     return;
   }
   if (!users.length) {
-    plain(`  ${sym.warn} ${color.yellow('none')} ${color.dim('— nobody can log in or call Autopilot; ./a51 users add')}`);
+    plain(`  ${sym.warn} ${color.yellow('none')} ${color.dim('nobody can log in or call Autopilot; ./a51 users add')}`);
     return;
   }
   const out = [[color.dim('EMAIL'), color.dim('KEY ID'), color.dim('ADDED')]];

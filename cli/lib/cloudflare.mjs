@@ -329,7 +329,7 @@ export class Cloudflare {
 
   // ── Pages ──────────────────────────────────────────────────────────────────
   //
-  // AREA 51 does not create Pages projects any more — the dashboard is a Worker
+  // AREA 51 does not create Pages projects any more. The dashboard is a Worker
   // with static assets. What survives here is what `releaseHostname` needs: a
   // hostname worth taking over is very often held by a Pages project, including
   // this dashboard's own on any deployment built before the move.
@@ -345,7 +345,7 @@ export class Cloudflare {
 
   /**
    * Detach a custom domain from a Pages project. Cloudflare manages the DNS
-   * record for such a domain, so this removes the record too — which is why the
+   * record for such a domain, so this removes the record too, which is why the
    * owning product is asked to give the name up before any DNS is touched.
    */
   deletePagesDomain(accountId, name, domain) {

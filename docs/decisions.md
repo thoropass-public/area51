@@ -886,7 +886,7 @@ free. Adding a column broke that: SQLite has no `ADD COLUMN IF NOT EXISTS`, and 
 second run would fail on a duplicate column and take the whole schema step with
 it.
 
-**What it does instead:** `applySchema` recognises `ALTER TABLE … ADD COLUMN`,
+**What it does instead:** `applySchema` recognizes `ALTER TABLE … ADD COLUMN`,
 reads `pragma_table_info(<table>)` first, and skips the statement when the column
 is already there. Migrations live at the foot of the file, after the `CREATE
 TABLE`s they alter.

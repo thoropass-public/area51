@@ -165,7 +165,7 @@ export async function syncOperators(cf, accountId, env, { followUps = [], previo
 
   await cf.updateZeroTrustList(accountId, list.id, {
     name: ACCESS_LIST_NAME,
-    description: 'Operators who may open the AREA 51 dashboard. Managed by `./a51 users` — edits here are overwritten.',
+    description: 'Operators who may open the AREA 51 dashboard. Managed by `./a51 users`; edits here are overwritten.',
     items: emails,
   });
   ok(`pushed ${emails.length} operator${emails.length === 1 ? '' : 's'} to the Access list`);

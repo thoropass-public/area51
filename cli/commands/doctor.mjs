@@ -78,7 +78,7 @@ export async function run(args) {
   section('Configuration');
   const required = ['CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'D1_DATABASE_NAME', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'WORKER_NAME', 'AGENT_WORKER_NAME', 'CLEANUP_WORKER_NAME', 'DASHBOARD_WORKER_NAME', 'DASHBOARD_HOSTNAME', 'AUTOPILOT_HOSTNAME'];
   const missing = required.filter((k) => !env[k]);
-  if (missing.length) r.fail(`.env is missing ${missing.join(', ')}`, 'Run `./a51 setup` — it fills these in as it provisions.');
+  if (missing.length) r.fail(`.env is missing ${missing.join(', ')}`, 'Run `./a51 setup`. It fills these in as it provisions.');
   else r.ok('.env has every value the deploy needs');
   // No operator key is checked for here, because none is stored: Autopilot's
   // credentials live in D1 and a key exists in readable form only at the moment
@@ -126,7 +126,7 @@ export async function run(args) {
       const endpointCols = (await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'PRAGMA table_info(endpoints)')).map((c) => c.name);
       for (const col of ['r2_key', 'filename']) {
         if (!endpointCols.includes(col)) {
-          r.fail(`endpoints.${col} is missing — file-backed endpoints will fail`, `Add it: ALTER TABLE endpoints ADD COLUMN ${col} TEXT;`);
+          r.fail(`endpoints.${col} is missing, so file-backed endpoints will fail`, `Add it: ALTER TABLE endpoints ADD COLUMN ${col} TEXT;`);
         }
       }
       if (emailCols.length && endpointCols.length) r.ok('emails / endpoints columns match the current schema');
@@ -157,8 +157,8 @@ export async function run(args) {
     { target: 'black-holes', label: 'Black Holes', name: env.WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
     { target: 'autopilot', label: 'Autopilot', name: env.AGENT_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
     { target: 'cleanup', label: 'Cleanup', name: env.CLEANUP_WORKER_NAME, bindings: ['DB', 'EML'], forbidden: ['FILES'] },
-    // The dashboard writes the FILES bucket — it is the only thing that does —
-    // so it needs the binding the other two are forbidden. As a Pages project it
+    // The dashboard writes the FILES bucket, and nothing else does, so it needs
+    // the binding the other two are forbidden. As a Pages project it
     // could not be checked here at all: its bindings lived in the Pages API, on
     // two separate deployment configs, and verifying them took a bespoke check
     // of its own.
@@ -190,7 +190,7 @@ export async function run(args) {
     if (forbidden.length) {
       r.fail(
         `${check.name} carries a binding it must not have: ${forbidden.join(', ')}`,
-        `${check.label} must not reach the uploads bucket — it could read, replace or delete a payload staged from the dashboard. Remove the binding (dashboard → Workers & Pages → ${check.name} → Settings → Bindings), then run \`./a51 deploy ${check.target}\`.`,
+        `${check.label} must not reach the uploads bucket. It could read, replace or delete a payload staged from the dashboard. Remove the binding (dashboard → Workers & Pages → ${check.name} → Settings → Bindings), then run \`./a51 deploy ${check.target}\`.`,
       );
     }
   }
@@ -204,7 +204,7 @@ export async function run(args) {
     } catch (err) {
       r.fail(`could not read the domains table: ${err.message}`, 'Check the D1 binding and the token\'s D1:Edit permission.');
     }
-    if (!blackHoles.length) r.warn('the domains table is empty — the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <host> http,mail`.');
+    if (!blackHoles.length) r.warn('the domains table is empty, so the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <host> http,mail`.');
   }
 
   let workerDomains = [];
@@ -256,10 +256,10 @@ export async function run(args) {
           try {
             const atName = await cf.listDnsRecordsByName(zone.id, row.domain);
             if (atName.some((rec) => rec.type === 'MX')) {
-              r.ok(`${row.domain} has its own MX records — mail capture is live`);
+              r.ok(`${row.domain} has its own MX records, so mail capture is live`);
             } else {
               r.fail(
-                `${row.domain} is a mail black hole with no MX records of its own — mail to it bounces`,
+                `${row.domain} is a mail black hole with no MX records of its own, so mail to it bounces`,
                 `Enable Email Routing for the name: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`,
               );
             }
@@ -278,7 +278,7 @@ export async function run(args) {
       const list = (await cf.listDestinationAddresses(accountId)) || [];
       const dest = list.find((d) => (d.email || '').toLowerCase() === env.FALLBACK_ADDRESS.toLowerCase());
       if (dest && dest.verified) r.ok(`fallback inbox ${env.FALLBACK_ADDRESS} is verified`);
-      else if (dest) r.warn(`fallback inbox ${env.FALLBACK_ADDRESS} is not verified — forwarding on a failed capture will fail`, 'Click the verification link Cloudflare emailed to that address.');
+      else if (dest) r.warn(`fallback inbox ${env.FALLBACK_ADDRESS} is not verified, so forwarding on a failed capture will fail`, 'Click the verification link Cloudflare emailed to that address.');
       else r.warn(`${env.FALLBACK_ADDRESS} is not an Email Routing destination on this account`, 'Run `./a51 setup` to register it, then verify from that inbox.');
     } catch (err) {
       r.warn(`could not check destination addresses: ${err.message}`);
@@ -293,8 +293,8 @@ export async function run(args) {
   // Four checks used to live here and went with the Pages project: bindings on
   // the production config, bindings on the preview config, `production_branch ==
   // main` (a Pages deploy silently lands as a preview otherwise), and whether the
-  // dashboard CNAME pointed at the project's real — possibly globally suffixed —
-  // *.pages.dev subdomain.
+  // dashboard CNAME pointed at the project's real *.pages.dev subdomain, which
+  // Cloudflare suffixes on a global name collision.
   section('Dashboard');
   if (env.DASHBOARD_WORKER_NAME && env.DASHBOARD_HOSTNAME) {
     try {
@@ -304,7 +304,7 @@ export async function run(args) {
       } else {
         r.fail(
           `${env.DASHBOARD_HOSTNAME} is not a Custom Domain on ${env.DASHBOARD_WORKER_NAME}`,
-          'Run `./a51 setup` to bind it. If setup reports the name as occupied, something else still holds it — a Pages project from before the dashboard became a worker, most likely.',
+          'Run `./a51 setup` to bind it. If setup reports the name as occupied, something else still holds it, most likely a Pages project from before the dashboard became a worker.',
         );
       }
     } catch (err) {
@@ -326,13 +326,13 @@ export async function run(args) {
       if (users.length) {
         r.ok(`${users.length} operator${users.length === 1 ? '' : 's'}: ${users.map((u) => u.email).join(', ')}`);
       } else {
-        r.fail('the users table is empty — nobody can open the dashboard or reach Autopilot', 'Add yourself: `./a51 users add`.');
+        r.fail('the users table is empty, so nobody can open the dashboard or reach Autopilot', 'Add yourself: `./a51 users add`.');
       }
     } catch (err) {
       r.warn(`could not read the users table: ${err.message}`);
     }
   } else if (env.D1_DATABASE_ID) {
-    r.fail('the users table does not exist — Autopilot rejects every call', 'Run `./a51 doctor --fix` to apply db/schema.sql, then `./a51 users add`.');
+    r.fail('the users table does not exist, so Autopilot rejects every call', 'Run `./a51 doctor --fix` to apply db/schema.sql, then `./a51 users add`.');
   }
   const allowed = users.map((u) => u.email);
 
@@ -344,12 +344,12 @@ export async function run(args) {
         await repair(r, `could not create the Access application on ${env.DASHBOARD_HOSTNAME}`,
           () => syncOperators(cf, accountId, env, { followUps, force: true }));
       } else {
-        r.fail(`no Cloudflare Access application protects ${env.DASHBOARD_HOSTNAME} — the dashboard is open to anyone`, allowed.length ? 'Run `./a51 users sync` (or `./a51 doctor --fix`).' : 'Add an operator first: `./a51 users add`.');
+        r.fail(`no Cloudflare Access application protects ${env.DASHBOARD_HOSTNAME}, so the dashboard is open to anyone`, allowed.length ? 'Run `./a51 users sync` (or `./a51 doctor --fix`).' : 'Add an operator first: `./a51 users add`.');
       }
     } else {
       const policies = (await cf.get(`/accounts/${accountId}/access/apps/${app.id}/policies`)) || [];
       const allows = policies.filter((p) => p.decision === 'allow');
-      if (!allows.length) r.fail(`the Access app on ${env.DASHBOARD_HOSTNAME} has no allow policy — nobody can get in`, 'Run `./a51 users sync`.');
+      if (!allows.length) r.fail(`the Access app on ${env.DASHBOARD_HOSTNAME} has no allow policy, so nobody can get in`, 'Run `./a51 users sync`.');
       else r.ok(`Access protects ${env.DASHBOARD_HOSTNAME} (${allows.length} allow policy, session ${app.session_duration || 'default'})`);
 
       // Drift between D1 and what Access actually enforces.
@@ -400,7 +400,7 @@ export async function run(args) {
         } else if (stale.length) {
           if (fix) {
             await repair(r, 'could not remove stale identities from the Access allow-list', repairAccess,
-              `removed ${stale.join(', ')} — no longer operators`);
+              `removed ${stale.join(', ')}, no longer operators`);
           } else {
             r.fail(`Access still admits ${stale.join(', ')}, who are not in the users table`, 'A revocation did not reach Cloudflare. Run `./a51 users sync` (or `./a51 doctor --fix`).');
           }
@@ -409,7 +409,7 @@ export async function run(args) {
             await repair(r, 'could not add missing operators to the Access allow-list', repairAccess,
               `added ${absent.join(', ')} to the allow-list`);
           } else {
-            r.fail(`${absent.join(', ')} are operators but Access does not admit them — they cannot log in`, 'Run `./a51 users sync` (or `./a51 doctor --fix`).');
+            r.fail(`${absent.join(', ')} are operators but Access does not admit them, so they cannot log in`, 'Run `./a51 users sync` (or `./a51 doctor --fix`).');
           }
         } else {
           r.ok(`the Access allow-list matches the users table (${allowed.length} operator${allowed.length === 1 ? '' : 's'})`);
@@ -422,7 +422,7 @@ export async function run(args) {
       // app listed all three and FAILED the deployment if either extra one went
       // missing. The dashboard worker sets workers_dev = false and
       // preview_urls = false, so DASHBOARD_HOSTNAME is the only name it answers
-      // on — there is no second URL that could be left unauthenticated.
+      // on. There is no second URL that could be left unauthenticated.
     }
   } catch (err) {
     r.warn(`could not check Cloudflare Access: ${err.message}`, 'The token needs Account · Access: Apps and Policies:Edit to read this.');
@@ -441,9 +441,9 @@ export async function run(args) {
     if (!roles.includes('http')) continue;
     const res = await probe(`https://${row.domain}/__a51_doctor_probe`);
     if (!res.ok) r.fail(`https://${row.domain} did not respond: ${res.error}`, 'DNS or the certificate may still be provisioning. Retry in a minute.');
-    else if (res.status === 404) r.ok(`https://${row.domain} answers 404 on an unknown path (correct — and the hit is now in Requests)`);
-    else if (res.status === 403) r.warn(`https://${row.domain} answered 403 — this machine's IP may be on the ip_blacklist`);
-    else r.warn(`https://${row.domain} answered ${res.status} on an unknown path — expected 404`);
+    else if (res.status === 404) r.ok(`https://${row.domain} answers 404 on an unknown path (correct, and the hit is now in Requests)`);
+    else if (res.status === 403) r.warn(`https://${row.domain} answered 403, so this machine's IP may be on the ip_blacklist`);
+    else r.warn(`https://${row.domain} answered ${res.status} on an unknown path, expected 404`);
   }
 
   if (env.AUTOPILOT_HOSTNAME) {
@@ -467,14 +467,14 @@ export async function run(args) {
       });
       if (bogus.status === 401) r.ok('Autopilot reaches D1 to check keys, and rejects an unknown one (401)');
       else if (bogus.status === 503) {
-        r.fail('Autopilot answered 503 — it cannot reach D1 to authenticate anyone', 'Every agent call fails until this is fixed. Check the DB binding and that the users table exists: `./a51 doctor --fix`, then `./a51 deploy autopilot`.');
-      } else r.warn(`Autopilot answered ${bogus.status || bogus.error} to an unknown key — expected 401`);
+        r.fail('Autopilot answered 503, so it cannot reach D1 to authenticate anyone', 'Every agent call fails until this is fixed. Check the DB binding and that the users table exists: `./a51 doctor --fix`, then `./a51 deploy autopilot`.');
+      } else r.warn(`Autopilot answered ${bogus.status || bogus.error} to an unknown key, expected 401`);
     } else if (unauth.status === 503) {
-      r.fail('Autopilot answered 503 — it cannot reach D1 to authenticate anyone', 'Every agent call fails until this is fixed. Check the DB binding and that the users table exists: `./a51 doctor --fix`, then `./a51 deploy autopilot`.');
+      r.fail('Autopilot answered 503, so it cannot reach D1 to authenticate anyone', 'Every agent call fails until this is fixed. Check the DB binding and that the users table exists: `./a51 doctor --fix`, then `./a51 deploy autopilot`.');
     } else if (unauth.status === 530) {
-      r.fail(`https://${env.AUTOPILOT_HOSTNAME} answered 530 — the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy autopilot`, then `./a51 setup` to (re)bind the hostname.');
+      r.fail(`https://${env.AUTOPILOT_HOSTNAME} answered 530, so the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy autopilot`, then `./a51 setup` to (re)bind the hostname.');
     } else {
-      r.fail(`Autopilot answered ${unauth.status} without a key — expected 401`, 'If the worker is deployed, confirm its DB binding and the users table: `./a51 doctor --fix`.');
+      r.fail(`Autopilot answered ${unauth.status} without a key, expected 401`, 'If the worker is deployed, confirm its DB binding and the users table: `./a51 doctor --fix`.');
     }
   }
 
@@ -483,8 +483,8 @@ export async function run(args) {
     if (!res.ok) r.fail(`https://${env.DASHBOARD_HOSTNAME} did not respond: ${res.error}`, 'DNS or the worker Custom Domain may still be provisioning.');
     else if ([301, 302, 303, 307, 308].includes(res.status) && /cloudflareaccess\.com/.test(res.location)) r.ok('the dashboard redirects to the Cloudflare Access login (protected)');
     else if (res.status === 200 && /cloudflareaccess/.test(res.body)) r.ok('the dashboard is behind Cloudflare Access');
-    else if (res.status === 200) r.fail('the dashboard served content with no Access challenge — it is publicly readable', 'Add an operator (`./a51 users add`), then run `./a51 users sync`.');
-    else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530 — the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy dashboard`, then `./a51 setup` to (re)bind the hostname.');
+    else if (res.status === 200) r.fail('the dashboard served content with no Access challenge, so it is publicly readable', 'Add an operator (`./a51 users add`), then run `./a51 users sync`.');
+    else if (res.status === 530) r.fail(`https://${env.DASHBOARD_HOSTNAME} answered 530, so the hostname isn't routed to a worker (worker not deployed, or its Custom Domain is missing)`, 'Run `./a51 deploy dashboard`, then `./a51 setup` to (re)bind the hostname.');
     else r.warn(`the dashboard answered ${res.status}`);
   }
 

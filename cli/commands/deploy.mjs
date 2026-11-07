@@ -13,7 +13,7 @@ import { applySchema } from '../lib/provision.mjs';
 
 // Schema FIRST, and that order is load-bearing rather than tidy. Worker code
 // reads columns; a worker that ships before the column it selects does not fail
-// loudly — the catcher's endpoint lookup catches the error and falls through to
+// loudly: the catcher's endpoint lookup catches the error and falls through to
 // 404, so every endpoint on every black hole would quietly stop being served
 // for the length of the deploy. Migrate the database, then ship the code that
 // depends on it.

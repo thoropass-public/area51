@@ -49,7 +49,7 @@ function ListView({
                 <span
                   key={p}
                   className={`pin-chip${sp ? " pin-special" : ""}`}
-                  title={sp ? sp.title : `Pinned filter "${p}" — click × to remove`}
+                  title={sp ? sp.title : `Pinned filter "${p}", click × to remove`}
                   style={{ background: cv.soft, borderColor: cv.edge, color: cv.base }}
                 >
                   <span className="pin-glyph" style={{ color: cv.base }}>{sp ? sp.glyph : <Icon.pin/>}</span>
@@ -135,7 +135,7 @@ function ListView({
                   {loadingMore ? <><span className="spinner"/> loading</> : "Load more"}
                 </button>
               ) : (
-                <span className="meta">— end of results —</span>
+                <span className="meta">end of results</span>
               )}
             </div>
           </>
@@ -213,7 +213,7 @@ function EndpointsTab() {
   const [autopilotOpen, setAutopilotOpen] = useState(false);
   const [modal, setModal] = useState(null); // {mode:'edit'|'new', uri?}
   // Which side of the list is on screen. Archived endpoints are never mixed in
-  // with the working list — the button swaps the view rather than widening it.
+  // with the working list. The button swaps the view rather than widening it.
   const [showArchived, setShowArchived] = useState(false);
 
   const fetchFirst = useCallback(async () => {
@@ -389,7 +389,7 @@ function EndpointRow({ row, active, matches, onOpen }) {
 
   const copyUrl = async (e) => {
     e.stopPropagation();
-    if (!activeDomain) { toast("No default host selected — pick one on Home", "error"); return; }
+    if (!activeDomain) { toast("No default host selected. Pick one on Home", "error"); return; }
     const url = `https://${activeDomain}${row.uri}`;
     const ok = await copyText(url);
     if (!ok) { toast("Copy failed", "error"); return; }
@@ -478,14 +478,14 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   const fileMode = !!(file || savedFile);
   // An archived endpoint is frozen: the modal shows what it holds and offers
   // only Unarchive and Delete. The editors are unmounted rather than disabled,
-  // the same treatment file mode gets — a greyed-out field still invites a
+  // the same treatment file mode gets. A grayed-out field still invites a
   // click, and the server refuses the write anyway.
   const frozen = mode === "edit" && form.archived;
 
   const pickFile = (f) => {
     if (!f) return;
     if (f.size > MAX_UPLOAD_BYTES) {
-      toast(`File is too large — max ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB`, "error");
+      toast(`File is too large. Max ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB`, "error");
       return;
     }
     if (f.size === 0) { toast("File is empty", "error"); return; }
@@ -508,7 +508,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
     setSaving(true);
     try {
       await API.patchEndpoint(uri, { archived: !form.archived });
-      toast(form.archived ? "Endpoint unarchived — it is served again" : "Endpoint archived — it is no longer served", "success");
+      toast(form.archived ? "Endpoint unarchived. It is served again" : "Endpoint archived. It is no longer served", "success");
       onSaved();
     } catch (e) {
       toast((form.archived ? "Unarchive" : "Archive") + " failed: " + e.message, "error");
@@ -578,8 +578,8 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
             <div className="field">
               <label>URI</label>
               {/* Editable in both modes. A rename is an ordinary primary-key
-                  update — nothing else in either store is keyed by the URI, so
-                  a file-backed endpoint keeps its object — and the write is
+                  update. Nothing else in either store is keyed by the URI,
+                  so a file-backed endpoint keeps its object. The write is
                   applied by Save, not as you type. */}
               {frozen ? (
                 <div className="readonly-value">{form.uri}</div>
@@ -595,7 +595,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
               )}
               <div className="helper">
                 {frozen
-                  ? "Archived — this path is not served. Unarchive it to make any change."
+                  ? "Archived. This path is not served. Unarchive it to make any change."
                   : mode === "edit" && form.uri.trim() !== uri
                     ? <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>
                     : "Path the black hole will serve. Must start with /"}
@@ -663,7 +663,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
                     value={form.body}
                     onChange={(e) => update("body", e.target.value)}
                     spellCheck={false}
-                    placeholder="Response body — any text. For a binary, attach a file below instead."
+                    placeholder="Response body. Any text. For a binary, attach a file below instead."
                   />
                 </div>
 
@@ -1281,7 +1281,7 @@ function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
-      title="Grouped — click to view every message with this From & Subject"
+      title="Grouped. Click to view every message with this From & Subject"
     >
       <PinRibbon matches={matches}/>
       <button
@@ -1295,7 +1295,7 @@ function EmailGroupRow({ item, matches, onOpen, onToggleGroupRead }) {
       </button>
       <span className="mono" style={{color:"var(--n4)"}}>{fmtTime(item.ts)}</span>
       <span className="mono cell-trunc from" title={decodeMimeWord(item.from_addr)}>{decodeMimeWord(item.from_addr)}</span>
-      <span className="group-to" title={`${latestTo} — and more in this group`}>
+      <span className="group-to" title={`${latestTo}, and more in this group`}>
         <span className="mono group-to-addr">{latestTo}</span>
         <span className="group-to-more">, and more</span>
       </span>
@@ -1417,7 +1417,7 @@ function EmailGroupView({ group, terms, starOnly, onBack }) {
                 {loadingMore ? <><span className="spinner"/> loading</> : "Load more"}
               </button>
             ) : (
-              <span className="meta">— end of results —</span>
+              <span className="meta">end of results</span>
             )}
           </div>
         )}
@@ -1621,7 +1621,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
     (async () => {
       try {
         const buf = await API.getEmailRaw(id);          // ArrayBuffer
-        if (!window.PostalMime) throw new Error("Email parser still loading — try again in a moment");
+        if (!window.PostalMime) throw new Error("Email parser still loading. Try again in a moment");
         const p = await window.PostalMime.parse(buf);
         if (!live) return;
         const parsed = {
@@ -1836,7 +1836,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
               {fullscreen ? (
                 <div className="notice">
                   <span className="glyph">⛶</span>
-                  <span>Body is shown full screen — press Esc or the collapse button to return.</span>
+                  <span>Body is shown full screen. Press Esc or the collapse button to return.</span>
                 </div>
               ) : bodyContent}
             </div>
@@ -1888,7 +1888,7 @@ function EmailModal({ id, starred, onToggleStar, onClose }) {
       </div>
     </Modal>
     {fullscreen && (hasHtml || hasText) && ReactDOM.createPortal(
-      <div className="body-fullscreen" role="dialog" aria-label="Email body — full screen">
+      <div className="body-fullscreen" role="dialog" aria-label="Email body, full screen">
         <div className="body-fullscreen-bar">
           <span className="section-title" style={{ margin: 0 }}>Body</span>
           {bodyControls}

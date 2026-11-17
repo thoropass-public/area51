@@ -20,7 +20,7 @@ const unset = color.dim('(not set)');
 export async function run() {
   const { env, cf, accountId } = await loadContext();
 
-  heading(`AREA 51 ${color.dim('— deployment status')}`);
+  heading(`AREA 51 ${color.dim('deployment status')}`);
 
   section('Account');
   kv('account', accountId);
@@ -45,6 +45,10 @@ export async function run() {
   kv('schedule', `${env.CLEANUP_CRON || unset} ${color.dim('UTC')}`);
   kv('requests', `keep newest ${env.CLEANUP_REQUESTS_KEEP || '?'} rows`);
   kv('emails', `delete after ${env.CLEANUP_EMAIL_MAX_AGE_DAYS || '?'} days ${color.dim('(starred kept forever)')}`);
+  const purge = (env.CLEANUP_AUTOPILOT_PURGE || 'monthly').toLowerCase();
+  kv('/-/ purge', purge === 'off'
+    ? color.dim('off')
+    : `${purge} ${color.dim(purge === 'monthly' ? '(first Sunday)' : purge === 'weekly' ? '(Sundays)' : '')}`);
 
   section('Operators');
   await printUsers(cf, accountId, env);
@@ -52,7 +56,7 @@ export async function run() {
 
   plain('');
   info(color.dim('This reads .env and checks which Workers exist. To verify bindings, DNS,'));
-  info(color.dim('routing and policies against Cloudflare — and probe the live hosts — run'));
+  info(color.dim('routing and policies against Cloudflare, and probe the live hosts, run'));
   info(color.dim('`./a51 doctor`.'));
   plain('');
   return 0;
@@ -66,7 +70,7 @@ export async function run() {
  */
 async function printBlackHoles(cf, accountId, env) {
   if (!env.D1_DATABASE_ID) {
-    plain(`  ${sym.warn} ${color.yellow('no database yet — run ./a51 setup')}`);
+    plain(`  ${sym.warn} ${color.yellow('no database yet, run ./a51 setup')}`);
     return;
   }
 
@@ -78,7 +82,7 @@ async function printBlackHoles(cf, accountId, env) {
     return;
   }
   if (!rows.length) {
-    plain(`  ${sym.warn} ${color.yellow('none configured')} ${color.dim('— ./a51 black-holes add <host>')}`);
+    plain(`  ${sym.warn} ${color.yellow('none configured')} ${color.dim('./a51 black-holes add <host>')}`);
     return;
   }
 
@@ -109,7 +113,7 @@ async function printBlackHoles(cf, accountId, env) {
  */
 async function printUsers(cf, accountId, env) {
   if (!env.D1_DATABASE_ID) {
-    plain(`  ${sym.warn} ${color.yellow('no database yet — run ./a51 setup')}`);
+    plain(`  ${sym.warn} ${color.yellow('no database yet, run ./a51 setup')}`);
     return;
   }
   let users = [];
@@ -120,7 +124,7 @@ async function printUsers(cf, accountId, env) {
     return;
   }
   if (!users.length) {
-    plain(`  ${sym.warn} ${color.yellow('none')} ${color.dim('— nobody can log in or call Autopilot; ./a51 users add')}`);
+    plain(`  ${sym.warn} ${color.yellow('none')} ${color.dim('nobody can log in or call Autopilot; ./a51 users add')}`);
     return;
   }
   const out = [[color.dim('EMAIL'), color.dim('KEY ID'), color.dim('ADDED')]];
@@ -134,6 +138,7 @@ async function printWorkers(cf, accountId, env) {
     ['black holes', env.WORKER_NAME],
     ['autopilot', env.AGENT_WORKER_NAME],
     ['cleanup', env.CLEANUP_WORKER_NAME],
+    ['dashboard', env.DASHBOARD_WORKER_NAME],
   ];
   for (const [label, name] of targets) {
     if (!name) {

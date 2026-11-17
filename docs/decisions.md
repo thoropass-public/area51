@@ -419,8 +419,7 @@ the name, which is how this failed the first time.
 ## Provisioning goes through the REST API, not wrangler
 
 `./a51 setup` uses the Cloudflare REST API for everything except uploading code:
-database, buckets, schema, Custom Domains, DNS, Email Routing, Pages project and
-bindings, Access.
+database, buckets, schema, Custom Domains, DNS, Email Routing and Access.
 
 **Why:** wrangler is a deployment tool, not a provisioning one. It cannot create a
 Pages binding, an Access policy, a catch-all rule or a DNS record, and its
@@ -433,38 +432,179 @@ The cost is a hand-written API client (`cli/lib/cloudflare.mjs`) and a dependenc
 on request shapes Cloudflare could change. It is small, dependency-free, and
 `A51_API_BASE` makes it testable against a mock.
 
-## Pages bindings are set before the first upload, via create-then-patch
+## Schema migrations are idempotent by inspection, not by tolerance
 
-The project ends up with its D1 and R2 bindings on both the production and preview
-configurations *before* the first upload, and its `production_branch` pinned to
-`main` (the branch `./a51 deploy` uploads to).
+`db/schema.sql` is applied in full on every `./a51 deploy schema` and every
+`doctor --fix`. Everything in it was `CREATE … IF NOT EXISTS`, so re-running was
+free. Adding a column broke that: SQLite has no `ADD COLUMN IF NOT EXISTS`, and a
+second run would fail on a duplicate column and take the whole schema step with
+it.
 
-**Why:** the manual flow (deploy, discover every `/api/*` call returns 500, add
-three bindings in the dashboard for two environments, redeploy) was the single most
-error-prone step in the old setup, and forgetting the preview environment produced
-failures that only showed up later. Doing it over the API in the right order
-removes the class of problem.
+**What it does instead:** `applySchema` recognizes `ALTER TABLE … ADD COLUMN`,
+reads `pragma_table_info(<table>)` first, and skips the statement when the column
+is already there. Migrations live at the foot of the file, after the `CREATE
+TABLE`s they alter.
 
-**Why create-then-patch, not create-with-bindings:** creating the project and its
-`deployment_configs` in a *single* `POST` is rejected on some accounts with a
-generic `[8000000] An unknown error occurred`, while a bare create (name +
-`production_branch`) succeeds, which is why wrangler could make the project when
-the API couldn't. So `ensurePagesProject` creates minimally, then `PATCH`es the
-bindings. The guarantee (bindings present before the upload) is unchanged; only
-the call sequence is. `./a51 deploy dashboard` re-asserts the bindings and branch
-every time, so a project someone edited by hand, or one wrangler created bare as
-a fallback, repairs itself.
+**Why not just tolerate the error.** The obvious alternative is to catch the
+failure and carry on. Two things are wrong with it. It means string-matching
+Cloudflare's relayed SQLite message, which is not a contract and would silently
+stop working if the wording changed. And it would swallow a genuinely broken
+`ALTER`, such as a typo'd table or a bad default, leaving a column missing that something
+later queries. Inspecting first keeps the strict rule: if an `ALTER` runs at all,
+it still has to succeed.
 
-**Two failure modes this also closes:**
-- **Wrong production branch.** If the API create ever fails outright, wrangler
-  creates the project with its production branch defaulted to the local git branch
-  and deploys to `main`, a *preview*, so the custom domain serves nothing. Setup
-  now pins `production_branch = main` on the patch and redeploys, and treats a
-  failed create as "attach bindings + redeploy," not a dead end.
-- **Wrong DNS target.** The `*.pages.dev` subdomain is global; a common name like
-  `area51` collides and Cloudflare hands back a suffixed one (`area51-xxxx.pages.dev`).
-  `ensurePagesDomain` reads the project's *real* subdomain instead of guessing
-  `<name>.pages.dev`, and repoints a stale Pages CNAME to it automatically.
+It is also the rule the rest of provisioning already follows. Every `ensure*`
+helper reads current state before it writes ([CLAUDE.md](../CLAUDE.md) invariant
+8); schema application was the one step that did not.
+
+## `deploy` applies the schema first
+
+`TARGETS` used to end with `schema`, so `./a51 deploy all` shipped every worker
+and *then* migrated the database.
+
+That is backward the moment worker code reads a new column, and it fails
+quietly rather than loudly. The catcher's endpoint lookup catches its own errors
+and treats them as "no match". A worker deployed ahead of its column therefore
+answers `404` for **every endpoint on every black hole** until the schema step
+runs, seconds later. Mid-engagement that is a window where callbacks stop being served
+and the only trace is `http_endpoint_lookup_failed` in the logs.
+
+Migrate, then ship the code that depends on the migration.
+
+`doctor` checks for the column too, alongside `r2_key` and `filename`. It is
+there because the failure is invisible from outside: the catcher's lookup throws
+on a missing column, the handler treats a lookup error as "no match", and every
+endpoint answers 404 with nothing in the output saying why. The live probe at the
+end of `doctor` cannot see it either, since it asks for a path that is supposed
+to 404.
+
+## The dashboard is a Worker, not a Pages project
+
+The dashboard is a Worker with static assets (`dashboard/wrangler.toml.template`):
+`public/` holds the six static files, `src/` holds the API, and `[assets]
+run_worker_first = ["/api/*"]` decides which of the two answers a request. It was
+a Cloudflare Pages project with Pages Functions until v1.1.0.
+
+**Why:** one hostname instead of three, and that is a security property rather
+than a tidiness one.
+
+A Pages project answers on its custom domain **and** `<project>.pages.dev` **and**
+every preview deployment under `*.<project>.pages.dev`. Cloudflare Access is
+enforced per hostname at the edge, so guarding only `DASHBOARD_HOSTNAME` left the
+`pages.dev` URLs an **unauthenticated bypass** onto every captured request and
+email. The old `ensureAccess` therefore read the project back, discovered its real
+(possibly globally suffixed) subdomain, and wrote three destinations; `doctor` had
+a dedicated check that *failed the deployment* if either extra one went missing,
+and `verify-deployment.md` had a section teaching operators to eyeball all three.
+
+A Worker with `workers_dev = false` and `preview_urls = false` has exactly one
+hostname. There is no second URL to enumerate, keep in sync, or leave open. The
+Access app has one destination because there is only one thing to guard.
+
+**With one window where that is not yet true, and it needed handling.** During an
+upgrade both products exist: the Worker is deployed, and the old Pages project is
+still there, still bound to D1 and both R2 buckets, still answering on its
+`pages.dev` names. Writing the Access application is a full `PUT`. The obvious
+version of this change, listing the Worker's hostname and nothing else, would
+have *removed* the destinations guarding those names. That leaves the upgrade
+worse than the thing it replaced: shut on the name the operator checks, open on
+the two they have stopped thinking about. So `ensureAccess` derives the
+list from what the dashboard is reachable at rather than what it ought to be
+reachable at: a leftover project keeps its names guarded, with a follow-up saying
+to retire it, and the entries go once it is gone.
+
+There is a second source, and it is deliberately conditional. If the Pages
+listing cannot be read at all, any `pages.dev` entry already on the application
+is carried across, because dropping it would be a guess in the one direction
+that can expose data. If the listing *is* read and finds no project, the extra
+entries are dropped. Carrying them across unconditionally would make them
+permanent: the listing comes back empty once the project is deleted, the
+application's own entries re-add themselves every run, and the destinations never
+shrink. A test pins both halves.
+
+Cloudflare also now recommends Workers over Pages for new projects, and ships new
+features only there, but that was the tiebreaker, not the reason.
+
+**What it deleted.** Four workarounds that existed solely because Pages behaved
+the way it did:
+
+- **Bindings had nowhere to live.** A Pages project's D1 and R2 bindings exist
+  only in Cloudflare's API, so `setup` had to `PATCH` them on, onto *both* the
+  production and preview deployment configs, before the first upload, or every
+  `/api/*` call 500d for a missing `DB`. And creating a project *with*
+  `deployment_configs` in one `POST` is rejected on some accounts with a generic
+  `[8000000] An unknown error occurred`, so it had to be create-then-patch.
+  `doctor --fix` re-applied them to repair hand edits. They are declared in
+  `dashboard/wrangler.toml.template` now, under version control, and travel with
+  the upload like every other worker's.
+- **`production_branch` had to be pinned.** If the API create failed, wrangler
+  made the project with its production branch defaulted to the local git branch,
+  so `./a51 deploy` landed on `main` as a *preview* and the custom domain served
+  nothing. `doctor` checked for this.
+- **The `*.pages.dev` subdomain is a global namespace.** A common name like
+  `area51` collides, and Cloudflare hands back a suffixed one
+  (`area51-xxxx.pages.dev`). Anything pointing at a guessed `<name>.pages.dev`
+  pointed at a host that was not ours, so `ensurePagesDomain` had to read the real
+  subdomain and repoint stale CNAMEs, and `doctor` had to check the CNAME target.
+- **No observability at all.** Pages Functions support neither Workers Logs,
+  Logpush, Tail Workers, nor source maps. A 500 from `/api/endpoints/upload` was a
+  `console.error` into a void. The worker enables `[observability]` and
+  `upload_source_maps`.
+
+**What it costs.** Pages derived the route table from the shape of the
+`functions/` directory (`[id]` for a dynamic segment, `onRequestGet` for the
+method) and resolved match precedence invisibly. A Worker is one `fetch`
+handler, so that table is now written down in `src/index.js` and matched by
+`src/router.js`. Adding an endpoint is two edits instead of one, and precedence
+is something code has to get right. That is a real, permanent cost; it is smaller
+than the four items above.
+
+**Cost on the Cloudflare bill: unchanged.** Static-asset requests are free and
+unlimited on both plans and do not count as Worker invocations, and Pages
+Functions were billed on the same Workers meter as any other worker. The billable
+surface is the same set of `/api/*` calls either way. This is why
+`run_worker_first` is scoped to `["/api/*"]` and not set to `true`. Setting it
+to `true`, which is what most examples show, would make every page load,
+stylesheet and `.jsx` fetch a billable invocation for nothing. `not_found_handling = "none"` likewise
+lets the asset layer 404 unknown paths without invoking the worker.
+
+**What was deliberately NOT done: folding the API into Autopilot.** It looks like
+an obvious consolidation: one worker, one binding set, shared D1 helpers, both
+are REST over the same database. It must not happen. Autopilot has **no `FILES`
+binding on purpose** and is fenced to `/-/*`; the dashboard writes `FILES` and
+manages endpoints at any URI. Merging them would hand any Autopilot key holder
+the ability to read, replace or delete a payload a human staged. See
+[Autopilot is a separate worker, bounded to `/-/*`](#autopilot-is-a-separate-worker-bounded-to--).
+
+**Undoing it** means restoring all four workarounds above, and re-teaching Access
+to guard three hostnames, including the wildcard, which does not match the apex,
+so both extra destinations are needed and each is separately forgettable.
+
+## One test file, for route precedence, and only that
+
+`dashboard/src/router.test.mjs` is the only test file in the repository. Plain
+node, no dependencies, no framework: `node dashboard/src/router.test.mjs`.
+
+**Why an exception to "no test suite":** `./a51 doctor` works as the acceptance
+test because nearly everything here fails *loudly*: a missing binding 500s, an
+unbound hostname answers 530, a broken worker will not deploy. Route precedence is
+the one thing that does not. Two routes can match one path (`/api/endpoints/upload`
+matches both the literal route and `/api/endpoints/:uri`), and picking the wrong
+one throws nothing, deploys fine, and leaves `doctor` reporting a healthy
+dashboard: the request simply reaches the wrong handler. In that specific case it
+would run a D1 lookup for an endpoint named `"upload"` and answer a plausible
+404. Pages resolved this for free and invisibly; now it is code, and the first
+draft of `router.js` got it wrong in exactly that way.
+
+**Why it cannot rot:** it parses the `ROUTES` table out of `src/index.js` rather
+than restating it, so a route added there is covered here automatically, and a
+renamed table fails the run loudly instead of silently testing nothing.
+
+**Scope discipline:** it asserts precedence, parameter capture (endpoint URIs
+arrive percent-encoded, and `%2F` must stay inside one segment), and 404-vs-405.
+It does not test handlers, D1, or R2. Those fail loudly and `doctor` covers them.
+Turning this into a general test suite is a different decision from the one made
+here.
 
 ## Cloudflare Access is part of setup, not an afterthought
 
@@ -472,7 +612,7 @@ Setup creates the Zero Trust organization, enables one-time PIN login, and puts 
 Access application with an allow policy in front of the dashboard.
 
 **Why:** the dashboard has no authentication of its own, and its API can read every
-capture and create endpoints. "Remember to lock this down afterwards" is how an
+capture and create endpoints. "Remember to lock this down afterward" is how an
 open dashboard happens. Making it a step means the default deployment is protected,
 there is no flag to skip it, and `doctor` treats "no Access application" as a
 failure with a live probe to back it up.
@@ -704,7 +844,7 @@ The lock file is not committed. `npm install` regenerates it locally.
 review, merge or keep in sync in a project with exactly two direct dependencies.
 
 **What it costs, stated plainly:** installs are not reproducible. Both
-dependencies are caret-ranged (`postal-mime: ^3.0.0`, `wrangler: ^4.42.0`), so two
+dependencies are caret-ranged (`postal-mime: ^4.2.0`, `wrangler: ^4.42.0`), so two
 `npm install` runs weeks apart can resolve different minor or patch versions,
 including of `wrangler`, which bundles and uploads the Workers, and
 `postal-mime`, which parses attacker-controlled email inside the catcher. If a
@@ -764,10 +904,11 @@ reintroducing a blanket trademark claim over the project name.
 every whitespace run to a single space, before writing it to the `emails` row.
 The raw `.eml` in R2 is never touched.
 
-**Why:** postal-mime 3.0.0 changed how folded headers unfold. Per RFC 5322 it now
-removes the CRLF but *keeps* the whitespace that followed it, where 2.x had
-collapsed every run to one space. A subject wrapped by the sender's MTA therefore
-started arriving with embedded tabs and multi-space runs.
+**Why:** postal-mime 3.0.0 changed how folded headers unfold, and 4.x keeps that
+behavior. Per RFC 5322 it now removes the CRLF but *keeps* the whitespace that
+followed it, where 2.x had collapsed every run to one space. A subject wrapped by
+the sender's MTA therefore started arriving with embedded tabs and multi-space
+runs.
 
 That would have been cosmetic anywhere else, but the stored subject is the email
 list's **grouping key**: rows sharing an exact `(from_addr, subject)` pair collapse
@@ -783,8 +924,8 @@ block ([dashboard.md](internals/dashboard.md)), for a different reason: there it
 is only legibility, since Cloudflare's own `Received` and `ARC-*` headers fold
 with tabs and long space runs.
 
-**What it costs:** a subject whose *original* whitespace was meaningful — two
-spaces the sender actually typed — is stored collapsed. Header folding is
+**What it costs:** a subject whose *original* whitespace was meaningful, such as
+two spaces the sender actually typed, is stored collapsed. Header folding is
 indistinguishable from intentional whitespace once the CRLF is gone, so no parser
 can tell them apart, and the raw `.eml` remains the source of truth for anyone who
 needs the exact bytes.

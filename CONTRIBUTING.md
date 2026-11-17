@@ -41,15 +41,25 @@ cp .env.example .env      # your own values; never commit this file
 ./a51 doctor              # acceptance test: checks bindings, probes live hosts
 ```
 
-There is **no test suite**. `./a51 doctor` is how a deployment gets verified. For
-CLI edits, syntax-check with `node --check <file>`; the CLI is plain ESM with no
-build step. The `wrangler.toml` files are generated from `*.template` + `.env`
-and are gitignored, so edit the template or `.env` and never the rendered file.
+There is **no test suite**, with one deliberate exception. `./a51 doctor` is how
+a deployment gets verified. For CLI edits, syntax-check with
+`node --check <file>`; the CLI is plain ESM with no build step. The
+`wrangler.toml` files are generated from `*.template` + `.env` and are
+gitignored, so edit the template or `.env` and never the rendered file.
+
+The exception is `node dashboard/src/router.test.mjs`, which pins the dashboard's
+API route precedence. Run it if you touch `dashboard/src/router.js` or the
+`ROUTES` table in `dashboard/src/index.js`; CI runs it too. It exists because
+precedence is the one behavior in this repository that fails *silently*. A
+mis-resolved route throws nothing, deploys fine, and leaves `doctor` reporting a
+healthy dashboard. Everything else here fails loudly enough that a live probe
+catches it. Don't grow this into a general test suite without reading
+[docs/decisions.md](docs/decisions.md#one-test-file-for-route-precedence-and-only-that).
 
 ## Making a change
 
-1. Fork and branch from `main`, naming it something like `fix/mail-parse` or
-   `feat/blocklist-cidr`.
+1. Fork and branch from `next`, the default branch, naming it something like
+   `fix/mail-parse` or `feat/blocklist-cidr`.
 2. Keep the change focused. One logical change per PR.
 3. **Match the surrounding style.** These files carry unusually thorough "why"
    comments; preserve them.
@@ -65,7 +75,7 @@ and are gitignored, so edit the template or `.env` and never the rendered file.
 
 ## Pull requests
 
-Open the PR against `main` with a clear description of what changed, why, and
+Open the PR against `next` with a clear description of what changed, why, and
 how you verified it. A maintainer will review it. Please be patient: this is a
 community project maintained on a best-effort basis.
 

@@ -1,58 +1,141 @@
 # The dashboard
 
-A static site plus Pages Functions, both deployed from `dashboard/`. This is what
-an operator opens in a browser: configure endpoints, read captures, manage
-blacklists.
+A Worker with static assets, deployed from `dashboard/`. This is what an operator
+opens in a browser: configure endpoints, read captures, manage blacklists.
+
+It was a Cloudflare Pages project with Pages Functions until v1.1.0. The move was
+about hostnames, not hosting: a Pages project answers on its custom domain *and*
+`<project>.pages.dev` *and* every `*.pages.dev` preview, all of which Cloudflare
+Access had to be told to guard separately or leave open. This Worker sets
+`workers_dev = false` and `preview_urls = false`, so it answers on exactly one
+name. See [decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project).
 
 ## No build step
 
-`dashboard/index.html` loads React, ReactDOM and Babel-standalone from a CDN, then
+`dashboard/public/index.html` loads React, ReactDOM and Babel-standalone from a CDN, then
 loads three JSX files with `<script type="text/babel">`. Babel transpiles them in
 the browser on page load. There is no bundler, no `node_modules` for the frontend,
 and deploying is a pure file upload.
 
-`index.html` loads React and ReactDOM's **development** builds
-(`react.development.js`, `react-dom.development.js`), not the minified production
-ones, so the browser console keeps React's warnings. That is useful with no build
-step and no type checking, and it is much of the payload below. Switching to
-`.production.min.js` is the obvious win if first load ever matters; nothing else
-depends on the dev builds.
+`index.html` loads React and ReactDOM's **production** builds
+(`react.production.min.js`, `react-dom.production.min.js`). The development
+builds keep React's runtime warnings in the console, which is worth something
+with no build step and no type checking, but they cost roughly 1.1 MB on every
+page load of a console an operator leaves open all day. Nothing in the app
+depends on them, so swap the two script tags locally when you want the
+warnings.
 
-The cost is ~3 MB of JavaScript on first load and no tree-shaking or type
-checking. For a tool a handful of people open and leave open, that trade is worth
-it ([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)). Because
+Babel-standalone is still the bulk of what remains (~2.8 MB), and it still
+transpiles ~116 KB of JSX in the browser on every load. No tree-shaking, no type
+checking. For a tool a handful of people use, that trade is worth it
+([decisions.md](../decisions.md#no-build-pipeline-for-the-frontend)). Because
 Babel-standalone does not resolve modules, every shared symbol is published on
 `window`, which is why `ui.jsx` assigns its exports to globals.
+
+## Response headers
+
+`public/_headers` sets `Content-Security-Policy`, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and a
+`Permissions-Policy` on every static asset. Cloudflare's asset layer applies
+them, so they cost no Worker invocation, and the file is consumed at deploy time
+rather than published. They do **not** apply to `/api/*`, which the Worker
+generates.
+
+This is defense in depth, not a fix. Both places the dashboard renders
+attacker-controlled content already handle it: a captured email's HTML body goes
+into a sandboxed `srcdoc` iframe (opaque origin, no scripts, no forms), and a
+captured request body is HTML-escaped before `highlightJson` wraps tokens in
+spans.
+
+The CSP carries `'unsafe-inline'` and `'unsafe-eval'` in `script-src`, and that
+is forced rather than sloppy: Babel-standalone compiles JSX with `Function()`,
+and `index.html` has an
+inline script that applies the saved theme before React paints. Tightening those
+two is the one thing a bundler would buy, and it is not worth a bundler. What the
+policy still buys with them in place is script-origin pinning (injected markup
+cannot pull code from a host that is not unpkg or esm.sh), `object-src 'none'`,
+`base-uri 'self'`, `form-action 'none'` (the dashboard posts via `fetch`, never a
+form) and `frame-ancestors 'none'`.
+
+`frame-src 'self'` is what permits the email viewer's sandboxed `srcdoc` iframe.
+Removing it breaks HTML email display.
 
 `postal-mime` is the one exception: it is imported as an ES module from a CDN and
 published as `window.PostalMime`, used to parse raw `.eml` in the browser.
 
 Note that the same message gets parsed by **two** copies of that library: the
-browser pins `postal-mime@3.0.0` in `index.html`, while the catcher bundles
-whatever `^3.0.0` in `package.json` resolved to at deploy time. They agree today;
+browser pins `postal-mime@4.2.0` in `index.html`, while the catcher bundles
+whatever `^4.2.0` in `package.json` resolved to at deploy time. They agree today;
 if the subject or attachment count in a list row ever disagrees with what the
 modal renders, this skew is the first thing to check. Bump both together.
 
 The headers block in the email modal collapses whitespace runs before rendering.
-postal-mime 3.x unfolds headers per RFC 5322, which drops the CRLF but keeps the
-whitespace that followed it, so `Received`, `DKIM-Signature` and the `ARC-*`
-headers Cloudflare adds would otherwise render with tabs and 8-space gaps in the
-middle of a value. This is display only: **Download raw** serves the stored
-`.eml` untouched, still folded, for anyone who needs the bytes as they arrived.
+postal-mime 3.x and later unfold headers per RFC 5322, which drops the CRLF but
+keeps the whitespace that followed it, so `Received`, `DKIM-Signature` and the
+`ARC-*` headers Cloudflare adds would otherwise render with tabs and 8-space
+gaps in the middle of a value. This is display only: **Download raw** serves the
+stored `.eml` untouched, still folded, for anyone who needs the bytes as they
+arrived.
 
 ## Files
 
 ```
 dashboard/
-├── index.html          CDN script tags, theme bootstrap, mount point
-├── styles.css          the whole design system (dense, dark-first, theme-aware)
-├── favicon.svg
-├── js/
-│   ├── ui.jsx          API client, toasts, modals, confirm, pins, formatting, icons
-│   ├── tabs.jsx        Endpoints / Requests / Emails tabs and their modals
-│   └── app.jsx         shell: App, TopBar, Home, Settings; mounts to #root
-└── functions/api/      the JSON API (see api.md)
+├── wrangler.toml.template   name, bindings, [assets] routing (generated → wrangler.toml)
+├── public/                  EVERYTHING HERE IS PUBLIC, served to anyone who reaches the host
+│   ├── _headers             CSP + security headers, applied by the asset layer (not served)
+│   ├── index.html           CDN script tags, theme bootstrap, mount point
+│   ├── styles.css           the whole design system (dense, dark-first, theme-aware)
+│   ├── favicon.svg
+│   └── js/
+│       ├── ui.jsx           API client, toasts, modals, confirm, pins, formatting, icons
+│       ├── tabs.jsx         Endpoints / Requests / Emails tabs and their modals
+│       └── app.jsx          shell: App, TopBar, Home, Settings; mounts to #root
+└── src/                     server side; never served
+    ├── index.js             the Worker: entry, guard, route table, one try/catch
+    ├── router.js            the matcher (literal-beats-param, raw-pathname segments)
+    ├── router.test.mjs      the repo's only test file; precedence fails silently
+    └── api/                 the JSON API handlers (see api.md)
 ```
+
+The `public/` ÷ `src/` split is load-bearing, not cosmetic. `[assets] directory`
+points at `public/`, and everything under it is downloadable by anyone who can
+reach the hostname. Server-side code must stay outside it.
+
+**Which of the two answers a request** is decided by one line in
+`wrangler.toml.template`:
+
+```toml
+run_worker_first = ["/api/*"]
+```
+
+Only `/api/*` invokes `src/`. The six files in `public/` are served by
+Cloudflare's asset layer, never entering the Worker, which is also why they cost
+nothing: static-asset requests are free and unlimited. Setting
+`run_worker_first = true` would make every page load a billable invocation.
+`not_found_handling = "none"` 404s unknown paths the same way.
+
+### Routing
+
+Pages derived the route table from the directory tree: `functions/api/emails/[id].js`
+became `/api/emails/:id`, and the export name (`onRequestGet`) chose the method.
+A Worker is a single `fetch` handler, so that table is written out in
+`src/index.js` and matched by `src/router.js`. Two properties are deliberate:
+
+- **A literal path beats a parameter route, whatever the method.**
+  `/api/endpoints/upload` matches both the literal route and `/api/endpoints/:uri`.
+  Literal paths are held in a separate table and settled first, *including* when
+  the path is declared but the method is not. That answers 405 rather than
+  falling through. Order within `ROUTES` cannot affect this.
+- **Matching splits the raw `url.pathname` by segment.** No `URLPattern`, no
+  regex. Endpoint URIs arrive percent-encoded (`/-/callback` →
+  `%2F-%2Fcallback`), and `URLPattern` canonicalizes the pathname it matches,
+  which risks decoding that `%2F` back into a separator and splitting one
+  parameter across two segments.
+
+`router.test.mjs` pins both. It is the only test file in the repository because
+this is the only behavior here that breaks *silently*. See
+[decisions.md](../decisions.md#one-test-file-for-route-precedence-and-only-that).
 
 `index.html` also applies the saved theme **synchronously** before React paints,
 to avoid a flash of the wrong theme; both it and `App` write
@@ -102,23 +185,78 @@ Matching is per tab: `uri` for Endpoints, `url` for Requests, and
 belongs *exclusively* to ribbons; unread state uses a background tint so the two
 cues never collide.
 
-**Endpoints.** The list shows URI plus a color-coded status tag; headers and
+**Endpoints.** The list shows URI plus a color-coded status tag. Headers and
 body are fetched only when the modal opens. The leading row icon is a **copy
 button**: it copies `https://<active host><uri>` to the clipboard, flips to a
-check mark, and toasts the host it used (clicking it does not open the modal). The
-active host comes from the Home picker; with none selected the button toasts an
-error instead.
+check mark, and toasts the host it used. Clicking it does not open the modal. The
+active host comes from the Home picker, and with none selected the button toasts
+an error instead.
 
-The modal is in exactly one of two states. In **text mode** it shows Headers /
-Status / Body editors plus a **Serve a file** drop target ("Drop a file here or
-click to browse"). Attaching a file switches to
-**file mode**: those three editors are *unmounted* rather than disabled, because
-a grayed-out field still invites a click. They are replaced by a chip showing filename,
-type and size with *Replace* and *Remove*. Saving in file mode POSTs the raw
-`File` as the request body (so it streams); files over 25 MB are rejected before a
-byte leaves the browser. Opening an existing file endpoint never shows a response
-editor, and saving without touching anything is a no-op rather than a silent
-conversion to text.
+*What the list contains.* Three things decide which rows you see, and none of
+them mix:
+
+- **Archived endpoints are their own view.** The toolbar's **Archive** toggle
+  swaps the list rather than widening it. *New endpoint* is hidden inside the
+  Archive view, since creating one there would file it straight into the list
+  you are not looking at.
+- **Agent-staged endpoints are not in either view.** Everything under Autopilot's
+  `/-/` prefix is excluded by the query. Searching the exact term `:autopilot:`
+  switches the list over to them.
+- **Everything else is the working list.** `{n} loaded` counts the rows on
+  screen, so by default that means hand-written endpoints only.
+
+The `/-/` exclusion happens in SQL rather than the browser, and the reason is
+paging. `/-/` sorts first under `ORDER BY uri ASC`, because `-` is 0x2D and sits
+below `.`, `/`, the digits and both cases. An engagement that leaves more
+agent-staged endpoints than fit on a page would fill the whole first page with
+them. Filtered in the browser, the operator gets an empty list with a *Load more*
+button under it and their own endpoints not yet fetched. Filtered in the query, a
+page of this list is a page of what they asked for.
+
+`:autopilot:` is matched exactly, never as a substring, since `/foo:autopilot:bar`
+is a legal URI and searching for it should find that row rather than change which
+list you are on. It is stripped from the terms before they are sent, so
+`:autopilot: oauth` means "agent-staged endpoints matching oauth": the scope is
+ANDed and the remaining terms are ORed among themselves as always. It works from
+a pin as well as the input, so the scope can be made sticky by pinning it. There
+is deliberately no hint in the interface that the term exists, and no count of
+what is hidden.
+
+*The modal* is in exactly one of two states. In **text mode** it shows Headers /
+Status / Body editors plus a **Serve a file** drop target. Attaching a file
+switches to **file mode**: those three editors are *unmounted* rather than
+disabled, because a grayed-out field still invites a click. They are replaced by
+a chip showing filename, type and size with *Replace* and *Remove*. Saving in
+file mode POSTs the raw `File` as the request body so it streams, and files over
+25 MB are rejected before a byte leaves the browser. Opening an existing file
+endpoint never shows a response editor, and saving without touching anything is a
+no-op rather than a silent conversion to text.
+
+*Creating is not the same write as saving.* Both go through the same upsert, so
+the New endpoint modal sends `create` and the server answers `409` on a URI that
+is already taken rather than overwriting the row that holds it.
+
+*The URI is editable*, and a rename is an ordinary primary-key `UPDATE`. Nothing
+else in either store is keyed by it: an endpoint's R2 object is keyed by a random
+UUID, so a file-backed endpoint keeps its object with no R2 call, and captured
+requests keep the URL they were actually made to. The rename is sent before the
+body write, so a name clash comes back as `409` with nothing changed and the
+modal still showing what was typed. Renaming *into* `/-/` is allowed and
+confirmed first, because it hands the endpoint to Autopilot and to the purge
+schedule.
+
+*Archiving* sits beside Delete, as the undo-able half of it. An archived endpoint
+keeps its row and its R2 object and stops being served, because the catcher's
+lookup filters on `archived = 0`. The button is unmounted for an endpoint under
+`/-/`: agent-staged endpoints are deleted, or renamed out of the prefix first,
+which is what converts one into an ordinary endpoint.
+
+Opening an archived endpoint gives a **read-only** modal showing its path,
+status, headers and body, or the file it serves. The only actions are Unarchive,
+Delete and Close. That is the visible half of a rule the API enforces on every
+write path, since the modal is not the only caller: rename, text upsert and file
+upload all answer `409` on an archived row. Unarchiving should return what was
+archived, not whatever was edited into it while nothing was serving it.
 
 **Requests.** The capture itself is read-only, and nothing edits a stored request.
 The modal pretty-prints a JSON body when it parses and shows it raw otherwise,
@@ -129,7 +267,7 @@ same for the **From** address.
 
 **Emails.** Opening a message shows the envelope metadata from the database and
 immediately fetches the raw `.eml`, parsing it in the browser. The body renders
-the **HTML part** in a strict `sandbox=""` iframe if present, else the plain-text
+the **HTML part** in a near-strict sandboxed iframe if present, else the plain-text
 part in a `<pre>`, else a "no body" notice; when both exist an HTML / Plain
 switcher appears. Full headers (collapsible) and a clickable attachment list (each
 downloads its decoded bytes as a Blob) come from the same parse. A **full-screen
@@ -196,14 +334,59 @@ filter change cannot land late and clobber the filtered view.
 Email HTML is rendered as:
 
 ```jsx
-<iframe sandbox="" srcDoc={parsed.html} title="email html"/>
+<iframe
+  sandbox="allow-popups allow-popups-to-escape-sandbox"
+  srcDoc={resolveInlineImages(parsed.html, parsed.attachments).html}
+  title="email html"
+/>
 ```
 
-`sandbox=""` with no tokens is the strictest sandbox: no scripts, no same-origin
-access, no form submission, no top-level navigation. Email arrives from
-attackers by definition. **Do not relax this.**
+The sandbox carries exactly two tokens. What it still withholds is the part that
+matters:
+
+- **no `allow-scripts`**, so nothing in the message executes
+- **no `allow-same-origin`**, so the frame keeps an opaque origin and can reach
+  neither the dashboard's DOM nor its cookies
+- **no `allow-forms`**
+- **no `allow-top-navigation`**, so the message cannot move the tab under you
+ Email
+arrives from attackers by definition. **Those four stay off.**
+
+The two that are on exist so a link in a captured email opens in a new tab. An
+empty `sandbox` blocks the navigation outright, so the click does nothing. `allow-popups` permits the new tab;
+`allow-popups-to-escape-sandbox` is what stops that tab inheriting the sandbox
+and landing on a blank page. Both are gated on a real user gesture by every
+current browser, and `target="_blank"` implies `noopener`, so the opened page
+gets no handle back. The `<base target="_blank">` that directs links there is
+injected by `resolveInlineImages`.
 
 Captured request bodies and headers are rendered as text, never as markup.
+
+### Inline images
+
+An HTML email that shows a picture inline ships it as a MIME part with a
+Content-ID and refers to it as `<img src="cid:...">`. No browser resolves `cid:`,
+so until `resolveInlineImages` existed every one of them rendered broken while
+the part sat in the attachment list. It rewrites each reference the message can
+satisfy (attribute form and CSS `url()`) to a `data:` URL built from that
+part's bytes. `data:` rather than `blob:` because the CSP already allows
+`img-src 'self' data:` and a srcdoc iframe inherits it.
+
+**Remote images do load**, and the CSP carries `img-src ... https:` for them.
+Know what that costs, because it was chosen rather than inherited: a remote image
+in a captured email is a beacon, so rendering one tells whoever sent the message
+the moment an operator opened it, from an address belonging to the engagement.
+`Referrer-Policy: no-referrer` keeps the dashboard's own URL out of the request,
+so what leaks is the fetch, not where it came from. Narrowing `img-src` back to
+Narrowing `img-src` back to `'self' data:` reverts it, if an engagement ever
+needs that.
+
+Plain `http:` images are not listed and will still not render: the dashboard is
+https, so the browser blocks or upgrades mixed content whatever the policy says.
+
+The viewer reports only the images the message *referenced but never attached*,
+a broken `cid:`, because that is the case a reader would otherwise take for a
+bug in the dashboard rather than in the mail.
 
 ## Expired session handling
 
@@ -237,13 +420,21 @@ Known trade-off: the reload discards unsaved modal state. Raising
 ## Deploying and developing
 
 ```bash
-./a51 deploy dashboard      # confirms the Pages bindings, then uploads
+./a51 deploy dashboard          # renders wrangler.toml from .env, then uploads
+node dashboard/src/router.test.mjs   # after touching router.js or the ROUTES table
 ```
 
-`deploy dashboard` re-asserts the D1 and R2 bindings on the Pages project before
-uploading, so a project whose bindings were removed in the dashboard repairs
-itself on the next deploy.
+`deploy dashboard` renders `wrangler.toml` from the template plus `.env` and runs
+`wrangler deploy`, exactly like the other three workers. The D1 and R2 bindings
+are declared in the template, so they travel with the upload; there is nothing to
+attach over the API first. (As a Pages project they lived only in Cloudflare's
+API, had to be `PATCH`ed onto both the production and preview configs before the
+first upload, and were re-asserted on every deploy to repair hand edits.)
 
 Because there is no build step, editing a `.jsx` file and redeploying is the whole
-loop. There is no local server, and a Pages upload takes a few seconds.
-Hard-refresh to get past the browser cache.
+loop. There is no local server, and an upload takes a few seconds. Hard-refresh
+to get past the browser cache.
+
+A 500 from `/api/*` is now debuggable: `[observability]` and
+`upload_source_maps` are on, so the error and a real line number land in Workers
+Logs. Pages Functions supported neither.

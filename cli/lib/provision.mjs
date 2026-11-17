@@ -19,24 +19,6 @@ import { isAlreadyExists, isAuthError, isHostnameOccupied } from './cloudflare.m
 import { splitSqlStatements, describeStatement } from './sql.mjs';
 import { degraded, zoneForHostname } from './context.mjs';
 
-/**
- * Pages Functions run on this compatibility date, and `ensurePagesProject` PATCHes
- * it onto the project's production AND preview configs on every
- * `./a51 deploy dashboard`. So this constant does not merely seed a new project:
- * it OVERWRITES whatever the live one is set to. Changing it is a runtime change
- * to every deployment that redeploys.
- *
- * It matches the three `wrangler.toml.template` files, and it must stay that way:
- * one date for the whole project, raised deliberately. Cloudflare's guidance is to
- * keep it current, and some runtime features are gated behind a recent date. A
- * compatibility date does NOT gate security patches, since those ship regardless.
- * It does gate behavioral fixes, which is the real cost of letting it rot.
- *
- * When you raise it, raise all four together, and re-verify the email path
- * afterwards: `nodejs_compat` + postal-mime is where the risk concentrates.
- */
-export const PAGES_COMPATIBILITY_DATE = '2026-05-20';
-
 export const SCHEMA_PATH = join(repoRoot, 'db', 'schema.sql');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -64,11 +46,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function authFixHint(permission, { zone = null, extra = null } = {}) {
   const lines = [
     `This is an auth-shaped error, which has more than one possible cause:`,
-    `  • A just-created/edited token can take up to a minute to propagate — wait and re-run \`./a51 setup\`.`,
+    `  • A just-created/edited token can take up to a minute to propagate. Wait and re-run \`./a51 setup\`.`,
     `  • The token needs ${permission}.`,
   ];
   if (zone) {
-    lines.push(`  • The token's Zone Resources must INCLUDE ${zone} (or "All zones") — a zone permission scoped elsewhere fails the same way.`);
+    lines.push(`  • The token's Zone Resources must INCLUDE ${zone} (or "All zones"). A zone permission scoped elsewhere fails the same way.`);
   }
   if (extra) lines.push(`  • ${extra}`);
   return lines.join('\n');
@@ -93,7 +75,7 @@ export async function attempt(followUps, label, fn, fixHint) {
     return { ok: true, value: await fn() };
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
-    const hint = fixHint || 'Fix the cause above, then re-run — steps that already succeeded report `·` and do their work again only if something changed.';
+    const hint = fixHint || 'Fix the cause above, then re-run. Steps that already succeeded report `·` and do their work again only if something changed.';
     degraded(
       followUps,
       `${label}: ${message}`,
@@ -199,7 +181,7 @@ export async function ensureDatabase(cf, accountId, name, knownId) {
       skip(`D1 database ${color.bold(db.name)} already exists (${knownId})`);
       return { id: knownId, created: false, name: db.name };
     } catch {
-      warn(`D1_DATABASE_ID in .env (${knownId}) no longer resolves — looking the database up by name`);
+      warn(`D1_DATABASE_ID in .env (${knownId}) no longer resolves, so looking the database up by name`);
     }
   }
   const { created, database } = await cf.ensureD1Database(accountId, name);
@@ -213,10 +195,51 @@ export async function ensureDatabase(cf, accountId, name, knownId) {
  * is written with `CREATE TABLE IF NOT EXISTS`, so this is safe to re-run and
  * never drops data.
  */
+/**
+ * `ALTER TABLE <t> ADD COLUMN <c> …` → `{ table, column }`, else null.
+ *
+ * Only this one statement shape is recognized, and deliberately so: it is the
+ * only one in db/schema.sql that is not already idempotent. Everything else
+ * there is `CREATE … IF NOT EXISTS` and re-runs for free.
+ */
+function parseAddColumn(statement) {
+  const m = statement.match(/^\s*ALTER\s+TABLE\s+([A-Za-z_]\w*)\s+ADD\s+(?:COLUMN\s+)?([A-Za-z_]\w*)/i);
+  return m ? { table: m[1], column: m[2] } : null;
+}
+
 export async function applySchema(cf, accountId, databaseId) {
   const statements = splitSqlStatements(readFileSync(SCHEMA_PATH, 'utf8'));
   let applied = 0;
+  let skipped = 0;
   for (const statement of statements) {
+    // SQLite has no `ADD COLUMN IF NOT EXISTS`, so a migration that has already
+    // landed would fail on a duplicate column and take the whole run with it.
+    // Asking the table what it has is the same GET-then-act rule the rest of
+    // provisioning follows, and it is better than tolerating the error: a
+    // column that is genuinely missing still has to be added successfully, and
+    // a broken ALTER still throws with the statement that broke.
+    const addColumn = parseAddColumn(statement);
+    if (addColumn) {
+      // pragma_table_info() rather than a bare PRAGMA, because it is an
+      // ordinary SELECT and goes through D1's query endpoint like every other
+      // statement here.
+      //
+      // The table name is interpolated rather than bound. A bound parameter
+      // inside a table-valued function argument is accepted by SQLite but is
+      // not a guarantee worth leaning on through D1's HTTP layer, and this runs
+      // in the step that would take `./a51 deploy schema` down with it. There
+      // is no injection surface: the name comes from parseAddColumn, which
+      // matches `[A-Za-z_]\w*` against this repository's own schema file.
+      const columns = await cf.d1Rows(
+        accountId,
+        databaseId,
+        `SELECT name FROM pragma_table_info('${addColumn.table}')`,
+      );
+      if (columns.some((c) => c.name === addColumn.column)) {
+        skipped += 1;
+        continue;
+      }
+    }
     try {
       await cf.d1Query(accountId, databaseId, statement);
       applied += 1;
@@ -224,7 +247,10 @@ export async function applySchema(cf, accountId, databaseId) {
       throw new Error(`failed applying schema statement "${describeStatement(statement)}": ${err.message}`);
     }
   }
-  ok(`applied ${applied} schema statement${applied === 1 ? '' : 's'} from db/schema.sql`);
+  ok(
+    `applied ${applied} schema statement${applied === 1 ? '' : 's'} from db/schema.sql` +
+    (skipped ? ` ${color.dim(`(${skipped} migration${skipped === 1 ? '' : 's'} already in place)`)}` : ''),
+  );
   const tables = await cf.d1Rows(
     accountId,
     databaseId,
@@ -246,7 +272,7 @@ export async function ensureBuckets(cf, accountId, { emails, files }, followUps)
         followUps,
         `could not create R2 bucket ${name}: ${err.message}`,
         isAuthError(err)
-          ? authFixHint('Account · Workers R2 Storage:Edit', { extra: 'R2 must also be ENABLED on the account first (dashboard → R2 → Get started) — the API cannot enable it for you.' })
+          ? authFixHint('Account · Workers R2 Storage:Edit', { extra: 'R2 must also be ENABLED on the account first (dashboard → R2 → Get started). The API cannot enable it for you.' })
           : `Create it by hand: dashboard → R2 → Create bucket → name it "${name}".`,
       );
     }
@@ -528,7 +554,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps, hostna
       if (mx.length) {
         const shown = mx.slice(0, 3).map((r) => r.content).join(', ');
         warn(`${zone.name} already has ${mx.length} MX record${mx.length === 1 ? '' : 's'} (${shown}${mx.length > 3 ? ', …' : ''}).`);
-        warn('  Enabling Email Routing adds and LOCKS its own MX for the whole zone — this takes over inbound mail and breaks existing delivery. Use a domain with no prior mail (see docs/guides/getting-started.md).');
+        warn('  Enabling Email Routing adds and LOCKS its own MX for the whole zone. This takes over inbound mail and breaks existing delivery. Use a domain with no prior mail (see docs/guides/getting-started.md).');
       }
     } catch { /* preflight only; never block the enable on a failed lookup */ }
 
@@ -543,7 +569,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps, hostna
           followUps,
           `could not enable Email Routing on ${zone.name}: ${err.message}`,
           authFixHint(
-            `Zone · Zone Settings:Edit on ${zone.name} — enabling Email Routing writes and locks MX/SPF DNS records, which is a Zone Settings write, NOT "Email Routing Rules". This is the usual cause of a [10000] error here.`,
+            `Zone · Zone Settings:Edit on ${zone.name}. Enabling Email Routing writes and locks MX/SPF DNS records, which is a Zone Settings write, NOT "Email Routing Rules". This is the usual cause of a [10000] error here.`,
             { zone: zone.name, extra: `Or enable it by hand: dashboard → ${zone.name} → Email → Email Routing → Get started.` },
           ),
         );
@@ -578,7 +604,7 @@ export async function ensureEmailRouting(cf, zone, workerName, followUps, hostna
 /** Register the fallback inbox as an Email Routing destination address. */
 export async function ensureDestinationAddress(cf, accountId, address, followUps) {
   if (!address) {
-    warn('FALLBACK_ADDRESS is empty — a failed email capture will have nowhere to forward to');
+    warn('FALLBACK_ADDRESS is empty, so a failed email capture will have nowhere to forward to');
     return;
   }
   try {
@@ -589,11 +615,11 @@ export async function ensureDestinationAddress(cf, accountId, address, followUps
       return;
     }
     if (existing) {
-      warn(`fallback inbox ${color.bold(address)} is registered but NOT verified — click the link Cloudflare emailed you`);
+      warn(`fallback inbox ${color.bold(address)} is registered but NOT verified. Click the link Cloudflare emailed you`);
       return;
     }
     await cf.createDestinationAddress(accountId, address);
-    warn(`registered ${color.bold(address)} as a destination — check that inbox and click Cloudflare's verification link`);
+    warn(`registered ${color.bold(address)} as a destination. Check that inbox and click Cloudflare's verification link`);
   } catch (err) {
     degraded(
       followUps,
@@ -622,157 +648,74 @@ export async function upsertDomainRow(cf, accountId, databaseId, hostname, roles
   }
 }
 
-// ─── Pages (the dashboard) ──────────────────────────────────────────────────
-
-/** The binding set the dashboard's Pages Functions need. */
-export function pagesBindings(env) {
-  return {
-    compatibility_date: PAGES_COMPATIBILITY_DATE,
-    d1_databases: { DB: { id: env.D1_DATABASE_ID } },
-    r2_buckets: {
-      EML: { name: env.R2_BUCKET_NAME },
-      FILES: { name: env.R2_FILES_BUCKET_NAME },
-    },
-  };
-}
+// ─── Worker hostnames ───────────────────────────────────────────────────────
 
 /**
- * Create the Pages project with its D1 + R2 bindings already in place, or patch
- * the bindings of an existing project. Doing this before the first upload is
- * what removes the classic "every /api/* call 500s until you add the binding in
- * the dashboard and redeploy" step.
+ * Bind a DERIVED hostname (the dashboard, Autopilot) to its Worker as a Custom
+ * Domain. Cloudflare creates and manages the DNS record itself, so there is no
+ * record to write here.
+ *
+ * This is the no-takeover path, and that is the whole difference between it and
+ * `attachBlackHoleDomain`. The black hole hostname is one an operator typed
+ * TAKEOVER against, having been shown the exact records it would replace, so
+ * that helper is allowed to clear the name. Nobody is ever asked to confirm a
+ * takeover of `area51.<zone>` or `autopilot.<zone>`, because setup derives
+ * those and never prompts, so an occupied name is reported and skipped rather
+ * than seized.
+ * See CLAUDE.md and docs/decisions.md#a-confirmed-takeover-clears-the-name-itself.
+ *
+ * `attachWorkerDomain` is a PUT, so re-running against a live deployment simply
+ * re-asserts what is already there.
  */
-export async function ensurePagesProject(cf, accountId, env, followUps) {
-  const name = env.PAGES_PROJECT_NAME;
-  const bindings = pagesBindings(env);
-  const existing = await cf.getPagesProject(accountId, name);
-
-  // Applied to production AND preview, and re-applied on every run so a project
-  // someone edited by hand repairs itself. `production_branch` is pinned so the
-  // branch `./a51 deploy` uploads to (main) is the one the custom domain serves.
-  const patch = {
-    production_branch: 'main',
-    deployment_configs: { production: bindings, preview: bindings },
-  };
-
-  if (!existing) {
-    // Create MINIMALLY, then attach bindings with a PATCH. Creating with
-    // `deployment_configs` in the same call is rejected on some accounts with a
-    // generic [8000000] "unknown error", while a bare create (name +
-    // production_branch) succeeds. Create-then-patch is the reliable order and
-    // still lands the bindings before the first upload (the whole point of doing
-    // this over the API), so the dashboard's /api/* never 500s for a missing DB.
-    let project;
-    try {
-      project = await cf.createPagesProject(accountId, { name, production_branch: 'main' });
-      ok(`created Pages project ${color.bold(name)}`);
-    } catch (err) {
-      degraded(
-        followUps,
-        `could not create the Pages project ${name}: ${err.message}`,
-        'Create it by hand (dashboard → Workers & Pages → Create → Pages → Direct upload),\nthen add the D1 binding DB and the R2 bindings EML + FILES for Production AND Preview.',
-      );
-      return null;
-    }
-    try {
-      await cf.patchPagesProject(accountId, name, patch);
-      ok(`Pages project ${color.bold(name)}: DB / EML / FILES bindings attached`);
-    } catch (err) {
-      degraded(
-        followUps,
-        `created ${name} but could not attach its bindings: ${err.message}`,
-        `Set them by hand: dashboard → Pages → ${name} → Settings → Bindings.\nD1: DB → ${env.D1_DATABASE_NAME}. R2: EML → ${env.R2_BUCKET_NAME}, FILES → ${env.R2_FILES_BUCKET_NAME}.\nAdd them to BOTH Production and Preview, then redeploy.`,
-      );
-    }
-    // Re-read so the caller gets the real (possibly globally-suffixed) subdomain.
-    try { return (await cf.getPagesProject(accountId, name)) || project; } catch { return project; }
-  }
-
-  try {
-    await cf.patchPagesProject(accountId, name, patch);
-    ok(`Pages project ${color.bold(name)}: bindings confirmed (DB, EML, FILES)`);
-  } catch (err) {
-    degraded(
-      followUps,
-      `could not update bindings on the Pages project ${name}: ${err.message}`,
-      `Set them by hand: dashboard → Pages → ${name} → Settings → Bindings.\nD1: DB → ${env.D1_DATABASE_NAME}. R2: EML → ${env.R2_BUCKET_NAME}, FILES → ${env.R2_FILES_BUCKET_NAME}.\nAdd them to BOTH Production and Preview, then redeploy.`,
-    );
-  }
-  return existing;
-}
-
-/** Attach the dashboard hostname to the Pages project, DNS record included. */
-export async function ensurePagesDomain(cf, accountId, env, hostname, project, followUps) {
-  const name = env.PAGES_PROJECT_NAME;
-  // Always resolve the project's REAL subdomain. Pages appends a suffix (e.g.
-  // area51-xxxx.pages.dev) when the base name is taken globally, so a guessed
-  // `${name}.pages.dev` would point the custom domain at a host that isn't ours.
-  let live = project;
-  if (!live || !live.subdomain) {
-    try { live = await cf.getPagesProject(accountId, name); } catch { /* fall back below */ }
-  }
-  const target = (live && live.subdomain) || `${name}.pages.dev`;
+export async function ensureWorkerHostname(cf, accountId, { hostname, workerName, followUps }) {
+  const manual = `Bind it by hand: dashboard → Workers & Pages → ${workerName} → Settings → Domains & Routes\n→ Add → Custom Domain → ${hostname}.`;
 
   const zone = await zoneForHostname(cf, accountId, hostname);
   if (!zone) {
-    degraded(followUps, `no Cloudflare zone found for the dashboard host ${hostname}`, 'Add the domain to this account, then re-run `./a51 setup`.');
-    return;
-  }
-
-  try {
-    const domains = (await cf.listPagesDomains(accountId, name)) || [];
-    if (domains.some((d) => d.name === hostname)) {
-      skip(`${color.bold(hostname)} is already a custom domain on ${name}`);
-    } else {
-      await cf.addPagesDomain(accountId, name, hostname);
-      ok(`${color.bold(hostname)} → Pages project ${name}`);
-    }
-  } catch (err) {
-    if (isAlreadyExists(err)) skip(`${hostname} is already a custom domain on ${name}`);
-    else {
-      degraded(
-        followUps,
-        `could not attach ${hostname} to the Pages project: ${err.message}`,
-        `Attach it by hand: dashboard → Pages → ${name} → Custom domains → Set up a custom domain.`,
-      );
-    }
-  }
-
-  // Pages custom domains resolve through a proxied CNAME to <project>.pages.dev.
-  try {
-    const record = await cf.findDnsRecord(zone.id, hostname);
-    if (!record) {
-      await cf.createDnsRecord(zone.id, {
-        type: 'CNAME',
-        name: hostname,
-        content: target,
-        proxied: true,
-        comment: 'AREA 51 dashboard (Cloudflare Pages)',
-      });
-      ok(`DNS: ${color.bold(hostname)} CNAME → ${target} (proxied)`);
-    } else if (record.type === 'CNAME' && record.content === target) {
-      skip(`DNS record for ${hostname} already points at ${target}`);
-    } else if (record.type === 'CNAME' && /(^|\.)pages\.dev$/i.test(record.content)) {
-      // A Pages-managed CNAME pointing at the WRONG subdomain, e.g. a stale
-      // `${name}.pages.dev` guess written before the real suffixed subdomain was
-      // known. It is clearly ours to repoint, so fix it rather than warn.
-      await cf.updateDnsRecord(zone.id, record.id, {
-        type: 'CNAME',
-        name: hostname,
-        content: target,
-        proxied: true,
-        comment: 'AREA 51 dashboard (Cloudflare Pages)',
-      });
-      ok(`DNS: repointed ${color.bold(hostname)} CNAME → ${target} ${color.dim(`(was ${record.content})`)}`);
-    } else {
-      warn(`DNS record for ${hostname} is a ${record.type} → ${record.content}; leaving it alone. Point it at ${target} if the dashboard doesn't resolve.`);
-    }
-  } catch (err) {
     degraded(
       followUps,
-      `could not create the DNS record for ${hostname}: ${err.message}`,
-      `Create it by hand: dashboard → ${zone.name} → DNS → Add record →\nCNAME  ${hostname}  →  ${target}  (Proxied).`,
+      `no Cloudflare zone found for ${hostname}`,
+      'Add the domain to this Cloudflare account first (dashboard → Add a site), then re-run `./a51 setup`.\nIf the zone exists, the API token is missing Zone:Read for it.',
     );
+    return false;
+  }
+
+  try {
+    await cf.attachWorkerDomain(accountId, { hostname, service: workerName, zoneId: zone.id });
+    ok(`${color.bold(hostname)} → Custom Domain on ${workerName}`);
+    return true;
+  } catch (err) {
+    if (isHostnameOccupied(err)) {
+      // Cloudflare will not put a Custom Domain on a name that already has an
+      // address record it did not create for this Worker. The holder is named
+      // rather than guessed at, because "[100117] externally managed DNS
+      // records" on its own does not tell anyone which product to go and click.
+      // A Pages project is called out first: it is what held this name on every
+      // AREA 51 deployment built before the dashboard became a Worker.
+      degraded(
+        followUps,
+        `${hostname} is already held by something else, so it was not bound to ${workerName}`,
+        [
+          `Free the name, then re-run \`./a51 setup\`. Whatever holds it is one of:`,
+          `  • a Cloudflare Pages project, including this dashboard's own, if this`,
+          `    deployment predates the move to a Worker: dashboard → Workers & Pages`,
+          `    → <project> → Custom domains → remove ${hostname} (then delete the`,
+          `    project once the Worker serves the name).`,
+          `  • a Custom Domain on another Worker: dashboard → Workers & Pages →`,
+          `    <worker> → Settings → Domains & Routes.`,
+          `  • a plain DNS record: dashboard → ${zone.name} → DNS → Records.`,
+        ].join('\n'),
+      );
+      return false;
+    }
+    degraded(
+      followUps,
+      `could not bind ${hostname} to ${workerName}: ${err.message}`,
+      isAuthError(err)
+        ? authFixHint(`Zone · Workers Routes:Edit on ${zone.name}`, { zone: zone.name, extra: manual })
+        : `${manual}\nThe token needs Zone · Workers Routes:Edit on ${zone.name}.`,
+    );
+    return false;
   }
 }
 
@@ -824,7 +767,7 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
       // A stale id in .env is not fatal: fall through to name lookup, then to
       // creating a fresh list. Saying so matters, because the old list is left
       // behind on the account rather than cleaned up.
-      warn(`ACCESS_LIST_ID ${wanted} no longer resolves — looking for "${ACCESS_LIST_NAME}" instead`);
+      warn(`ACCESS_LIST_ID ${wanted} no longer resolves, so looking for "${ACCESS_LIST_NAME}" instead`);
     }
   }
 
@@ -837,11 +780,72 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
 
   const created = await cf.createZeroTrustList(accountId, {
     name: ACCESS_LIST_NAME,
-    description: 'Operators who may open the AREA 51 dashboard. Managed by `./a51 users` — edits here are overwritten.',
+    description: 'Operators who may open the AREA 51 dashboard. Managed by `./a51 users`; edits here are overwritten.',
     items: [],
   });
   ok(`created the operator list ${color.bold(ACCESS_LIST_NAME)}`);
   return { id: created.id, name: created.name || ACCESS_LIST_NAME, created: true };
+}
+
+/**
+ * The Pages project still holding `hostname`, or null.
+ *
+ * Only one thing creates this situation: a deployment built before the
+ * dashboard became a Worker, whose project has not been deleted yet. It matters
+ * because that project is still bound to D1 and both R2 buckets and still
+ * answers on its own pages.dev names, so Cloudflare Access has to keep covering
+ * it for exactly as long as it exists.
+ *
+ * A failure here returns null rather than throwing: this runs inside the step
+ * that puts Access in place, and a Pages listing that cannot be read is not a
+ * reason to leave the dashboard unprotected. `leftoverPagesNames` covers the
+ * gap from the other side.
+ */
+async function findPagesHolder(cf, accountId, hostname) {
+  try {
+    const projects = (await cf.listPagesProjects(accountId)) || [];
+    return { project: projects.find((p) => (p.domains || []).includes(hostname)) || null, checked: true };
+  } catch {
+    return { project: null, checked: false };
+  }
+}
+
+/**
+ * Every pages.dev name that must stay in the Access destinations: the leftover
+ * project's own (apex + wildcard, because a wildcard does not match the apex),
+ * plus any already on the live application.
+ *
+ * The second source is what makes this safe when the first one fails. An entry
+ * that is on the application is there because some earlier run put it there to
+ * guard something, and this is a full PUT: dropping it is a decision, not a
+ * default, and it is not one to take on the strength of a listing that errored.
+ */
+function leftoverPagesNames(stale, existing, checked) {
+  const names = new Set();
+  if (stale && stale.subdomain) {
+    names.add(stale.subdomain);
+    names.add(`*.${stale.subdomain}`);
+  }
+
+  // Entries already on the application are carried across ONLY when the Pages
+  // listing could not be read. That condition is the whole of it, and leaving it
+  // out was a bug: without it an entry on the application kept re-adding itself
+  // every run, so the destinations never narrowed after the project was deleted
+  // and an operator was left staring at guards for a host that no longer exists.
+  //
+  // With the listing read and no project holding the hostname, there is nothing
+  // to guard and the extra entries go. With the listing unreadable, dropping
+  // them would be a guess in the one direction that can expose data, so they
+  // stay and `ensureAccess` says why.
+  if (!checked) {
+    for (const d of (existing && existing.destinations) || []) {
+      const uri = d && d.uri;
+      if (!uri) continue;
+      const host = String(uri).replace(/^https?:\/\//, '').replace(/^\*\./, '').replace(/\/.*$/, '');
+      if (/(^|\.)pages\.dev$/i.test(host)) names.add(uri);
+    }
+  }
+  return [...names];
 }
 
 /**
@@ -854,7 +858,7 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
  * the list instead. The single exception is the empty case, below.
  */
 export async function ensureAccess(cf, accountId, opts) {
-  const { hostname, listId, operatorCount = 0, sessionDuration, teamName, followUps, pagesProjectName } = opts;
+  const { hostname, listId, operatorCount = 0, sessionDuration, teamName, followUps } = opts;
 
   // Manual click-path for turning Zero Trust on. Cloudflare Access requires the
   // account to have Zero Trust activated once (pick a team name / subscribe to
@@ -892,7 +896,7 @@ export async function ensureAccess(cf, accountId, opts) {
         `could not create a Zero Trust organization (${authDomain}): ${err.message}`,
         [
           'This can fail for a few reasons:',
-          '  • Team names are globally unique — if taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 users sync`.',
+          '  • Team names are globally unique. If one is taken, set ACCESS_TEAM_NAME in .env to something else and re-run `./a51 users sync`.',
           `  • ${ZT_ACTIVATE}`,
           '  • The token needs Account · Access: Organizations, Identity Providers, and Groups:Edit (and a just-edited token may need a minute to propagate).',
         ].join('\n'),
@@ -914,28 +918,53 @@ export async function ensureAccess(cf, accountId, opts) {
     } else {
       const created = await cf.createOneTimePinProvider(accountId);
       otpId = created && created.id;
-      ok('enabled One-time PIN login (Access emails a code — no IdP to configure)');
+      ok('enabled One-time PIN login (Access emails a code, no IdP to configure)');
     }
   } catch (err) {
     warn(`could not confirm the One-time PIN login method: ${err.message}`);
   }
 
-  // 3. The destinations to guard. A Cloudflare Pages dashboard is reachable at
-  // BOTH its custom domain AND the project's *.pages.dev URL: the apex plus
-  // every preview deployment (main.<sub>.pages.dev, <hash>.<sub>.pages.dev). If
-  // Access only guards the custom domain, the pages.dev URL is an
-  // UNAUTHENTICATED BYPASS, so the app must cover all of them. The custom host is
-  // listed first so the app's `domain` (and our lookup on it) stays stable.
-  const destinations = [{ type: 'public', uri: hostname }];
-  if (pagesProjectName) {
-    try {
-      const proj = await cf.getPagesProject(accountId, pagesProjectName);
-      const sub = proj && proj.subdomain;   // e.g. area51-xxxx.pages.dev
-      if (sub && !destinations.some((d) => d.uri === sub)) {
-        destinations.push({ type: 'public', uri: sub });          // the apex
-        destinations.push({ type: 'public', uri: `*.${sub}` });   // preview + branch URLs
-      }
-    } catch { /* if the project can't be read, guard the custom host only */ }
+  // 3. The destinations to guard, derived from what this dashboard is actually
+  // reachable at rather than from what it ought to be reachable at.
+  //
+  // On a finished deployment that is exactly ONE name, and it is the whole
+  // reason the dashboard is a Worker rather than a Pages project. A Pages
+  // project answers on its custom domain AND `<project>.pages.dev` AND every
+  // preview deployment under `*.<project>.pages.dev`; Access is enforced per
+  // hostname, so an application listing only the custom domain left those an
+  // UNAUTHENTICATED BYPASS onto every captured request and email. The dashboard
+  // Worker sets `workers_dev = false` and `preview_urls = false`, so
+  // DASHBOARD_HOSTNAME is the only name it answers on.
+  //
+  // The exception is the one moment both products exist: an upgrade from the
+  // Pages era, before the old project has been deleted. It is still deployed and
+  // still bound to D1 and both R2 buckets, so it still serves the entire API on
+  // its pages.dev names. Writing this application is a full PUT, so narrowing
+  // the list to the Worker's hostname would DELETE the entries that were
+  // guarding them, and leave the deployment worse off than before the upgrade:
+  // shut on the name the operator checks, open on the two they have stopped
+  // thinking about.
+  //
+  // So a leftover project keeps its names guarded, and the extra entries fall
+  // away by themselves once it is gone, which is the only state in which one
+  // destination is the whole truth. The list itself is assembled further down,
+  // where the live application has been read and its own entries can be carried
+  // across.
+  const pages = await findPagesHolder(cf, accountId, hostname);
+  const stale = pages.project;
+  if (stale) {
+    degraded(
+      followUps,
+      `the Pages project ${stale.name} still serves this dashboard, so Access still has to guard it`,
+      [
+        `Retire it, and this resolves itself on the next run:`,
+        `  1. dashboard → Workers & Pages → ${stale.name} → Custom domains → remove ${hostname}`,
+        `  2. re-run \`./a51 setup\` so the worker takes the hostname`,
+        `  3. dashboard → Workers & Pages → ${stale.name} → Settings → Delete project`,
+        `Until step 3 that project still holds the D1 and R2 bindings, and still serves`,
+        `every captured request and email on its own pages.dev names.`,
+      ].join('\n'),
+    );
   }
 
   // 4. The policy.
@@ -959,7 +988,7 @@ export async function ensureAccess(cf, accountId, opts) {
         include: [{ email_list: { id: listId } }],
       }]
     : [{
-        name: 'AREA 51 — no operators',
+        name: 'AREA 51: no operators',
         decision: 'deny',
         include: [{ everyone: {} }],
       }];
@@ -972,24 +1001,33 @@ export async function ensureAccess(cf, accountId, opts) {
   // anything not carried across here is silently reset; that is worth being
   // careful about on the one object standing between the internet and every
   // captured request.
-  const body = {
-    name: 'AREA 51 dashboard',
-    type: 'self_hosted',
-    domain: hostname,
-    destinations,
-    session_duration: sessionDuration,
-    app_launcher_visible: false,
-    ...(otpId ? { allowed_idps: [otpId], auto_redirect_to_identity: true } : {}),
-    policies,
-  };
-
   const gate = operatorCount > 0
     ? `${operatorCount} operator${operatorCount === 1 ? '' : 's'} via the list`
-    : color.yellow('DENY ALL — no operators');
+    : color.yellow('DENY ALL: no operators');
 
   try {
     const apps = (await cf.listAccessApps(accountId)) || [];
     const existing = apps.find((a) => (a.domain || '').replace(/\/$/, '') === hostname);
+
+    // Assembled here because it depends on the live application. `stale` is the
+    // primary source, but the Pages listing it needs is allowed to fail quietly
+    // (a token without Cloudflare Pages:Edit, say), so a pages.dev entry already
+    // on the application is carried across too. Between them, a list that gets
+    // NARROWER than the surface it guards takes two independent failures.
+    const destinations = [{ type: 'public', uri: hostname }];
+    for (const uri of leftoverPagesNames(stale, existing, pages.checked)) destinations.push({ type: 'public', uri });
+
+    const body = {
+      name: 'AREA 51 dashboard',
+      type: 'self_hosted',
+      domain: hostname,
+      destinations,
+      session_duration: sessionDuration,
+      app_launcher_visible: false,
+      ...(otpId ? { allowed_idps: [otpId], auto_redirect_to_identity: true } : {}),
+      policies,
+    };
+
     if (existing) {
       if (existing.app_launcher_visible) body.app_launcher_visible = true;
       await cf.updateAccessApp(accountId, existing.id, body);
@@ -998,14 +1036,12 @@ export async function ensureAccess(cf, accountId, opts) {
       await cf.createAccessApp(accountId, body);
       ok(`Access application protects ${color.bold(hostname)} (${gate})`);
     }
+    if (destinations.length > 1) {
+      warn(`Access also guards ${destinations.slice(1).map((d) => d.uri).join(', ')}, because a Pages project still serves this dashboard (see follow-ups)`);
+    }
     info(color.dim(operatorCount > 0
       ? `allow-list: the "${ACCESS_LIST_NAME}" list (${listId})`
-      : 'no operators — the dashboard is closed to everyone until one is added'));
-    if (destinations.length > 1) {
-      info(color.dim(`also guards the pages.dev URL (no Access bypass): ${destinations.slice(1).map((d) => d.uri).join(', ')}`));
-    } else if (pagesProjectName) {
-      warn('could not read the Pages subdomain — the app guards only the custom domain. Re-run once the Pages project exists so the *.pages.dev URL is covered too.');
-    }
+      : 'no operators, so the dashboard is closed to everyone until one is added'));
   } catch (err) {
     const manual = `Configure it by hand: dashboard → Zero Trust → Access → Applications → Add an application\n→ Self-hosted → domain ${hostname} → policy Allow / Emails in list "${ACCESS_LIST_NAME}".`;
     degraded(

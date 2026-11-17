@@ -36,6 +36,7 @@ The map of `URI path → response` the catcher serves. A row is either
 | `body` | `TEXT` | Response body. Subject to D1's 2 MB row limit. Always `''` on a file-backed row. |
 | `r2_key` | `TEXT` | Object key (a random UUID) in the files bucket. `NULL` = text endpoint. Internal, never returned by the API. |
 | `filename` | `TEXT` | Original upload name. **Display only**; never used to build a response header. |
+| `archived` | `INTEGER NOT NULL DEFAULT 0` | `1` = retained, not served, and **frozen**: the only writes an archived row accepts are the one that unarchives it and the one that deletes it. Rename, text upsert and file upload all answer `409`. The catcher's lookup is `WHERE uri = ? AND archived = 0`, so an archived endpoint answers `404` exactly as an absent one does, while the row and its R2 object stay put. Endpoints under `/-/` are never archived. An agent-staged stub is deleted, or renamed out of the prefix first. Added in v1.1.0 by the migration at the foot of `db/schema.sql`. |
 
 No timestamp column. Nothing surfaces one, the catcher does not need one, and
 its absence is why uploads have no automatic retention and why the Autopilot
@@ -165,7 +166,7 @@ exists:
 
 **Only the hash is stored.** A key is printed once, when
 `./a51 users add` / `./a51 users rotate-key` mints it, and cannot be recovered
-afterwards. Rotating writes a new `key_id` and `key_hash`, which revokes the old
+afterward. Rotating writes a new `key_id` and `key_hash`, which revokes the old
 key instantly. There is no dual-key window.
 
 Because Autopilot reads this table live, adding or revoking an operator takes
@@ -176,7 +177,7 @@ effect on the next call with **no redeploy**, exactly like `domains`.
 ## R2: captured email
 
 Bucket `R2_BUCKET_NAME`, bound as `EML` on the catcher, Autopilot, the cleanup
-worker and Pages. One object per message:
+catcher, Autopilot, cleanup and the dashboard. One object per message:
 
 ```
 emails/<uuid>.eml      Content-Type: message/rfc822
@@ -194,7 +195,7 @@ unreachable object.
 
 ## R2: endpoint files
 
-Bucket `R2_FILES_BUCKET_NAME`, bound as `FILES` on the catcher (read) and Pages
+Bucket `R2_FILES_BUCKET_NAME`, bound as `FILES` on the catcher (read) and the dashboard
 (write + delete). One object per file-backed endpoint, keyed by a **random
 UUID**, not derived from the URI, so replacing a file writes a fresh key and
 deletes the old one, with no read-your-write window and no percent-encoding

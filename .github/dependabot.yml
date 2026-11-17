@@ -16,7 +16,7 @@ updates:
 
   # Keeps the SHA-pinned actions in .github/workflows/ current. The repository
   # requires SHA pinning, which trades tag drift for pins that never move on
-  # their own — so something has to move them, and this is it.
+  # their own, so something has to move them, and this is it.
   - package-ecosystem: github-actions
     directory: /
     schedule:

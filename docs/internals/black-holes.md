@@ -46,10 +46,26 @@ that rule over the API.
 4. `ctx.waitUntil(insertRequestLog(...))`, fire and forget, so D1 latency never
    delays the response. A failure logs `http_log_insert_failed` and the capture is
    lost. There is no retry.
-5. `SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ?` against
-   `url.pathname`. A lookup error logs `http_endpoint_lookup_failed` and is
-   treated as "no match" rather than failing the response.
-6. **No row** → `404! Not Found`.
+5. `SELECT status, headers, body, r2_key FROM endpoints WHERE uri = ? AND
+   archived = 0` against `url.pathname`. A lookup error logs
+   `http_endpoint_lookup_failed` and is treated as "no match" rather than
+   failing the response. An **archived** row is not a match either: it behaves
+   exactly as an absent one, so a target cannot tell the two apart, which is
+   the only thing it should be able to tell.
+
+6. **No row** → `404! Not Found`, with one exception: `/robots.txt` is answered
+   with a hardcoded `User-agent: * / Disallow: /`.
+
+   A black hole is public by necessity, because targets have to reach it, which
+   means every crawler can too, and an indexed callback host is an engagement
+   artifact sitting in a search result alongside the paths staged on it.
+
+   The order is what keeps this compatible with exact-match routing: the table is
+   consulted **first**, so an operator who creates a `/robots.txt` endpoint is
+   served their row, and the hardcoded one only answers when the table has
+   nothing. Staging a permissive `robots.txt` for a target that reads one still
+   works. It is advisory in any case: it stops crawlers that honor it, and is
+   not a control.
 7. **Row with `r2_key`** (file-backed) → `env.FILES.get(key)` and stream the
    object back with `200` and its own stored `Content-Type` (falling back to
    `application/octet-stream`), served inline. R2 returns a stream, so object size
@@ -79,11 +95,11 @@ re-throws.
    `.eml`. A parse failure logs `email_parse_failed` and is *non-fatal*: the
    object is still stored, so the dashboard's own parse still renders everything.
    The subject goes through `collapseFolding()` before it is stored, which
-   squeezes every whitespace run down to a single space. postal-mime 3.x keeps
-   the whitespace that header folding introduced, and the stored subject is the
-   email list's grouping key, so an un-normalized value would split identical
-   messages into separate groups and disagree with every row captured before the
-   upgrade (see [decisions.md](../decisions.md#the-stored-subject-is-normalized-before-it-reaches-d1)).
+   squeezes every whitespace run down to a single space. postal-mime 3.x and
+   later keep the whitespace that header folding introduced, and the stored
+   subject is the email list's grouping key, so an un-normalized value would
+   split identical messages into separate groups and disagree with every row
+   captured before the upgrade (see [decisions.md](../decisions.md#the-stored-subject-is-normalized-before-it-reaches-d1)).
 4. `fromAddr = parsed.from.address`, the `From:` header. **The email blacklist
    gates on this value and only this value.** On a hit: log
    `email_rejected_blacklist`, `message.setReject('Address not accepted')`,
@@ -141,6 +157,7 @@ live with `npx wrangler tail area51-black-holes`.
 | `http_endpoint_lookup_failed` | the D1 lookup threw |
 | `http_file_served` | file-backed endpoint streamed from R2 |
 | `http_file_missing` | the row has an `r2_key` but the object is gone → 404 |
+| `http_robots_served` | `/robots.txt` with no row in the table → the hardcoded disallow |
 | `http_file_lookup_failed` / `http_file_binding_missing` | R2 GET threw / the `FILES` binding is absent |
 | `http_log_insert_ok` / `http_log_insert_failed` | result of the fire-and-forget request log |
 | `email_received` | top of the email handler (includes envelope sender and raw size) |

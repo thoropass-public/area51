@@ -1,0 +1,104 @@
+export const PAGE_SIZE = 50;
+
+// Autopilot's fence, mirrored here. The Autopilot worker enforces it on its own
+// side and is the authority; this copy exists so the dashboard can apply the
+// rules that follow FROM an endpoint being agent-staged. It cannot be
+// archived, and renaming it out of the prefix is what converts it into an
+// ordinary endpoint.
+export const AUTOPILOT_PREFIX = '/-/';
+
+// An archived endpoint is FROZEN: unarchive it or delete it, nothing else.
+//
+// The point of archiving is that the row is exactly what it was when it stopped
+// being served, so that unarchiving puts back what you archived rather than
+// whatever was edited into it meanwhile. Allowing edits would also mean a path
+// could be rewritten, re-bodied or re-filed while nothing on the black hole
+// reflected any of it, which is a draft hiding inside a retention feature.
+//
+// Enforced on every write path rather than in the modal, because the modal is
+// not the only caller.
+export const ARCHIVED_FROZEN = 'This endpoint is archived. Unarchive it before changing it, or delete it.';
+export const isAutopilotUri = (uri) => String(uri || '').startsWith(AUTOPILOT_PREFIX);
+
+// Every /api/* response carries `no-store`, and that is load-bearing rather
+// than hygiene. An endpoint URI reaches this API inside the path, percent-
+// encoded, so `/-/payload.js` arrives as `/api/endpoints/%2F-%2Fpayload.js` and
+// a request for an endpoint whose URI ends in a cacheable extension ends in one
+// too, and both Cloudflare's extension-based caching and the browser's own
+// heuristics are free to hold a copy of a response that declares no freshness
+// at all. The symptom is a row that keeps reading back with its previous body
+// after a save, while the black hole, on another host, already serves the new
+// one. `raw.js` has always set it; the JSON API never did.
+//
+// Nothing under /api/* is cacheable in any case: it is per-operator data behind
+// Access that changes the moment anything writes.
+const NO_STORE = { 'Cache-Control': 'no-store' };
+
+export function json(data, init = {}) {
+  return Response.json(data, { ...init, headers: { ...NO_STORE, ...(init.headers || {}) } });
+}
+
+// `headers` carries the few cases that need one, such as `Allow` on a 405.
+export function errResp(message, status, headers) {
+  return Response.json({ error: message }, { status, headers: { ...NO_STORE, ...(headers || {}) } });
+}
+
+// ---- Endpoint file uploads (FILES R2 binding) ----
+
+// Product cap, re-checked server-side against Content-Length. Cloudflare's own
+// request-body ceiling is far higher; this is about keeping the dashboard and
+// the bucket sane, not about a platform limit.
+export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+// A file-backed endpoint's response is owned by the server: 200, the detected
+// Content-Type, empty body. These are written into the row so every existing
+// reader (worker fallback, Autopilot, the dashboard) sees a coherent record.
+export const FILE_ENDPOINT_STATUS = 200;
+
+// Accept `type/subtype` with optional parameters (`text/html; charset=utf-8`).
+// Anything malformed, over-long, or carrying control characters falls back to
+// octet-stream rather than being echoed into a response header.
+export function sanitizeContentType(raw) {
+  const s = String(raw || '').trim();
+  if (!s || s.length > 200) return 'application/octet-stream';
+  if (/[\r\n\0]/.test(s)) return 'application/octet-stream';
+  if (!/^[\w.+-]+\/[\w.+-]+(\s*;.*)?$/.test(s)) return 'application/octet-stream';
+  return s;
+}
+
+// Display only, never used to build a response header. Still stripped of
+// control characters and path separators so it can't smuggle anything into the
+// UI or a future header.
+export function sanitizeFilename(raw) {
+  const s = String(raw || '').replace(/[\r\n\0]/g, '').replace(/[\\/]/g, '_').trim();
+  return s.slice(0, 200);
+}
+
+// Best-effort R2 delete for an endpoint's uploaded object. Never throws: the
+// caller has already made (or is about to make) the authoritative D1 change,
+// and a failed delete is a logged orphan, not a broken endpoint.
+export async function deleteEndpointFile(env, key) {
+  if (!key || !env.FILES) return false;
+  try {
+    await env.FILES.delete(key);
+    return true;
+  } catch (err) {
+    console.error('endpoint_file_delete_failed', key, err && err.message);
+    return false;
+  }
+}
+
+export function parseHeaderLines(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'string') return out;
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key = trimmed.slice(0, colonIdx).trim();
+    const value = trimmed.slice(colonIdx + 1).trim();
+    if (key) out[key] = value;
+  }
+  return out;
+}

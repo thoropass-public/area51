@@ -1,6 +1,6 @@
 {
   "name": "area51",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted out-of-band callback infrastructure on Cloudflare: a dashboard, catch-all HTTP/email black holes, and an MCP server for AI agents.",

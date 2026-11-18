@@ -6,7 +6,7 @@
 // from this machine, so they also catch DNS and certificate problems that the
 // API cannot see.
 
-import { loadContext, parseRoles, zoneForHostname } from '../lib/context.mjs';
+import { loadContext, zoneForHostname } from '../lib/context.mjs';
 import { heading, section, plain, color, info, hint, summary, sym } from '../lib/log.mjs';
 import { applySchema, ensureBlackHole } from '../lib/provision.mjs';
 import { listUsers, syncOperators } from '../lib/users.mjs';
@@ -215,11 +215,11 @@ export async function run(args) {
   let blackHoles = [];
   if (env.D1_DATABASE_ID && tables.includes('domains')) {
     try {
-      blackHoles = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
+      blackHoles = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain FROM domains ORDER BY domain');
     } catch (err) {
       r.fail(`could not read the domains table: ${err.message}`, 'Check the D1 binding and the token\'s D1:Edit permission.');
     }
-    if (!blackHoles.length) r.warn('the domains table is empty, so the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <host> http,mail`.');
+    if (!blackHoles.length) r.warn('the domains table is empty, so the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <zone>`.');
   }
 
   let workerDomains = [];
@@ -230,61 +230,85 @@ export async function run(args) {
   }
   const boundHosts = new Set(workerDomains.map((d) => d.hostname));
 
+  // Every row is checked for both surfaces, because every black hole has both.
+  // There is no longer a roles column to branch on, so the only thing that varies
+  // between rows is whether the host is its zone's apex — and it always should
+  // be. `add` refuses anything else, so a non-apex row is a leftover from an older
+  // deployment. It is reported as one and then checked for what it actually is,
+  // rather than failed outright, because it may still be capturing perfectly
+  // well.
+  //
+  // The zone is resolved first because `--fix` needs to know before it acts.
   for (const row of blackHoles) {
-    const roles = parseRoles(safeRoles(row.roles), { fallback: [] });
-    if (roles.includes('http')) {
-      if (boundHosts.has(row.domain)) r.ok(`${row.domain}: bound to ${env.WORKER_NAME}`);
-      else if (fix) {
-        await repair(r, `could not re-bind ${row.domain}`,
-          () => ensureBlackHole(cf, accountId, { hostname: row.domain, roles, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps }),
-          `${row.domain}: re-bound to ${env.WORKER_NAME}`);
-      } else {
-        r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 black-holes add ' + row.domain + ' ' + roles.join(',') + '`.');
-      }
-    }
-    if (roles.includes('mail')) {
-      const zone = await zoneForHostname(cf, accountId, row.domain);
-      if (!zone) {
-        r.warn(`${row.domain}: no zone visible, cannot check Email Routing`);
-        continue;
-      }
-      try {
-        const settings = await cf.getEmailRouting(zone.id);
-        if (!settings || !settings.enabled) {
-          r.fail(`Email Routing is disabled on ${zone.name}`, `Enable it: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`);
-        } else {
-          const catchAll = await cf.getCatchAll(zone.id);
-          const action = ((catchAll && catchAll.actions) || [])[0] || {};
-          const target = (action.value || [])[0];
-          if (action.type === 'worker' && target === env.WORKER_NAME) r.ok(`*@${zone.name} → ${env.WORKER_NAME}`);
-          else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`);
-        }
+    const zone = await zoneForHostname(cf, accountId, row.domain);
+    const isApex = Boolean(zone) && row.domain === zone.name;
 
-        // A SUBDOMAIN mail black hole needs one more thing than the zone checks
-        // above: Email Routing enabled for its own name, which is what puts MX
-        // records there. The zone catch-all covers the subdomain, but only once
-        // those records exist. Without this check a subdomain whose per-name
-        // routing was never enabled (or got removed) reports perfectly healthy
-        // while every message to it bounces at the sender, which is the exact
-        // silent failure the apex rule exists to prevent.
-        if (row.domain !== zone.name) {
-          try {
-            const atName = await cf.listDnsRecordsByName(zone.id, row.domain);
-            if (atName.some((rec) => rec.type === 'MX')) {
-              r.ok(`${row.domain} has its own MX records, so mail capture is live`);
-            } else {
-              r.fail(
-                `${row.domain} is a mail black hole with no MX records of its own, so mail to it bounces`,
-                `Enable Email Routing for the name: \`./a51 black-holes add ${row.domain} ${roles.join(',')}\`.`,
-              );
-            }
-          } catch (err) {
-            r.warn(`could not read DNS records for ${row.domain}: ${err.message}`);
-          }
-        }
-      } catch (err) {
-        r.fail(`could not read Email Routing on ${zone.name}: ${err.message}`, 'Reading Email Routing state needs Zone · Zone Settings:Read (NOT Email Routing Rules, which only covers the catch-all rule). Enabling it needs Zone Settings:Edit.');
+    if (boundHosts.has(row.domain)) {
+      r.ok(`${row.domain}: bound to ${env.WORKER_NAME}`);
+    } else if (fix && isApex) {
+      await repair(r, `could not re-bind ${row.domain}`,
+        () => ensureBlackHole(cf, accountId, { hostname: row.domain, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps }),
+        `${row.domain}: re-bound to ${env.WORKER_NAME}`);
+    } else if (!isApex) {
+      // Deliberately not repaired, even with --fix. Re-running the black hole
+      // steps on a subdomain would also enable Email Routing for that name,
+      // writing and LOCKING MX records the operator never asked for on a row
+      // that may well have been HTTP-only. `--fix` re-applies; it does not
+      // decide to take mail over.
+      r.fail(
+        `${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`,
+        `It is a subdomain, so \`--fix\` leaves it alone: re-provisioning one would enable Email Routing for that name and lock MX records you may not want. Bind it by hand (Workers & Pages → ${env.WORKER_NAME} → Settings → Domains & Routes → Add → Custom Domain), or drop it with \`./a51 black-holes remove ${row.domain}\`.`,
+      );
+    } else {
+      r.fail(`${row.domain} is in the domains table but not bound to ${env.WORKER_NAME}`, 'Run `./a51 doctor --fix`, or `./a51 black-holes add ' + row.domain + '`.');
+    }
+
+    if (!zone) {
+      r.warn(`${row.domain}: no zone visible, cannot check Email Routing`);
+      continue;
+    }
+    if (!isApex) {
+      r.warn(
+        `${row.domain} is a subdomain, and a black hole is now a whole zone`,
+        `Nothing is broken, but ${zone.name} is what AREA 51 would manage today. Remove the row with \`./a51 black-holes remove ${row.domain}\` once you no longer need it; docs/guides/operations.md covers keeping a subdomain on the catcher by hand.`,
+      );
+    }
+
+    try {
+      const settings = await cf.getEmailRouting(zone.id);
+      if (!settings || !settings.enabled) {
+        r.fail(`Email Routing is disabled on ${zone.name}`, `Enable it: \`./a51 black-holes add ${zone.name}\`.`);
+      } else {
+        const catchAll = await cf.getCatchAll(zone.id);
+        const action = ((catchAll && catchAll.actions) || [])[0] || {};
+        const target = (action.value || [])[0];
+        if (action.type === 'worker' && target === env.WORKER_NAME) r.ok(`*@${zone.name} → ${env.WORKER_NAME}`);
+        else r.fail(`the ${zone.name} catch-all points at ${action.type || 'nothing'}${target ? ` (${target})` : ''}, not ${env.WORKER_NAME}`, `Fix it: \`./a51 black-holes add ${zone.name}\`.`);
       }
+
+      // A SUBDOMAIN row needs one more thing than the zone checks above: Email
+      // Routing enabled for its own name, which is what puts MX records there.
+      // The zone catch-all covers the subdomain, but only once those records
+      // exist. Without this check a subdomain whose per-name routing was never
+      // enabled (or got removed) reports perfectly healthy while every message
+      // to it bounces at the sender.
+      if (!isApex) {
+        try {
+          const atName = await cf.listDnsRecordsByName(zone.id, row.domain);
+          if (atName.some((rec) => rec.type === 'MX')) {
+            r.ok(`${row.domain} has its own MX records, so mail capture is live`);
+          } else {
+            r.fail(
+              `${row.domain} has no MX records of its own, so mail to it bounces`,
+              `Enable Email Routing for the name in the dashboard: ${zone.name} → Email → Email Routing → Settings → Subdomains. \`./a51 black-holes add\` no longer does this.`,
+            );
+          }
+        } catch (err) {
+          r.warn(`could not read DNS records for ${row.domain}: ${err.message}`);
+        }
+      }
+    } catch (err) {
+      r.fail(`could not read Email Routing on ${zone.name}: ${err.message}`, 'Reading Email Routing state needs Zone · Zone Settings:Read (NOT Email Routing Rules, which only covers the catch-all rule). Enabling it needs Zone Settings:Edit.');
     }
   }
 
@@ -452,8 +476,6 @@ export async function run(args) {
   // information, so there is nothing to gain from being able to turn them off.
   section('Live probes');
   for (const row of blackHoles) {
-    const roles = parseRoles(safeRoles(row.roles), { fallback: [] });
-    if (!roles.includes('http')) continue;
     const res = await probe(`https://${row.domain}/__a51_doctor_probe`);
     if (!res.ok) r.fail(`https://${row.domain} did not respond: ${res.error}`, 'DNS or the certificate may still be provisioning. Retry in a minute.');
     else if (res.status === 404) r.ok(`https://${row.domain} answers 404 on an unknown path (correct, and the hit is now in Requests)`);
@@ -505,15 +527,6 @@ export async function run(args) {
 
   summarize(r);
   return r.fails.length ? 1 : 0;
-}
-
-function safeRoles(raw) {
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.join(',') : '';
-  } catch {
-    return '';
-  }
 }
 
 function summarize(r) {

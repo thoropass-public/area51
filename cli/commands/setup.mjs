@@ -16,7 +16,7 @@ import { loadEnv, saveEnv, ensureEnvFile, envPath } from '../lib/env.mjs';
 import { Cloudflare } from '../lib/cloudflare.mjs';
 import { step, ok, skip, warn, plain, heading, color, resetSteps, die, setStepTotal, hint } from '../lib/log.mjs';
 import { ask, confirm, select, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
-import { resolveAccount, verifyToken, parseRoles, zoneForHostname } from '../lib/context.mjs';
+import { resolveAccount, verifyToken, zoneForHostname } from '../lib/context.mjs';
 import {
   ensureDatabase, applySchema, ensureBuckets, ensureBlackHole, ensureDestinationAddress,
   ensureWorkerHostname,
@@ -34,7 +34,6 @@ const DEFAULTS = {
   AGENT_WORKER_NAME: 'area51-autopilot',
   CLEANUP_WORKER_NAME: 'area51-cleanup',
   DASHBOARD_WORKER_NAME: 'area51-dashboard',
-  BLACK_HOLE_ROLES: 'http,mail',
   ACCESS_SESSION_DURATION: '24h',
   CLEANUP_REQUESTS_KEEP: '1000',
   CLEANUP_EMAIL_MAX_AGE_DAYS: '90',
@@ -115,25 +114,20 @@ export async function run(args) {
   const zoneName = zone.name;
 
   // The layout is fixed, and none of it is asked. The black hole is the zone
-  // apex with both roles; AREA 51 and Autopilot are fixed subdomains of it.
+  // itself; AREA 51 and Autopilot are fixed subdomains of it.
   //
   // Why the apex, specifically: the catch-all rule that delivers mail to the
   // catcher is zone-scoped, and it covers the apex plus every subdomain enabled
   // for Email Routing. Nothing at all can capture mail on the zone until the
-  // apex is a mail black hole, because that is what puts the catch-all there.
-  // Making it the primary black hole establishes that foundation once, and makes
-  // the HTTP host and the mail domain the same string.
-  //
-  // Subdomains CAN capture mail: `./a51 black-holes add sub.example.com mail`
-  // enables Email Routing for that name and the zone catch-all picks it up. That
-  // is an additive layer on top of the apex, not an alternative to it.
+  // apex is a black hole, because that is what puts the catch-all there. Making
+  // it the black hole establishes that foundation once, and makes the HTTP host
+  // and the mail domain the same string. `./a51 black-holes add` takes the apex
+  // and nothing else for the same reason.
   //
   // .env still wins for the other two hostnames. One already set there is used
   // as-is, so an operator who needs a different layout writes it by hand and
   // re-runs. No prompt, and no way to get there by accident.
   env.BLACK_HOLE_HOSTNAME = zoneName;
-  env.BLACK_HOLE_ROLES = 'http,mail';
-  const roles = parseRoles(env.BLACK_HOLE_ROLES);
   env.DASHBOARD_HOSTNAME = env.DASHBOARD_HOSTNAME || `area51.${zoneName}`;
   env.AUTOPILOT_HOSTNAME = env.AUTOPILOT_HOSTNAME || `autopilot.${zoneName}`;
 
@@ -228,7 +222,6 @@ export async function run(args) {
     BLACK_HOLE_HOSTNAME: env.BLACK_HOLE_HOSTNAME,
     DASHBOARD_HOSTNAME: env.DASHBOARD_HOSTNAME,
     AUTOPILOT_HOSTNAME: env.AUTOPILOT_HOSTNAME,
-    BLACK_HOLE_ROLES: roles.join(','),
     FALLBACK_ADDRESS: env.FALLBACK_ADDRESS || '',
     ACCESS_TEAM_NAME: env.ACCESS_TEAM_NAME,
     ACCESS_SESSION_DURATION: env.ACCESS_SESSION_DURATION,
@@ -250,7 +243,7 @@ export async function run(args) {
   const plan = [
     `D1 database        ${env.D1_DATABASE_NAME}${env.D1_DATABASE_ID ? color.dim(` (existing ${env.D1_DATABASE_ID})`) : ''}`,
     `R2 buckets         ${env.R2_BUCKET_NAME}, ${env.R2_FILES_BUCKET_NAME}`,
-    `Worker             ${env.WORKER_NAME} → https://${env.BLACK_HOLE_HOSTNAME}  [${roles.join(', ')}]`,
+    `Worker             ${env.WORKER_NAME} → https://${env.BLACK_HOLE_HOSTNAME}`,
     `Worker             ${env.AGENT_WORKER_NAME} → https://${env.AUTOPILOT_HOSTNAME}`,
     `Worker             ${env.CLEANUP_WORKER_NAME} (cron ${env.CLEANUP_CRON}, no domain)`,
     `Worker             ${env.DASHBOARD_WORKER_NAME} → https://${env.DASHBOARD_HOSTNAME}`,
@@ -407,20 +400,17 @@ export async function run(args) {
     `could not finish setting up the black hole ${env.BLACK_HOLE_HOSTNAME}`,
     () => ensureBlackHole(cf, accountId, {
       hostname: env.BLACK_HOLE_HOSTNAME,
-      roles,
       workerName: env.WORKER_NAME,
       databaseId: db.id,
       followUps,
     }),
-    `Re-run \`./a51 black-holes add ${env.BLACK_HOLE_HOSTNAME} ${roles.join(',')}\` once the cause is fixed.`,
+    `Re-run \`./a51 black-holes add ${env.BLACK_HOLE_HOSTNAME}\` once the cause is fixed.`,
   );
-  if (roles.includes('mail')) {
-    await attempt(
-      followUps,
-      `could not register the fallback inbox ${env.FALLBACK_ADDRESS || '(unset)'}`,
-      () => ensureDestinationAddress(cf, accountId, env.FALLBACK_ADDRESS, followUps),
-    );
-  }
+  await attempt(
+    followUps,
+    `could not register the fallback inbox ${env.FALLBACK_ADDRESS || '(unset)'}`,
+    () => ensureDestinationAddress(cf, accountId, env.FALLBACK_ADDRESS, followUps),
+  );
 
   // Both derived hostnames bind the same way: a Custom Domain on their worker,
   // with Cloudflare managing the DNS record. Neither is ever seized; see
@@ -472,7 +462,7 @@ export async function run(args) {
   const accessProtected = followUps.length === followUpsBeforeAccess;
 
   // ── done ──────────────────────────────────────────────────────────────────
-  printSummary(env, roles, mintedKey, accessProtected);
+  printSummary(env, mintedKey, accessProtected);
 
   if (followUps.length) {
     heading(`${color.yellow(`Needs a human (${followUps.length})`)}`);
@@ -608,7 +598,7 @@ async function findDerivedHostnameConflicts(cf, accountId, zone, env) {
   return conflicts;
 }
 
-function printSummary(env, roles, mintedKey, accessProtected) {
+function printSummary(env, mintedKey, accessProtected) {
   heading('Deployed');
   plain('');
   plain(`  AREA 51      ${color.cyan(`https://${env.DASHBOARD_HOSTNAME}`)}`);
@@ -620,9 +610,7 @@ function printSummary(env, roles, mintedKey, accessProtected) {
   plain(`  ${color.bold('Black hole')} ${color.dim('point targets at these:')}`);
   plain('');
   plain(`    HTTP callbacks   ${color.cyan(`https://${env.BLACK_HOLE_HOSTNAME}/<anything>`)}`);
-  if (roles.includes('mail')) {
-    plain(`    Email callbacks  ${color.cyan(`<anything>@${env.BLACK_HOLE_HOSTNAME}`)}`);
-  }
+  plain(`    Email callbacks  ${color.cyan(`<anything>@${env.BLACK_HOLE_HOSTNAME}`)}`);
   plain('');
   // A key exists in readable form for exactly this moment. On a re-run against a
   // live deployment there is no new key. The existing one still works and

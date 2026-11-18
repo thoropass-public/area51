@@ -201,21 +201,26 @@ async function handleEmailRaw(env, id) {
 //
 // Reads the same D1 `domains` table the dashboard's /api/config/domains
 // serves, so the agent can build full callback URLs (https://<domain>/-/...).
+//
+// A row is a hostname and nothing else. It used to carry a `roles` array, a
+// subset of ["http","mail"], and the tool description told the agent to pick a
+// domain whose roles included "http". A black hole is now a whole Cloudflare
+// zone that always does both, so every domain here serves HTTP and every one of
+// them captures mail; there is nothing left for an agent to choose between. See
+// docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles.
+//
+// Defensive on the read for the same reason the dashboard's copy is: an empty
+// list leaves an agent unable to build a URL, which it can say, while a thrown
+// error takes the whole tool call down.
 async function handleDomains(env) {
-  const ALLOWED = new Set(['http', 'mail']);
-  const { results } = await env.DB.prepare(
-    'SELECT domain, roles FROM domains ORDER BY domain ASC'
-  ).all();
+  let results = [];
+  try {
+    ({ results } = await env.DB.prepare('SELECT domain FROM domains ORDER BY domain ASC').all());
+  } catch {
+    results = [];
+  }
   const domains = (results || [])
-    .map((r) => {
-      let roles = [];
-      try { roles = JSON.parse(r.roles); } catch { roles = []; }
-      if (!Array.isArray(roles)) roles = [];
-      return {
-        domain: String(r.domain || '').trim(),
-        roles: roles.filter((x) => typeof x === 'string' && ALLOWED.has(x.toLowerCase())).map((x) => x.toLowerCase()),
-      };
-    })
+    .map((r) => ({ domain: String(r.domain || '').trim() }))
     .filter((d) => d.domain.length > 0);
   return json({ served_at: new Date().toISOString(), endpoint_prefix: AUTOPILOT_PREFIX, domains });
 }
@@ -412,9 +417,10 @@ const MCP_TOOLS = [
   {
     name: 'list_black_holes',
     description: [
-      "Lists the configured black hole domains and their roles (http and/or",
-      "mail). Use this to construct a full callback URL for an autopilot",
-      "endpoint: pick a domain whose roles include \"http\", create the endpoint",
+      "Lists the configured black hole domains. Every one of them serves HTTP",
+      "on any path and captures mail at any address, so any domain in the list",
+      "works for either. Use this to construct a full callback URL for an",
+      "autopilot endpoint: pick a domain, create the endpoint",
       "with autopilot_endpoints_upsert (its uri must start with /-/), then hand",
       "out https://<domain><uri>, for example https://example.com/-/1. The same URL",
       "shape works for a file-backed endpoint an operator uploaded in the",
@@ -584,7 +590,8 @@ async function handleMcp(request, env) {
           "responses). The /-/ prefix is mandatory and enforced server-side;",
           "you cannot create or modify endpoints outside it. To hand a full",
           "callback URL to another task, call list_black_holes to get the",
-          "configured domains, pick one whose roles include 'http', and",
+          "configured domains, pick any one of them (they all serve HTTP and",
+          "all capture mail), and",
           "combine it with your /-/ endpoint path: https://<domain>/-/<path>.",
           "",
           "NAMING. Work out first whether you are on a pentest and who the",
@@ -619,7 +626,7 @@ async function handleMcp(request, env) {
           "onto the \"Serve a file\" target, and press Create. Have them confirm",
           "the path back to you, then",
           "hand out https://<domain><path> to the target. Call list_black_holes",
-          "for a domain whose roles include 'http'. Never stall an engagement",
+          "for a domain. Never stall an engagement",
           "because you cannot upload; ask, and continue once the operator says",
           "it's live.",
           "",

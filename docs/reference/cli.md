@@ -81,8 +81,8 @@ It asks for the **zone**, a confirmation that the zone may be taken over, the
 fallback inbox, and your own email address as the first operator. Most answers
 are written back to `.env`. The operator address is not: it becomes a row in the
 D1 `users` table, and a re-run reads that table instead of asking again.
-There are no hostname questions: the black hole is the zone apex with both roles,
-and the other two hostnames are derived as `area51.<zone>` and
+There are no hostname questions: the black hole is the zone itself, and the other
+two hostnames are derived as `area51.<zone>` and
 `autopilot.<zone>` ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)).
 Setting `DASHBOARD_HOSTNAME` or `AUTOPILOT_HOSTNAME` in `.env` overrides the
 derived value without prompting.
@@ -129,7 +129,7 @@ config is regenerated from `.env` on every deploy.
 ```
 
 One screen: account, zone, database, buckets, the three hostnames, every
-configured black hole with its roles, which Workers are deployed, the retention
+configured black hole, which Workers are deployed, the retention
 thresholds, and the operators with their key ids. Read-only.
 
 The operator list comes from the D1 `users` table, not from Cloudflare. `status`
@@ -182,46 +182,37 @@ reason, which is itself information.
 
 ```
 ./a51 black-holes list
-./a51 black-holes add <hostname> [http,mail]
+./a51 black-holes add <zone>
 ./a51 black-holes remove <hostname>
 ```
 
-A black hole is up to three things at once, and this command keeps them in step:
-a hostname bound to the catcher (for `http`), Email Routing enabled for that name
-with the zone catch-all pointed at the catcher (for `mail`), and a row in the
-`domains` table so the dashboard and Autopilot know it exists.
+A black hole is a **whole Cloudflare zone** handed over to the catcher, and this
+command keeps its three parts in step: the zone apex bound to the catcher as a
+Custom Domain, Email Routing enabled on the zone with its catch-all pointed at
+the catcher, and a row in the `domains` table so the dashboard and Autopilot know
+it exists.
+
+There are no roles. Every black hole serves HTTP on every path and captures mail
+at every address
+([why](../decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles)).
 
 The D1 table is still called `domains`. Only the command was renamed.
 
 ### add
 
-**Roles are asked when omitted.** With no roles argument you get a three-way
-choice: HTTP and email, HTTP only, or email only. Pass them positionally
-(`add host http`) to skip the prompt, which is also what anything scripted should
-do.
-
-| Roles | What is provisioned |
-|---|---|
-| `http` | Custom Domain on the catcher. No mail records are touched. |
-| `mail` | Email Routing enabled **for that name** (MX + SPF added and locked), and the zone catch-all confirmed to point at the catcher. |
-| `http,mail` | Both. |
-
-**Mail works on a subdomain.** Email Routing is enabled per name, and the zone's
-catch-all covers the apex plus every enabled subdomain, so
-`<anything>@<sub.black-hole.tld>` is captured with no per-address rules.
-
-**But the subdomain's own zone apex must already be a mail black hole**, because
-the catch-all is zone-scoped and only exists once the apex has it. Adding a
-subdomain first is refused, and the two commands to run instead are printed.
-Enabling it would lock MX records whose mail has nowhere to go.
+**Takes a zone apex and nothing else.** A subdomain is refused, with a pointer to
+[operations](../guides/operations.md#putting-a-subdomain-on-the-catcher), which
+covers putting one on the catcher by hand. The refusal is mechanics before it is
+policy: the catch-all rule that delivers mail is zone-scoped, so the apex is what
+makes a zone capture anything at all, and a subdomain was never an alternative to
+it — only an addition on top.
 
 Before provisioning, `add` prints what changes and takes consent for the
 destructive part:
 
-- **Apex + mail** always confirms, since Email Routing locks MX for the whole zone.
-- **Subdomain** confirms only when records are already in the way.
-- Either way, records that will actually be replaced are listed by name and the
-  gate becomes a typed `TAKEOVER` rather than a y/N.
+- **It always confirms**, since Email Routing locks MX for the whole zone.
+- Records that will actually be replaced are listed by name and the gate becomes
+  a typed `TAKEOVER` rather than a y/N.
 - Records listed there are then really replaced. Whatever holds the hostname is
   released first: a Pages project or Worker is detached from it, and a plain DNS
   record is deleted. Anything that could not be released comes back as a
@@ -232,22 +223,31 @@ DNS and the certificate take a minute.
 
 ### remove and list
 
-- `remove` drops the row and detaches the Custom Domain, which stops HTTP
-  capture. It deliberately leaves Email Routing alone, since the catch-all is
-  zone-wide and another black hole on the same zone may still need it. Captured
-  data is kept.
+`remove` works in this order — Cloudflare state first, the D1 row last — so a run
+that dies halfway leaves a black hole that still reports itself rather than
+bindings with nothing naming them:
 
-  **A removed subdomain keeps capturing mail.** Its MX records stay, locked by
-  Email Routing, and the zone catch-all still covers it, so mail to
-  `<anything>@<the removed host>` is still accepted and still stored. Cloudflare
-  has no per-name disable (`DELETE …/email/routing/dns` turns routing off for the
-  *whole zone*, taking every other black hole on it down too), so the only way to
-  stop it is by hand: dashboard → the zone → Email → Email Routing → Settings →
-  Subdomains. Treat a host as decommissioned only once you have done that.
+1. **Mail subdomains on the zone are found and offered up.** Any subdomain
+   enabled for Email Routing has its own locked MX records, and the only reason
+   mail to it reaches the catcher is the catch-all this black hole put there.
+   Left behind, each keeps accepting mail that goes nowhere. They are listed, and
+   on your confirmation each is removed with `DELETE …/email/routing/dns`
+   carrying that `name`, which takes the entry and its MX + SPF together.
+2. The Custom Domain is detached, which stops HTTP capture.
+3. The row is dropped.
 
-  `remove` prints that warning only for a host whose row carried the `mail`
-  role. An http-only host has no mail to leave behind, so nothing is printed.
-- `list` flags any host that is in the table but not actually bound.
+**Email Routing on the zone itself is left enabled.** Disabling it is a decision
+about the whole zone and it unlocks and deletes the apex MX, so it is left to
+zone → Email → Email Routing, or to `./a51 destroy`, which asks properly.
+
+Captured data is kept. Purge it with `./a51 purge`.
+
+Removing a **subdomain** row left over from an older deployment works too, and
+offers to take that one name's Email Routing entry and MX records with it.
+Nothing creates such rows any more; `./a51 doctor` reports one if it finds it.
+
+`list` shows each black hole and flags any that is in the table but not actually
+bound.
 
 ## users
 
@@ -386,7 +386,7 @@ cp .env.example .env && ./a51 setup
 ./a51 setup && ./a51 deploy all
 
 # add a second black hole mid-engagement
-./a51 black-holes add <other-black-hole.tld> http,mail
+./a51 black-holes add <other-black-hole.tld>
 
 # someone joined / left the team
 ./a51 users add <teammate@domain.tld>      # prints their key once

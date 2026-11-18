@@ -91,18 +91,6 @@ export async function verifyToken(cf) {
   return false;
 }
 
-/** Normalize BLACK_HOLE_ROLES-style role lists to a validated array. */
-export function parseRoles(value, { fallback = ['http'] } = {}) {
-  const roles = String(value || '')
-    .split(/[,\s]+/)
-    .map((r) => r.trim().toLowerCase())
-    .filter(Boolean);
-  const valid = roles.filter((r) => r === 'http' || r === 'mail');
-  const invalid = roles.filter((r) => r !== 'http' && r !== 'mail');
-  if (invalid.length) die(`unknown black hole role(s): ${invalid.join(', ')}. Valid roles: http, mail.`);
-  return valid.length ? [...new Set(valid)] : fallback;
-}
-
 /** `https://host` with no trailing slash, used all over the summaries. */
 export const url = (host) => `https://${host}`;
 

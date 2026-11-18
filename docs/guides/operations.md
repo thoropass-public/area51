@@ -32,59 +32,93 @@ build: uploads happen from your machine, through the CLI.
 
 ```bash
 ./a51 black-holes list
-./a51 black-holes add <other-black-hole.tld>            # asks which roles
-./a51 black-holes add <other-black-hole.tld> http,mail  # or pass them
-./a51 black-holes add <http-only.black-hole.tld> http
-./a51 black-holes add <sub.black-hole.tld> mail         # email capture on a subdomain
+./a51 black-holes add <other-black-hole.tld>      # a zone apex, nothing else
 ./a51 black-holes remove <other-black-hole.tld>
 ```
 
-`add` does everything a black hole needs: binds the hostname to the catcher as a
-Custom Domain (`http`), enables Email Routing **for that name** and confirms the
-zone catch-all points at the catcher (`mail`), and writes the row the dashboard
-and Autopilot read. No redeploy needed: the next page load and the next agent
-call see it.
+A black hole is a **whole Cloudflare zone** handed over to the catcher. Every
+path on it serves your endpoints, every address on it is captured, and there is
+nothing to configure per host: no roles, no surfaces to pick between. Another
+black hole is another zone.
 
-With no roles argument it asks for HTTP, email, or both.
+`add` does all three parts: binds the apex to the catcher as a Custom Domain,
+enables Email Routing on the zone and points its catch-all at the catcher, and
+writes the row the dashboard and Autopilot read. No redeploy needed — the next
+page load and the next agent call see it.
 
-**Mail on a subdomain** needs no manual step. Email Routing is enabled per name
-and the zone catch-all already covers every enabled subdomain. The one
-prerequisite is that the subdomain's **own zone apex is already a mail black
-hole**; `setup` did that for your primary zone, and for any other zone you add
-its apex first:
+**`add` takes the zone apex only.** A subdomain is refused, with a pointer to the
+recipes below. That is mechanics before it is policy: the catch-all rule that
+delivers mail to the catcher is zone-scoped, so the apex is what makes a zone
+capture anything at all, and a subdomain was never an alternative to it.
 
-```bash
-./a51 black-holes add <other-black-hole.tld> http,mail      # the foundation
-./a51 black-holes add <sub.other-black-hole.tld> mail       # then the subdomain
-```
+Every add asks for confirmation, because Email Routing locks its MX for the whole
+zone. If records are actually going to be replaced they are listed by name and
+the gate becomes a typed `TAKEOVER`. Those records are then really replaced: a
+Pages project or Worker holding the hostname is detached from it, a plain DNS
+record is deleted, and the catcher is bound in its place.
 
-Adding the subdomain first is refused: the catch-all that delivers its mail only
-exists once the apex has it, so enabling the name would lock MX records whose
-mail goes nowhere.
+The zone must be on the Cloudflare account the API token can see. DNS and the
+certificate take a minute or two.
 
-An apex `mail` add always asks for confirmation, because Email Routing locks its
-MX for the whole zone. If records are actually going to be replaced they are
-listed and the gate becomes a typed `TAKEOVER`. Those records are then really
-replaced. A Pages project or Worker holding the hostname is detached from it, a
-plain DNS record is deleted, and the catcher is bound in its place.
+### Removing
 
-The hostname must be on a zone the API token can see. DNS and the certificate take
-a minute or two.
+`remove` works in this order, Cloudflare state first and the D1 row last, so a
+run that dies halfway leaves a black hole that still reports itself rather than
+bindings with nothing naming them:
 
-`remove` drops the row and detaches the Custom Domain, which stops HTTP capture.
-It deliberately leaves Email Routing alone, because that is a zone-wide setting
-another black hole on the same zone may still need. Captured data from that host
-stays until purged.
+1. **Mail subdomains on the zone are found and offered up.** Any subdomain
+   enabled for Email Routing has locked MX records of its own, and the only
+   reason mail to it reaches the catcher is the catch-all this black hole put
+   there. Left behind, each one keeps accepting mail that is then delivered
+   nowhere — worse than bouncing, because nobody finds out. They are listed and
+   removed on your say-so, records and all.
+2. The Custom Domain is detached, which stops HTTP capture.
+3. The row is dropped.
 
-**A removed subdomain keeps capturing mail.** Its MX records stay, locked, and
-the zone catch-all still covers it, so mail to `<anything>@<the removed host>` is
-still accepted and stored. Cloudflare has no per-name disable, and turning routing
-off does it for the whole zone, so stop it by hand at zone → Email → Email
-Routing → Settings → Subdomains. Do not consider the host decommissioned until
-you have.
+**Email Routing on the zone itself is left enabled**, because disabling it is a
+decision about the whole zone and it unlocks and deletes the apex MX. Turn it off
+at zone → Email → Email Routing when nothing on that zone still needs capture, or
+let `./a51 destroy` ask you as part of a full teardown.
 
-`remove` prints that warning only for a host whose row carried the `mail` role.
-An http-only host has no mail to leave behind, so nothing is printed.
+Captured requests and emails from the host stay until purged.
+
+Removing a **subdomain** row left over from an older deployment works too, and
+offers to take that one name's Email Routing entry and MX records with it.
+Nothing creates such rows any more.
+
+## Putting a subdomain on the catcher
+
+Subdomains are deliberately outside the CLI. The catcher needs nothing from AREA
+51 to handle one — the worker serves whatever hostname reaches it, and its email
+handler never consults the `domains` table — so both of these are pure Cloudflare
+dashboard steps, opt-in, and AREA 51 stays out of them.
+
+The trade-off: a subdomain added this way is **captured but not listed**. It will
+not appear in `./a51 black-holes list`, in the dashboard's Home orbit chips, or in
+Autopilot's `list_black_holes`. Captures from it land in Requests and Emails like
+any other. Keep your own note of what you have enabled.
+
+**HTTP on one subdomain.** Workers & Pages → the catcher worker → Settings →
+Domains & Routes → Add → Custom Domain → `<sub.black-hole.tld>`. Cloudflare
+creates the DNS record and the certificate. `https://<sub.black-hole.tld>/<any
+path>` is captured from then on.
+
+> There is no wildcard recipe here on purpose. A `*.<zone>/*` Workers Route does
+> make every subdomain serve the catcher, but a route **outranks a Worker Custom
+> Domain on the same zone**, so it swallows `area51.<zone>` and
+> `autopilot.<zone>` along with everything else. It can be made to work with
+> per-hostname carve-out routes, and the failure mode when one of those goes
+> missing is silent.
+
+**Mail on one subdomain.** The zone's apex must already be a black hole, which is
+what put the catch-all there. Then: zone → Email → Email Routing → Settings →
+Subdomains → add `<sub.black-hole.tld>`. Cloudflare adds and locks MX + SPF for
+that name, and the zone catch-all — which covers the apex *and* every enabled
+subdomain — delivers it to the catcher. `<anything>@<sub.black-hole.tld>` is
+captured immediately.
+
+Remove it the same way, from the same screen. `./a51 black-holes remove` on the
+zone's apex also finds these and offers to clear them.
 
 ## Purging data
 

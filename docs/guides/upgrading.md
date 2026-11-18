@@ -1,7 +1,91 @@
 # Upgrading
 
-One page per upgrade that needs more than `git pull && ./a51 deploy all`. So far
-there is one.
+One page per upgrade that needs more than `git pull && ./a51 deploy all`.
+
+## v1.1.0 → v1.2.0
+
+**Your captured data is not touched by this upgrade.** It changes one schema
+column and the shape of one CLI command. Budget five minutes.
+
+### What changes
+
+| | v1.1.0 | v1.2.0 |
+|---|---|---|
+| `domains` table | `domain`, `roles` | `domain` |
+| `black-holes add` | `<host> [http,mail]`, any hostname | `<zone>`, a zone apex only |
+| `black-holes remove` | leaves a subdomain's MX records behind | offers to clear the zone's mail subdomains first |
+| `.env` | `BLACK_HOLE_ROLES` | gone, and ignored if left in the file |
+| Home orbit chips | address + an `http · mail` label | address only |
+
+A black hole is now a whole Cloudflare zone that always captures both HTTP and
+mail, so there is nothing left to record per host and nothing to choose when
+adding one. The reasoning is in
+[decisions](../decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles).
+
+**Nothing stops capturing during this upgrade**, and no hostname changes. The
+catcher reads neither `roles` nor the `domains` table on its HTTP or its email
+path, so every black hole and every mail subdomain keeps working throughout.
+
+### 1. Back up D1
+
+```
+npx wrangler d1 export area51 --remote --output area51-pre-1.2.0.sql
+```
+
+This one is worth doing even though the upgrade is small: `DROP COLUMN` is
+irreversible and the backup is the only way back to the `roles` values.
+
+### 2. Deploy the workers, then the schema
+
+Order matters here, and it is the opposite of the usual one. The migration drops
+a column that the running code still selects, so ship the code that has stopped
+selecting it first:
+
+```
+git pull
+./a51 deploy black-holes
+./a51 deploy autopilot
+./a51 deploy cleanup
+./a51 deploy dashboard
+./a51 deploy schema
+```
+
+`./a51 deploy all` works too, and applies the schema first. The cost is a few
+seconds in which the old dashboard and Autopilot query a column that is gone;
+both degrade to an empty host list rather than erroring, and both recover as soon
+as their upload lands. Capture is unaffected either way.
+
+### 3. Check it
+
+```
+./a51 black-holes list
+./a51 doctor
+```
+
+`list` loses its ROLES column. `doctor` reports a **subdomain black hole** from
+an older deployment as a warning rather than a failure: such a row keeps working,
+and `./a51 black-holes remove <that host>` takes it out when you no longer want
+it, offering that one name's Email Routing entry and MX records with it.
+
+### Leftovers you can clean up
+
+- `BLACK_HOLE_ROLES` in `.env` is no longer read by anything. Delete the line, or
+  leave it; nothing depends on it either way.
+- Adding a subdomain to the catcher is no longer a CLI command. Both recipes —
+  HTTP on one subdomain, mail on one subdomain — are now in
+  [operations](operations.md#putting-a-subdomain-on-the-catcher), and both are
+  Cloudflare dashboard steps that need nothing from AREA 51.
+
+### If it goes wrong
+
+`git switch` back to the previous tag and `./a51 deploy all` puts the old workers
+back, but they will fail to read `domains` until the column exists again. Restore
+it from the step 1 backup, or re-add it by hand:
+
+```
+npx wrangler d1 execute area51 --remote --command \
+  "ALTER TABLE domains ADD COLUMN roles TEXT NOT NULL DEFAULT '[\"http\",\"mail\"]'"
+```
 
 ## v1.0.0 → v1.1.0
 

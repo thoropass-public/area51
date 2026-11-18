@@ -40,7 +40,7 @@ const COMMANDS = {
   'black-holes': {
     module: './commands/black-holes.mjs',
     summary: 'manage black holes (list, add, remove)',
-    usage: './a51 black-holes [list | add <host> [http,mail] | remove <host>]',
+    usage: './a51 black-holes [list | add <zone> | remove <host>]',
   },
   users: {
     module: './commands/users.mjs',

@@ -54,19 +54,14 @@ async function teardownEmailRouting(cf, accountId, env) {
     } catch { /* best effort: a zone we cannot resolve is one we cannot disable */ }
   };
 
-  // Every mail black hole in the table. The table is still intact here: this runs
-  // in the compute gate, before the database can be deleted.
+  // Every black hole in the table, which is every zone this deployment captures
+  // mail on: a black hole has no roles to filter by, because it always has both
+  // surfaces. The table is still intact here: this runs in the compute gate,
+  // before the database can be deleted.
   try {
     if (env.D1_DATABASE_ID) {
-      const rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains');
-      for (const row of rows) {
-        let roles = [];
-        try {
-          const parsed = JSON.parse(row.roles);
-          if (Array.isArray(parsed)) roles = parsed;
-        } catch { /* malformed row: treat as no roles */ }
-        if (roles.includes('mail')) await consider(row.domain);
-      }
+      const rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain FROM domains');
+      for (const row of rows) await consider(row.domain);
     }
   } catch { /* table gone or unreadable; the .env fallback below covers it */ }
   if (!zones.size) await consider(env.CLOUDFLARE_ZONE || env.BLACK_HOLE_HOSTNAME);

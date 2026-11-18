@@ -1128,14 +1128,10 @@ button.row-icon.copy-link.copied { color: var(--green); }
   animation: orbit-pulse 2.2s ease-in-out infinite;
 }
 
-.orbit-domain .scope {
-  color: var(--n4);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-/* Hosts that serve http can become the default; mail-only hosts are locked. */
+/* Every black hole serves HTTP, so every chip can become the default host.
+   There used to be a `.locked` variant for mail-only hosts, and a `.scope`
+   label spelling out which surfaces each one had; black holes now always have
+   both, so neither has anything left to say. */
 .orbit-domain.selectable {
   cursor: pointer;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
@@ -1148,10 +1144,6 @@ button.row-icon.copy-link.copied { color: var(--green); }
   border-color: var(--f1);
   box-shadow: 0 0 0 2px var(--f1-edge), 0 6px 18px rgba(0, 0, 0, 0.25);
 }
-.orbit-domain.locked {
-  cursor: default;
-}
-
 /* The selected default host, bound to the alien and unmistakably lit up. */
 .orbit-domain.selected {
   border-color: var(--f1);
@@ -1168,7 +1160,6 @@ button.row-icon.copy-link.copied { color: var(--green); }
   box-shadow: 0 0 10px var(--f1);
   animation: none;
 }
-.orbit-domain.selected .scope { color: var(--f1); }
 [data-theme="light"] .orbit-domain.selected {
   box-shadow:
     0 0 0 1px var(--f1),

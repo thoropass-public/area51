@@ -20,7 +20,7 @@ change requires:
 | Path | Values | To apply a change |
 |---|---|---|
 | **Rendered into `wrangler.toml`** at deploy time (bindings, `[vars]`, cron) | `WORKER_NAME`, `D1_*`, `R2_*`, `FALLBACK_ADDRESS`, `CLEANUP_*`, `AGENT_WORKER_NAME` | `./a51 deploy <target>` |
-| **Set on Cloudflare via the API** (DNS, Custom Domains, policies) | hostnames, `ACCESS_*`, `BLACK_HOLE_ROLES` | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 users` |
+| **Set on Cloudflare via the API** (DNS, Custom Domains, policies) | hostnames, `ACCESS_*` | `./a51 setup`, or the narrower `./a51 black-holes` / `./a51 users` |
 | **Used only by the CLI on your machine** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE` | nothing to deploy |
 
 No key appears in this file, including your own. Every operator's key is shown
@@ -50,7 +50,6 @@ dashboard on a subdomain and one operator:
 CLOUDFLARE_API_TOKEN=cf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 CLOUDFLARE_ZONE=<black-hole.tld>
 BLACK_HOLE_HOSTNAME=<black-hole.tld>           # targets hit this; public by design
-BLACK_HOLE_ROLES=http,mail
 DASHBOARD_HOSTNAME=area51.<black-hole.tld>     # you log in here, behind Access
 AUTOPILOT_HOSTNAME=autopilot.<black-hole.tld>  # agents connect here
 FALLBACK_ADDRESS=<you@domain.tld>              # a REAL inbox for bounced captures
@@ -88,8 +87,7 @@ real inbox can serve both fields.
 
 | Key | Default | Notes |
 |---|---|---|
-| `BLACK_HOLE_HOSTNAME` | the zone apex | **Derived, never prompted.** `./a51 setup` always sets this to `CLOUDFLARE_ZONE` and overwrites what is here: the apex is what puts the zone's mail catch-all in place, so nothing on the zone can capture mail until it is a black hole ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)). Additional black holes, including mail on a subdomain, are added with `./a51 black-holes add`, not here. |
-| `BLACK_HOLE_ROLES` | `http,mail` | **Derived, never prompted.** Always both. `mail` enables Email Routing **for the whole zone** and points its catch-all at the catcher. Per-host roles still apply to extra black holes via `./a51 black-holes add <host> <roles>`. |
+| `BLACK_HOLE_HOSTNAME` | the zone apex | **Derived, never prompted.** `./a51 setup` always sets this to `CLOUDFLARE_ZONE` and overwrites what is here: the apex is what puts the zone's mail catch-all in place, so nothing on the zone can capture mail until it is a black hole ([why](../guides/getting-started.md#why-the-black-hole-is-always-the-apex)). Additional black holes are additional zones, added with `./a51 black-holes add <zone>`, not here. |
 | `DASHBOARD_HOSTNAME` | `area51.<zone>` | The dashboard Worker's Custom Domain, protected by Access. It is the **only** hostname the dashboard answers on (`workers_dev` and `preview_urls` are both off), which is why the Access app needs just one destination. Derived from the zone when blank; **set it here to override**, including onto another zone. Setup uses an existing value as-is and never prompts. Changing it means the old hostname keeps serving until you detach it from the worker, and the Access app follows the new name only after `./a51 setup`. |
 | `AUTOPILOT_HOSTNAME` | `autopilot.<zone>` | The MCP / REST host. Same derive-or-override rule as above. Changing it invalidates every agent's registration. |
 

@@ -127,8 +127,16 @@ The configured black holes, and the single source of truth for them.
 
 | Column | Type | Notes |
 |---|---|---|
-| `domain` | `TEXT PRIMARY KEY` | The hostname, e.g. `<black-hole.tld>` |
-| `roles` | `TEXT NOT NULL` | JSON array, subset of `["http","mail"]` |
+| `domain` | `TEXT PRIMARY KEY` | The zone, e.g. `<black-hole.tld>` |
+
+One column, and that is the point. A black hole is a whole zone that always
+serves HTTP and always captures mail, so there is nothing to record per host
+beyond its name.
+
+A `roles` column (`TEXT NOT NULL`, a JSON array, a subset of `["http","mail"]`)
+was dropped in **v1.2.0**. `db/schema.sql` carries the `ALTER TABLE domains DROP
+COLUMN roles` as a migration and `./a51 deploy schema` applies it; see
+[upgrading](../guides/upgrading.md).
 
 Read live by the dashboard (`/api/config/domains`, for the Home host picker) and by
 Autopilot (`/domains`, `list_black_holes`), so an agent can build

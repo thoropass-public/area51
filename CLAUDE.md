@@ -53,17 +53,19 @@ the fallback inbox and your own email address (as the first operator). Most
 answers are written back to `.env`. The operator address is not: it becomes a
 row in the D1 `users` table, and a re-run reads that table instead of asking
 again. It does **not** ask about hostnames: the black hole is always the zone
-apex with both roles, and the other two are derived as `area51.<zone>` and
-`autopilot.<zone>` (the apex is what puts the zone's mail catch-all in place, so
-nothing on the zone captures mail until it is a black hole. See
-[docs/decisions.md](docs/decisions.md#the-black-hole-is-always-the-zone-apex-and-setup-does-not-ask)).
+itself, and the other two are derived as `area51.<zone>` and `autopilot.<zone>`
+(the apex is what puts the zone's mail catch-all in place, so nothing on the zone
+captures mail until it is a black hole. See
+[docs/decisions.md](docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles)).
 Re-running it is the normal way to converge after fixing something. Completed
 steps re-report as `·` (already correct) rather than running again.
 
-Additional black holes go through `./a51 black-holes add <host> [http,mail]`, which
-asks for roles when they are omitted. **Mail on a subdomain is supported.** It
-enables Email Routing for that name and reuses the zone catch-all, but it
-refuses unless that subdomain's own zone apex is already a mail black hole.
+Additional black holes are additional zones: `./a51 black-holes add <zone>`. It
+takes a zone apex and refuses anything else, and there is no roles argument.
+**Subdomains are outside this tool on purpose** — the catcher needs nothing from
+AREA 51 to serve or capture one — so putting a subdomain on the catcher, for HTTP
+or for mail, is a Cloudflare dashboard step documented in
+[docs/guides/operations.md](docs/guides/operations.md#putting-a-subdomain-on-the-catcher).
 
 **The API token is where installs fail.** Create it at **My Profile → API
 Tokens → Create Token → Custom token** with these **fourteen** permissions (the
@@ -213,6 +215,22 @@ schema, domain bindings and the Access policy.
    contract: `ensureDatabase` and `ensureAccessList` report `created: false`,
    the rest return whatever their caller needs (a resource, a boolean, nothing).
    Read the helper before depending on what it hands back.
+
+10. **A black hole is a whole zone, and has no roles.** `./a51 black-holes add`
+    takes a Cloudflare zone apex and refuses anything else; every black hole
+    serves HTTP on every path and captures mail at every address. The `domains`
+    table is one column, the hostname. Don't reintroduce a per-host capability
+    flag, and don't add a subdomain path to the CLI: the catcher serves whatever
+    hostname reaches it and its email handler never consults `domains`, so a
+    subdomain needs nothing from this tool and is an operator's dashboard step
+    ([operations](docs/guides/operations.md#putting-a-subdomain-on-the-catcher)).
+
+    Two consequences to preserve. `black-holes remove` strips the zone's enabled
+    mail subdomains first, on confirmation, because MX records left pointing at a
+    dead catch-all swallow mail instead of bouncing it. And removal writes
+    Cloudflare state before the D1 row, for the same reason invariant 1 writes R2
+    before D1: a failure must leave a visible row, not an invisible binding. See
+    [docs/decisions.md](docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles).
 
 ## Provisioning specifics (the CLI)
 

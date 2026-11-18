@@ -95,7 +95,7 @@ take up to an hour to take effect ([database.md](database.md#ip_blacklist-and-em
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/config/domains` | `{domains: [{domain, roles}]}` from the `domains` table, ordered by domain. Backs the Home host picker. Defensive: returns `{domains: []}` on any error or malformed row rather than failing the page. |
+| `GET` | `/api/config/domains` | `{domains: [{domain}]}` from the `domains` table, ordered by domain. Backs the Home host picker. A black hole has no per-host attributes, so a row is its hostname and nothing else. Defensive: returns `{domains: []}` on any error or malformed row rather than failing the page. |
 
 ---
 

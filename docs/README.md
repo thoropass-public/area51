@@ -78,9 +78,9 @@ How each runtime piece behaves. Read the relevant page before changing one.
 
 ## Conventions used throughout
 
-- **Black hole.** A hostname that captures everything sent to it. One worker
-  serves all of them; each has roles (`http`, `mail`, or both) recorded in the
-  `domains` table.
+- **Black hole.** A Cloudflare zone handed over to AREA 51: every path on it
+  serves the catcher, and every address on it is captured. One worker serves all
+  of them, and the `domains` table records nothing per host but its name.
 - **Endpoint.** A row mapping an exact URI path to a response. *Text-backed*
   (typed body, your status and headers) or *file-backed* (an uploaded object,
   server-owned response).

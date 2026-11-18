@@ -289,6 +289,53 @@ after the second typed confirmation, alongside the database and bucket deletes.
 Enumeration is S3-first (not from D1) on purpose: by the time buckets are
 deleted the D1 database may already be gone, so D1 can't be the source of keys.
 
+## DNS callbacks are out of scope
+
+AREA 51 captures HTTP requests and email. It does not capture DNS resolutions,
+and is not going to.
+
+**Why, first reason:** Cloudflare does not sell the data at the tier this runs
+on. Workers cannot listen on UDP/53, so the catcher can never *be* the
+nameserver for the zone. The only Cloudflare-native source is the zone's own DNS
+analytics, which was measured against a live zone in November 2026:
+
+- `dnsAnalyticsAdaptive` does return individual queries, on the Free plan, with
+  `queryName`, `queryType`, `responseCode`, `sourceIP` and a `datetime` accurate
+  to the second. NXDOMAIN lookups are recorded, so no wildcard record is needed
+  for a name to register.
+- Every row carries `sampleInterval: 10`. Forty unique names were resolved in
+  one burst and two came back: a **10% capture rate**. The aggregate counts from
+  `dnsAnalyticsAdaptiveGroups` are reconstructed from that sample and are
+  accurate; the list of *names* is one-in-ten.
+- A resolution took **297 seconds** to become readable through the API.
+
+A one-shot blind payload therefore has roughly a 90% chance of vanishing, and a
+miss is indistinguishable from "it never fired". That is worse than having no
+feature at all: it invites the conclusion that a target is not vulnerable when
+it is. A repeating callback survives sampling fine, but a callback that repeats
+is one you would have found anyway. Logpush's `dns_logs` dataset is unsampled
+and carries `EDNSSubnet` on top, which would fix all of this, but Logpush is a
+paid feature.
+
+**Why, second reason:** this one holds even if the data were free and instant.
+AREA 51 exists because HTTP and email callbacks needed *control* that a hosted
+collaborator cannot give: your own domain names, your own inbound mail routing,
+decisions about what happens to a captured message, and arbitrary responses
+served back at the target from an endpoint you authored. None of that has an
+equivalent for DNS. A lookup either happened or it did not; there is nothing to
+serve, nothing to route, and nothing to own. Burp Collaborator and interactsh
+already report DNS faithfully and instantly, and rebuilding a solved problem to
+avoid a second tab is not a trade worth making.
+
+**If this is ever revisited**, the only honest implementation is a delegated
+subtree: `dns.<zone>` NS-delegated to a host you run, with a stateless responder
+that answers everything and POSTs each lookup to the catcher. Storage, dashboard
+and Autopilot would stay as they are, so the box is a sensor rather than an
+origin. It is still a second deployable that `./a51 setup` cannot provision and
+`./a51 doctor` cannot verify, and it ends the "one Cloudflare account, nothing
+else" claim that [README.md](../README.md) makes. Weigh that against a real
+engagement that needed DNS-only capture, not against the idea of one.
+
 ---
 
 # Automation decisions

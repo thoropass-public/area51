@@ -710,8 +710,21 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
 
   return (
     <Modal open onClose={onClose}>
+      {/* The title names the MODE where you can act and the STATE where you
+          cannot, because the state is the reason you cannot. "EDIT ENDPOINT"
+          over a read-only archived endpoint promises something the modal then
+          refuses, and the operator finds out by clicking into fields that are
+          not fields. Naming it ARCHIVED answers the question before it is
+          asked, the way AUTOPILOT already does. A move keeps the AUTOPILOT
+          title: the row is still one until the rename lands, and the field and
+          the footer are already saying what is happening. */}
       <ModalHead
-        title={mode === "new" ? "NEW ENDPOINT" : agentOwned ? "AUTOPILOT ENDPOINT" : "EDIT ENDPOINT"}
+        title={
+          mode === "new" ? "NEW ENDPOINT"
+            : agentOwned ? "AUTOPILOT ENDPOINT"
+              : frozen ? "ARCHIVED ENDPOINT"
+                : "EDIT ENDPOINT"
+        }
         id={mode === "edit" ? form.uri : undefined}
         onClose={onClose}
       />

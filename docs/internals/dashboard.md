@@ -261,8 +261,14 @@ are Autopilot's — it can read, replace and delete them — and the cleanup run
 takes all of them on a schedule, so an operator editing one is editing a
 response an agent may overwrite, on a row that disappears next month.
 
-Each gets the one action that ends that state, in the modal's single primary
-slot: **Unarchive** for the first, **Move to Endpoints** for the second.
+Each says so in its own header — `ARCHIVED ENDPOINT`, `AUTOPILOT ENDPOINT` —
+rather than the `EDIT ENDPOINT` that promises something the modal then refuses.
+The title names the mode where you can act and the state where you cannot,
+because the state is the reason you cannot.
+
+Each also gets the one action that ends that state, in the modal's single
+primary slot: **Unarchive** for the first, **Move to Endpoints** for the
+second.
 
 *The footer holds no Close or Cancel*, in any of the modal's states but one.
 A ghost button that only shuts the modal says what the ✕ in the header already

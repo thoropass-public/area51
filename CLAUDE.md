@@ -68,42 +68,36 @@ Cloudflare dashboard step. The recipes for one subdomain, for every subdomain at
 once, and for mail on a subdomain are in
 [docs/guides/operations.md](docs/guides/operations.md#putting-a-subdomain-on-the-catcher).
 
-**The API token is where installs fail.** Create it at **My Profile → API
-Tokens → Create Token → Custom token** with these **fourteen** permissions (the
-full table with per-permission rationale is [docs/guides/getting-started.md#api-token](docs/guides/getting-started.md#api-token)):
+**The API token is where installs fail.** AREA 51 authenticates with an
+**Account API token**, which belongs to the account rather than to a person and
+so outlives whoever created it. Create it at **Manage Account → API Tokens →
+Create Token** as **fourteen** permissions in **two policies** (the full table
+with per-permission rationale is [docs/guides/getting-started.md#api-token](docs/guides/getting-started.md#api-token)):
 
-| Scope | Permissions |
-|---|---|
-| **Account** | Workers Scripts:Edit · D1:Edit · Workers R2 Storage:Edit · Account Settings:Read · Access: Apps:Edit · Access: Policies:Edit · Access: Organizations, Identity Providers, and Groups:Edit · **Zero Trust:Edit** · Email Routing Addresses:Edit |
-| **Zone** | Zone:Read · **Zone Settings:Edit** · DNS:Edit · Workers Routes:Edit · Email Routing Rules:Edit |
+| Policy | Scope | Permissions |
+|---|---|---|
+| **1** | the account | Workers Scripts:Write · D1:Write · Workers R2 Storage:Write · Account Settings:Read · Access: Apps:Write · Access: Policies:Write · Access: Organizations, Identity Providers, and Groups:Write · **Zero Trust:Write** · Email Routing Addresses:Write |
+| **2** | the zones you deploy on | Zone:Read · **Zone Settings:Write** · DNS:Write · Workers Routes:Write · Email Routing Rules:Write |
 
-Then, under **Zone Resources**, *Include* the zone you deploy onto (or *All
-zones*). All fourteen are required: the primary black hole always captures mail,
-so the Email Routing permissions and Zone Settings are never optional at setup
-time.
+All fourteen are required: the primary black hole always captures mail, so the
+Email Routing permissions and Zone Settings are never optional at setup time.
 
-Cloudflare **split `Access: Apps and Policies` into two groups**, `Access: Apps`
-and `Access: Policies`. Grant both. Anything written before the split, this
-repo's own screenshots included, shows one combined row.
-
-**One optional fourteenth: `Cloudflare Pages:Edit`.** Nothing here creates a
-Pages project any more, since the dashboard became a Worker, so nothing needs it
-to install or to run. What it buys is one step of a takeover: with it, a
-confirmed takeover can **detach a Pages project's custom domain** when one holds
-a hostname a black hole needs, and a domain worth taking over very often has
-someone else's Pages site on it. Without it, that step stops and prints the
-dashboard click-path instead. Read-only is no use either way, because the detach
-is a write.
+Everything the CLI calls is account-scoped, including verification:
+`GET /accounts/<id>/tokens/verify`, never the user route. That is also why
+`setup` resolves the account id before it verifies anything, and why
+`deriveR2Credentials` can take the token id from the same reply to sign R2's S3
+API.
 
 Four traps account for almost every "permission is set but still denied":
-- **The operator email list needs `Account · Zero Trust:Edit`**, NOT Access: Apps
-  and Policies. Zero Trust lists live under the Gateway resource tree, so a token
-  that can write the Access application still cannot write the list its policy
-  points at.
-- **Enabling Email Routing needs `Zone · Zone Settings:Edit`**, NOT Email Routing
-  Rules. Missing it → `[10000] Authentication error` on the mail step.
-- **Zone Resources** must *include* the target zone (or All zones), or every zone
-  call fails the same way as a missing permission.
+- **The operator email list needs `Account · Zero Trust:Write`**, NOT Access:
+  Apps or Access: Policies. Zero Trust lists live under the Gateway resource
+  tree, so a token that can write the Access application still cannot write the
+  list its policy points at.
+- **Enabling Email Routing needs `Zone · Zone Settings:Write`**, NOT Email
+  Routing Rules. Missing it → `[10000] Authentication error` on the mail step.
+- **Policy 2 lists the zones it covers.** A zone that is not in it fails every
+  zone call the same way a missing permission does, so add a zone there before
+  adding it as a black hole.
 - A **freshly created/edited token takes ~a minute to propagate**; `setup`
   retries auth errors, but a long propagation just needs a re-run.
 
@@ -217,8 +211,9 @@ schema, domain bindings and the Access policy.
    - Look rows up by the **public** `key_id` and compare hashes in **constant
      time**; never key a query on something derived from the secret. D1
      unreachable answers **503, not 401**.
-   - Managing the list needs `Account · Zero Trust:Edit`, which is a *different*
-     permission from `Access: Apps:Edit` and `Access: Policies:Edit`.
+   - Managing the list needs `Account · Zero Trust:Write`, which is a
+     *different* permission from `Access: Apps:Write` and
+     `Access: Policies:Write`.
 
 9. **`.env` is the only state.** No lock file, no state file, nothing in a home
    dir. ("Lock file" here means a *deployment*-state file, Terraform-style. It
@@ -278,20 +273,24 @@ schema, domain bindings and the Access policy.
   Worker Custom Domain on a name that already has an address record it did not
   create (`[100117] ... externally managed DNS records`), and that is the normal
   state of a domain worth taking over. `ensureBlackHole` treats the refusal as a
-  step: it detaches the Worker or Pages custom domain holding the name, deletes
-  any plain DNS record left, then binds again. It asks the owning product first,
-  because deleting a Cloudflare-managed record behind its owner's back leaves
-  that product claiming a host it no longer serves. This runs only *after*
+  step: it detaches a Worker Custom Domain holding the name, deletes any plain
+  DNS record left, then binds again. It asks the owning worker first, because
+  deleting a Cloudflare-managed record behind its owner's back leaves that
+  product claiming a host it no longer serves. **A Worker is the only holder it
+  releases.** Anything else serving the name is reported as taken, with the
+  operator told to remove that association in the Cloudflare dashboard and run
+  again, because enumerating Cloudflare's products to guess the owner is a list
+  that goes stale and the fix is the same either way. This runs only *after*
   Cloudflare says the name is occupied, so a re-run never deletes anything, and
   only for the black hole, whose callers took a typed `TAKEOVER` naming those
   exact records. The derived hostnames get no such prompt, so they still report
   the conflict and skip. See [docs/decisions.md](docs/decisions.md#a-confirmed-takeover-clears-the-name-itself).
 - **Known Cloudflare permission traps** (documented in
   [docs/guides/getting-started.md#api-token](docs/guides/getting-started.md#api-token)):
-  - *Enabling* Email Routing needs **Zone · Zone Settings:Edit**, NOT Email
+  - *Enabling* Email Routing needs **Zone · Zone Settings:Write**, NOT Email
     Routing Rules (which only covers the catch-all rule). Missing it → `[10000]`.
-  - A Zone permission whose **Zone Resources** don't include the target zone
-    fails identically to a missing permission.
+  - A zone the token's zone policy does not cover fails identically to a missing
+    permission.
   - **Cloudflare Access requires Zero Trust to be activated once by hand**; the
     API can't do that first activation. A just-created Zero-Trust org isn't
     instantly usable, so `ensureAccess` polls it before creating the app.

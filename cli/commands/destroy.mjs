@@ -18,10 +18,8 @@ import { deriveR2Credentials, listR2ObjectKeys } from '../lib/r2s3.mjs';
 import { ACCESS_LIST_NAME } from '../lib/provision.mjs';
 
 /**
- * The workers this deployment owns, in .env order. The dashboard is one of them
- * now: it used to be a Pages project, which took a wholly separate teardown
- * (detach every custom domain, then retry the project delete until Cloudflare
- * stopped answering [8000028]).
+ * The workers this deployment owns, in .env order. The dashboard is one of them,
+ * so all four tear down the same way.
  */
 const WORKER_NAMES = (env) => [
   env.WORKER_NAME,
@@ -238,7 +236,7 @@ export async function run() {
       if (!exists) { skip(`R2 bucket ${bucket} does not exist`); continue; }
 
       // Empty it. Listing is S3; deletion is the v4 object API.
-      if (!r2creds) r2creds = await deriveR2Credentials(cf);
+      if (!r2creds) r2creds = await deriveR2Credentials(cf, accountId);
       const keys = await listR2ObjectKeys(accountId, bucket, r2creds);
       if (keys.length) {
         info(color.dim(`  emptying ${bucket}: ${keys.length} object${keys.length === 1 ? '' : 's'}`));

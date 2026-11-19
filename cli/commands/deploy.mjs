@@ -72,8 +72,7 @@ async function deployTarget(t, cf, accountId, env, failed) {
 
   // Every remaining target, the dashboard included, is a worker whose bindings
   // are declared in its own wrangler.toml.template. There is nothing to attach
-  // over the API before uploading, which is what the dashboard's old Pages
-  // branch existed to do.
+  // over the API before uploading.
   //
   // Autopilot has no secret to install either: it authenticates every call
   // against the D1 users table, so operator keys travel with the database and

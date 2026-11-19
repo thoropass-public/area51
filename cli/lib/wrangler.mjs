@@ -3,10 +3,9 @@
 // Routing, Access, SQL) goes through the REST API in cloudflare.mjs, because
 // those calls need to be inspectable and idempotent rather than interactive.
 //
-// It used to have a second path, `wrangler pages deploy`, for the dashboard.
-// That went away with the dashboard's Pages project: it is a Worker with static
-// assets now, so it renders a config from a template and uploads like the other
-// three.
+// All four targets take the same path: render a config from a template, then
+// upload. The dashboard is a Worker with static assets, so it is no different
+// from the other three.
 //
 // It used to install Worker secrets too. Nothing does anymore: Autopilot
 // authenticates against the D1 `users` table, so there is no secret to install
@@ -30,10 +29,9 @@ import { die, color, plain, trace, isVerbose, sym } from './log.mjs';
 /**
  * Worker targets: CLI name → directory + the .env keys its template needs.
  *
- * `dashboard` is in here on equal terms with the rest, which is the point of
- * the move off Pages. Its bindings used to live only in Cloudflare's API, be
- * PATCHed on by `setup`, and be repaired by `doctor --fix`; they are declared in
- * dashboard/wrangler.toml.template now and travel with the upload.
+ * `dashboard` is in here on equal terms with the rest. Its bindings are
+ * declared in dashboard/wrangler.toml.template and travel with the upload, so
+ * nothing has to patch them on afterwards.
  */
 export const WORKER_TARGETS = {
   'black-holes': {

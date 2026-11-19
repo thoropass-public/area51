@@ -54,8 +54,9 @@ capture anything at all, and a subdomain was never an alternative to it.
 Every add asks for confirmation, because Email Routing locks its MX for the whole
 zone. If records are actually going to be replaced they are listed by name and
 the gate becomes a typed `TAKEOVER`. Those records are then really replaced: a
-Pages project or Worker holding the hostname is detached from it, a plain DNS
-record is deleted, and the catcher is bound in its place.
+Worker holding the hostname is detached from it, a plain DNS record is deleted,
+and the catcher is bound in its place. Anything else serving the name is
+reported for you to detach yourself.
 
 The zone must be on the Cloudflare account the API token can see. DNS and the
 certificate take a minute or two.
@@ -315,7 +316,7 @@ the CLI runs on. If a device with that file is lost or stolen, assume the token 
 exposed, and assume any key that operator kept on it is too. Act immediately, in
 this order. None of these steps need the lost machine:
 
-1. **Revoke the Cloudflare API token.** Cloudflare dashboard → *My Profile → API
+1. **Revoke the Cloudflare API token.** Cloudflare dashboard → *Manage Account → API
    Tokens* → find the AREA 51 deploy token (named for the deployment, e.g.
    `AREA 51 deploy - <domain>`) → **Roll** or **Delete**. This instantly kills
    provisioning and deploy access. Mint a fresh token when you redeploy and put it

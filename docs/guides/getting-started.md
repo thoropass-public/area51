@@ -93,49 +93,35 @@ goes through the REST API.
 
 ### API token
 
-Create it at **My Profile → API Tokens → Create Token → Custom token**.
+AREA 51 authenticates with an **Account API token**. It belongs to the account
+rather than to a person, so it keeps working when whoever created it leaves, and
+every call the CLI makes is account-scoped, verification included.
+
+Create it at **Manage Account → API Tokens → Create Token**. You build a token
+as **policies**: pick the policy type, add its permissions, then choose the
+resources it covers. AREA 51 needs two, which is exactly the Account/Zone split
+in the table below. Grant the nine Account rows as policy 1 scoped to your
+account, and the five Zone rows as policy 2 scoped to the zones you deploy on.
 
 | Scope | Permission | Needed for |
 |---|---|---|
-| Account | **Workers Scripts** · Edit | deploying the four Workers (the dashboard is one of them) |
-| Account | **D1** · Edit | creating the database, applying the schema, all SQL the CLI runs |
-| Account | **Workers R2 Storage** · Edit | creating both buckets, deleting objects during a purge |
+| Account | **Workers Scripts** · Write | deploying the four Workers (the dashboard is one of them) |
+| Account | **D1** · Write | creating the database, applying the schema, all SQL the CLI runs |
+| Account | **Workers R2 Storage** · Write | creating both buckets, deleting objects during a purge |
 | Account | **Account Settings** · Read | discovering the account id |
-| Account | **Access: Apps** · Edit | the Access application in front of the dashboard |
-| Account | **Access: Policies** · Edit | the allow policy on that application. Cloudflare used to offer these two as one group called *Access: Apps and Policies*; older screenshots show it that way. Grant both |
-| Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organization and enabling one-time PIN login |
-| Account | **Zero Trust** · Edit | the operator email list the Access policy points at. Lists live under the Gateway/Zero Trust resource tree, *not* under Access: Apps or Access: Policies. See the note below. |
-| Account | **Email Routing Addresses** · Edit | registering the fallback inbox as a destination |
+| Account | **Access: Apps** · Write | the Access application in front of the dashboard |
+| Account | **Access: Policies** · Write | the allow policy on that application. Separate from *Access: Apps*; grant both |
+| Account | **Access: Organizations, Identity Providers, and Groups** · Write | creating the Zero Trust organization and enabling one-time PIN login |
+| Account | **Zero Trust** · Write | the operator email list the Access policy points at. Lists live under the Gateway/Zero Trust resource tree, *not* under Access: Apps or Access: Policies. See the note below. |
+| Account | **Email Routing Addresses** · Write | registering the fallback inbox as a destination |
 | Zone | **Zone** · Read | resolving hostnames to zones |
-| Zone | **Zone Settings** · Edit | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss; see the warning below. |
-| Zone | **DNS** · Edit | clearing an address record that is in the way of a confirmed takeover. Cloudflare writes the records for a Worker Custom Domain itself |
-| Zone | **Workers Routes** · Edit | binding the black hole, dashboard and Autopilot hostnames to their Workers |
-| Zone | **Email Routing Rules** · Edit | setting the catch-all rule that points inbound mail at the worker |
+| Zone | **Zone Settings** · Write | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss; see the warning below. |
+| Zone | **DNS** · Write | clearing an address record that is in the way of a confirmed takeover. Cloudflare writes the records for a Worker Custom Domain itself |
+| Zone | **Workers Routes** · Write | binding the black hole, dashboard and Autopilot hostnames to their Workers |
+| Zone | **Email Routing Rules** · Write | setting the catch-all rule that points inbound mail at the worker |
 
-That is **fourteen** permissions: nine Account-scoped, five Zone-scoped.
-
-### One optional extra
-
-| Scope | Permission | What it buys |
-|---|---|---|
-| Account | **Cloudflare Pages** · Edit | one step of a takeover |
-
-AREA 51 creates no Pages project of its own, since the dashboard has been a
-Worker since v1.1.0, so nothing needs this to install or to run. What it does is
-let a confirmed takeover detach a Pages project's custom domain when one is
-holding a hostname a black hole needs, and a domain worth taking over often has
-someone else's Pages site on it.
-
-Grant it and the takeover finishes by itself. Withhold it and that one step
-stops, reports the conflict as a follow-up with the exact click-path, and the
-run carries on at exit `2`. Detach the domain by hand, re-run, and you are in
-the same place. Read-only is no use either way: the detach is a write.
-
-If you are creating an **Account API token** rather than a user one, the same
-fourteen apply, but you build them as two policies instead of one flat list: an
-Account policy holding the nine account permissions, and a Zone policy holding
-the five, scoped to the zones you deploy on. An account token is owned by the
-account rather than by a person, so it survives that person leaving.
+That is **fourteen** permissions: nine in the account policy, five in the zone
+policy.
 
 > **The Email Routing trap.** *Enabling* Email Routing lives under **Zone
 > Settings**, not **Email Routing Rules**. Email Routing Rules only covers the
@@ -245,7 +231,7 @@ Verifies the token (`GET /user/tokens/verify`), lists accounts, and if the
 token can see more than one, asks which to use. Writes `CLOUDFLARE_ACCOUNT_ID`
 back to `.env`.
 
-*Manual equivalent:* copy the account id from any Workers & Pages project's right
+*Manual equivalent:* copy the account id from the Cloudflare dashboard's right
 sidebar into `.env`.
 
 ### 2. Zone, and the takeover confirmation
@@ -270,11 +256,11 @@ deliberate typing. On a clean burner zone it is an ordinary y/N.
 be lost, then stops without asking for consent, which makes it the safe way to
 inspect a zone before committing to it.
 
-Once you consent, the apex is really cleared. If a Pages project or another
-Worker on this account holds the record, setup detaches the hostname from that
-product. If it is a plain DNS record, setup deletes it. Then it binds the
-catcher. Anything setup could not release is listed in the follow-ups, with the
-dashboard click-path for it.
+Once you consent, the apex is really cleared. If another Worker on this account
+holds the record, setup detaches the hostname from it. If it is a plain DNS
+record, setup deletes it. Then it binds the catcher. Anything else serving the
+name is reported as taken, with the dashboard click-path, for you to remove and
+run again.
 
 If `area51.<zone>` or `autopilot.<zone>` already holds a DNS record that is not
 part of this deployment, setup names the record, skips that hostname's own steps
@@ -376,10 +362,7 @@ Its D1 and R2 bindings (`DB`, `EML`, `FILES`) are declared in
 `dashboard/wrangler.toml.template` and travel with the upload, so there is
 nothing to attach over the API and no ordering to get right.
 
-This step was considerably larger when the dashboard was a Pages project. A bare
-create, a bindings `PATCH` onto two deployment configs, an upload, a possible
-re-patch-and-re-upload, then a custom domain plus a hand-managed CNAME pointing at
-a subdomain Cloudflare may have suffixed. See
+See
 [decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project) for
 what each of those was working around.
 
@@ -407,13 +390,10 @@ Add → Custom Domain → the dashboard hostname.
   it answers on, and guarding it guards everything. (The API's `destinations`
   array replaced the deprecated `self_hosted_domains`.)
 
-  This is the reason the dashboard is a Worker. A Cloudflare Pages site is
-  reachable at its custom domain **and** `<project>.pages.dev` **and** every
-  preview deployment (`main.<project>.pages.dev`, `<hash>.<project>.pages.dev`).
-  Access is enforced per hostname, so covering only the custom domain left those
-  an **unauthenticated bypass** straight into every captured request and email.
-  The dashboard Worker answers on one name, so the list has one entry and there
-  is nothing extra to forget.
+  Access is enforced per hostname, so any name the dashboard answers on and the
+  application does not list would be an **unauthenticated bypass** straight into
+  every captured request and email. One name means one entry and nothing extra
+  to forget.
 
 *Manual equivalent:* Zero Trust → Access → Applications → *Add an application* →
 Self-hosted → add the dashboard hostname as a public hostname destination →

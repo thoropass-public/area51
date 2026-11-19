@@ -89,7 +89,7 @@ derived value without prompting.
 
 The takeover confirmation escalates to a typed `TAKEOVER` when the zone already
 has MX or apex records, so hijacking a domain in use cannot happen on a reflexive
-Enter. Once confirmed, the apex is really cleared. A Pages project or Worker
+Enter. Once confirmed, the apex is really cleared. A Worker
 holding that hostname is detached from it, a plain DNS record is deleted, and
 then the catcher is bound.
 
@@ -223,9 +223,9 @@ destructive part:
 - Records that will actually be replaced are listed by name and the gate becomes
   a typed `TAKEOVER` rather than a y/N.
 - Records listed there are then really replaced. Whatever holds the hostname is
-  released first: a Pages project or Worker is detached from it, and a plain DNS
-  record is deleted. Anything that could not be released comes back as a
-  follow-up naming it.
+  released first: a Worker is detached from it, and a plain DNS record is
+  deleted. Anything else serving the name comes back as a follow-up saying so,
+  for you to remove in the Cloudflare dashboard before running again.
 
 No redeploy needed: the next page load and the next agent call pick the host up.
 DNS and the certificate take a minute.

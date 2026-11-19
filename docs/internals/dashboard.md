@@ -3,12 +3,10 @@
 A Worker with static assets, deployed from `dashboard/`. This is what an operator
 opens in a browser: configure endpoints, read captures, manage blacklists.
 
-It was a Cloudflare Pages project with Pages Functions until v1.1.0. The move was
-about hostnames, not hosting: a Pages project answers on its custom domain *and*
-`<project>.pages.dev` *and* every `*.pages.dev` preview, all of which Cloudflare
-Access had to be told to guard separately or leave open. This Worker sets
-`workers_dev = false` and `preview_urls = false`, so it answers on exactly one
-name. See [decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project).
+It answers on exactly one hostname. The Worker sets `workers_dev = false` and
+`preview_urls = false`, so there is no second name and no preview URL, which is
+what lets Cloudflare Access guard the whole thing with a single destination. See
+[decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project).
 
 ## No build step
 
@@ -511,9 +509,7 @@ node dashboard/src/router.test.mjs   # after touching router.js or the ROUTES ta
 `deploy dashboard` renders `wrangler.toml` from the template plus `.env` and runs
 `wrangler deploy`, exactly like the other three workers. The D1 and R2 bindings
 are declared in the template, so they travel with the upload; there is nothing to
-attach over the API first. (As a Pages project they lived only in Cloudflare's
-API, had to be `PATCH`ed onto both the production and preview configs before the
-first upload, and were re-asserted on every deploy to repair hand edits.)
+attach over the API first.
 
 Because there is no build step, editing a `.jsx` file and redeploying is the whole
 loop. There is no local server, and an upload takes a few seconds. Hard-refresh

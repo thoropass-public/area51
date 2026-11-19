@@ -12,39 +12,26 @@ looks like in the Cloudflare dashboard. Use it to eyeball that everything landed
 
 ## API token
 
-Everything below was provisioned by a single **Custom token** (My Profile → API
-Tokens → Create Token). A correct token carries exactly these **fourteen**
-permissions: nine Account-scoped, five Zone-scoped.
+Everything below was provisioned by a single **Account API token**
+(Manage Account → API Tokens → Create Token). A correct token carries
+**fourteen** permissions in two policies.
 
-- **Account** · Workers Scripts, D1, Workers R2 Storage, Access: Apps,
-  Access: Policies, Access: Organizations Identity Providers and Groups,
-  Email Routing Addresses, Zero Trust, all **Edit**; Account Settings, **Read**.
-- **Zone** · Zone Settings, DNS, Workers Routes, Email Routing Rules, all
-  **Edit**; Zone, **Read**.
+**Policy 1, scoped to the account.** Workers Scripts, D1, Workers R2 Storage,
+Access: Apps, Access: Policies, Access: Organizations Identity Providers and
+Groups, Email Routing Addresses, Zero Trust, all **Write**; Account Settings,
+**Read**.
 
-*Cloudflare Pages · Edit* is **optional** and is not in the list above. Nothing
-here creates a Pages project. With it, a confirmed takeover can detach a Pages
-project's custom domain when one holds a hostname a black hole needs; without
-it, that step prints the click-path for you to do by hand
-([getting-started](getting-started.md#api-token)).
+**Policy 2, scoped to the zones you deploy on.** Zone Settings, DNS, Workers
+Routes, Email Routing Rules, all **Write**; Zone, **Read**.
 
-![Cloudflare API token permissions](../../.github/assets/cf-token-permissions.png)
-
-> The screenshot predates two changes and is kept because the rest of it is
-> still accurate. It shows *Cloudflare Pages*, which is optional now, and one
-> combined *Access: Apps and Policies* row, which Cloudflare has since split
-> into *Access: Apps* and *Access: Policies*. The list above is current.
-
+A zone that is not listed in policy 2 fails every zone call the same way a
+missing permission does, so add a zone there before you add it as a black hole.
 
 ---
 
-## Workers & Pages
+## Workers
 
-All four Workers, deployed. There is no Pages project: the dashboard has been a
-Worker with static assets since v1.1.0
-([why](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project)).
-
-![Workers & Pages overview](../../.github/assets/workers-and-pages.png)
+All four Workers, deployed:
 
 - **area51-black-holes** is the public catcher (HTTP + email).
 - **area51-autopilot** is the agent-facing REST + MCP server, on its own hostname.
@@ -54,9 +41,7 @@ Worker with static assets since v1.1.0
   URLs, because its config sets `workers_dev = false` and `preview_urls = false`.
   One hostname is the whole point: it is the only thing Access has to guard.
 
-> **The screenshots predate v1.1.0** and still show the dashboard as a Pages
-> project. Trust the text for names and hostnames, the images for layout.
-
+Cloudflare lists all four under **Workers & Pages** in the dashboard sidebar.
 
 ---
 
@@ -118,9 +103,9 @@ One public hostname destination: `area51.<zone>`, the dashboard's Custom Domain.
 ![Access destinations](../../.github/assets/access-destinations.png)
 
 One name is all the Worker answers on, so one destination is all Access has to
-guard. If you see more than one here, you are mid-upgrade from v1.0.x and the old
-Pages project is still live; [upgrading](upgrading.md) covers what to do and why
-the extra entries are correct until it is gone.
+guard. If you see more than one, something added it: AREA 51 never removes a
+destination it did not add, so take the extra ones off here when nothing needs
+them.
 
 ### Preview
 

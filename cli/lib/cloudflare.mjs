@@ -47,8 +47,8 @@ export function isAlreadyExists(err) {
  *
  * This is not a permission error and not a transient one, so it must not be
  * treated as either. The name has to be freed before the bind can work. Any
- * address record Cloudflare did not create for this Worker counts, including
- * one that belongs to a Pages project or to another Worker.
+ * address record Cloudflare did not create for this Worker counts, whatever
+ * put it there.
  */
 export function isHostnameOccupied(err) {
   if (!(err instanceof CloudflareError)) return false;
@@ -66,10 +66,10 @@ export function isAuthError(err) {
 
 /**
  * True if the endpoint rejected the pagination parameters themselves, rather
- * than failing for a real reason. Not every Cloudflare list endpoint is paged.
- * Pages custom domains answers `[8000024] Invalid list options provided` to a
- * `page`/`per_page` query, and those lists are single-page by nature. `getAll`
- * uses this to retry unpaged instead of failing.
+ * than failing for a real reason. Not every Cloudflare list endpoint is paged:
+ * some answer `[8000024] Invalid list options provided` to a `page`/`per_page`
+ * query because the list is single-page by nature. `getAll` uses this to retry
+ * unpaged instead of failing.
  */
 function isUnpagedListEndpoint(err) {
   if (!(err instanceof CloudflareError)) return false;
@@ -238,8 +238,19 @@ export class Cloudflare {
   // ── identity ───────────────────────────────────────────────────────────────
 
   /** Verify the token is active. Returns { id, status }. */
-  verifyToken() {
-    return this.get('/user/tokens/verify');
+  /**
+   * Check that the token is live, and read back its id.
+   *
+   * Account-scoped, because AREA 51 authenticates with an Account API token.
+   * Such a token belongs to the account rather than to a person, so the
+   * user-scoped verify route rejects it outright.
+   *
+   * The `id` in the reply is not only a health signal: `deriveR2Credentials`
+   * uses it as the access key id for R2's S3 API, so this call is on the path
+   * of every R2 object operation the CLI makes.
+   */
+  verifyToken(accountId) {
+    return this.get(`/accounts/${accountId}/tokens/verify`);
   }
 
   listAccounts() {
@@ -327,30 +338,7 @@ export class Cloudflare {
     return this.delete(`/accounts/${accountId}/workers/domains/${domainId}`);
   }
 
-  // ── Pages ──────────────────────────────────────────────────────────────────
-  //
-  // AREA 51 does not create Pages projects any more. The dashboard is a Worker
-  // with static assets. What survives here is what `releaseHostname` needs: a
-  // hostname worth taking over is very often held by a Pages project, including
-  // this dashboard's own on any deployment built before the move.
 
-  /**
-   * Every Pages project on the account. Each one carries its own `domains`
-   * array, so working out which project holds a hostname takes this one call
-   * instead of a domains lookup per project.
-   */
-  listPagesProjects(accountId) {
-    return this.getAll(`/accounts/${accountId}/pages/projects`);
-  }
-
-  /**
-   * Detach a custom domain from a Pages project. Cloudflare manages the DNS
-   * record for such a domain, so this removes the record too, which is why the
-   * owning product is asked to give the name up before any DNS is touched.
-   */
-  deletePagesDomain(accountId, name, domain) {
-    return this.delete(`/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/domains/${encodeURIComponent(domain)}`);
-  }
 
   // ── DNS ────────────────────────────────────────────────────────────────────
 

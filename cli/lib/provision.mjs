@@ -148,9 +148,9 @@ export function describeTakeover(takeover) {
  * `isOurs` is what makes this safe to run on an existing deployment. Setup
  * derives both hostnames from the zone and never prompts, so without an
  * ownership test the check would refuse every re-run: the second run always
- * finds the record the first one created. Ownership is asked of the Workers /
- * Pages APIs rather than inferred from DNS, because those are authoritative
- * about what this deployment owns.
+ * finds the record the first one created. Ownership is asked of the Workers API
+ * rather than inferred from DNS, because that is authoritative about what this
+ * deployment owns.
  */
 export async function findHostnameConflict(cf, zone, hostname, isOurs) {
   try {
@@ -364,7 +364,7 @@ export async function ensureBlackHole(cf, accountId, opts) {
  * Cloudflare refuses the bind with `[100117] ... already has externally managed
  * DNS records` whenever an address record it did not create for this Worker sits
  * at the name. That is the normal state of a domain worth taking over: a parked
- * A record, or a CNAME left behind by a Pages project or another Worker.
+ * A record, or a CNAME left behind by whatever served the domain before.
  *
  * Both callers of `ensureBlackHole` list those exact records back to the
  * operator and gate on a typed TAKEOVER first, and the setup banner says
@@ -401,9 +401,9 @@ async function attachBlackHoleDomain(cf, accountId, { hostname, workerName, zone
 
   const leftovers = await releaseHostname(cf, accountId, zone, hostname, workerName);
 
-  // A release can take a moment to register, a detached Pages custom domain
-  // especially, and until it does Cloudflare answers the same [100117]. Two
-  // short retries keep this to one command instead of asking for a re-run.
+  // A release can take a moment to register, and until it does Cloudflare
+  // answers the same [100117]. Two short retries keep this to one command
+  // instead of asking for a re-run.
   for (let attempt = 0; ; attempt++) {
     try {
       await attach();
@@ -426,13 +426,17 @@ async function attachBlackHoleDomain(cf, accountId, { hostname, workerName, zone
  * the bind still fails. "[100117] externally managed DNS records" on its own
  * does not tell an operator which product to go and click.
  *
- * The order is deliberate: ask each product to give the name up BEFORE touching
- * DNS, then sweep whatever address records are left. Cloudflare manages the DNS
- * record it creates for a Pages custom domain or a Worker Custom Domain, so
- * deleting that record behind its owner's back leaves the owner still claiming a
- * hostname it no longer serves, and the DNS API does not reliably allow it
- * anyway. Step 3 is for records nobody manages: a parked A record, a CNAME to a
- * foreign host, or a leftover from an account this token cannot see.
+ * The order is deliberate: ask the owning product to give the name up BEFORE
+ * touching DNS, then sweep whatever address records are left. Cloudflare manages
+ * the DNS record it creates for a Worker Custom Domain, so deleting that record
+ * behind its owner's back leaves the owner still claiming a hostname it no
+ * longer serves, and the DNS API does not reliably allow it anyway. Step 2 is
+ * for records nobody manages: a parked A record, a CNAME to a foreign host, or a
+ * leftover from a product or account this tool knows nothing about.
+ *
+ * Only a Worker is released automatically, because a Worker is the only holder
+ * AREA 51 has any business touching. Anything else that owns the name is
+ * reported and left alone for the operator to detach.
  */
 async function releaseHostname(cf, accountId, zone, hostname, keepService) {
   const leftovers = [];
@@ -456,36 +460,9 @@ async function releaseHostname(cf, accountId, zone, hostname, keepService) {
     leftovers.push(`could not list this account's Worker Custom Domains (${err.message}).`);
   }
 
-  // 2. A Pages project's custom domain, the usual holder on a zone that used to
-  //    serve a site. Detaching it removes Cloudflare's managed CNAME too.
-  try {
-    const projects = (await cf.listPagesProjects(accountId)) || [];
-    for (const p of projects.filter((p) => (p.domains || []).includes(hostname))) {
-      try {
-        await cf.deletePagesDomain(accountId, p.name, hostname);
-        ok(`released ${hostname} from the Pages project ${color.bold(p.name)}`);
-      } catch (err) {
-        leftovers.push(
-          `${hostname} is still a custom domain on the Pages project ${p.name} (${err.message}).\n` +
-          `Detach it: dashboard → Workers & Pages → ${p.name} → Custom domains.`,
-        );
-      }
-    }
-  } catch (err) {
-    // `Cloudflare Pages:Edit` is optional on the token, so this is the expected
-    // path for a deployment that chose not to grant it. Say that, rather than
-    // reporting a permission the operator deliberately withheld as a fault.
-    leftovers.push(
-      `could not check this account's Pages projects (${err.message}).\n` +
-      'That is expected without the optional `Cloudflare Pages:Edit`. If a Pages\n' +
-      `project holds ${hostname}, detach it by hand: dashboard → Workers & Pages\n` +
-      '→ the project → Custom domains.',
-    );
-  }
-
-  // 3. Whatever address record is left. Re-read rather than reuse a listing from
-  //    before the two detaches above: they delete records of their own, and
-  //    deleting one twice reads as a failure that isn't one.
+  // 2. Whatever address record is left. Re-read rather than reuse a listing from
+  //    before the detach above: it deletes records of its own, and deleting one
+  //    twice reads as a failure that isn't one.
   let records = [];
   try {
     records = (await cf.listDnsRecordsByName(zone.id, hostname))
@@ -752,22 +729,21 @@ export async function ensureWorkerHostname(cf, accountId, { hostname, workerName
   } catch (err) {
     if (isHostnameOccupied(err)) {
       // Cloudflare will not put a Custom Domain on a name that already has an
-      // address record it did not create for this Worker. The holder is named
-      // rather than guessed at, because "[100117] externally managed DNS
-      // records" on its own does not tell anyone which product to go and click.
-      // A Pages project is called out first: it is what held this name on every
-      // AREA 51 deployment built before the dashboard became a Worker.
+      // address record it did not create for this Worker. What AREA 51 can say
+      // is that the name is taken and that it could not free it, because
+      // "[100117] externally managed DNS records" on its own tells an operator
+      // nothing. What it does NOT do is enumerate Cloudflare's products looking
+      // for the owner. That list goes stale, and the fix is the same whoever
+      // holds it: find the thing, remove its claim on the name, run this again.
       degraded(
         followUps,
-        `${hostname} is already held by something else, so it was not bound to ${workerName}`,
+        `${hostname} looks like it is already taken, so it was not bound to ${workerName}`,
         [
-          `Free the name, then re-run \`./a51 setup\`. Whatever holds it is one of:`,
-          `  • a Cloudflare Pages project, including this dashboard's own, if this`,
-          `    deployment predates the move to a Worker: dashboard → Workers & Pages`,
-          `    → <project> → Custom domains → remove ${hostname} (then delete the`,
-          `    project once the Worker serves the name).`,
-          `  • a Custom Domain on another Worker: dashboard → Workers & Pages →`,
-          `    <worker> → Settings → Domains & Routes.`,
+          `Something else is serving this hostname and AREA 51 could not release it.`,
+          `Find what owns it in the Cloudflare dashboard, remove that association,`,
+          `then re-run \`./a51 setup\`. Two places worth checking first:`,
+          `  • another Worker: dashboard → Workers & Pages → <worker> → Settings`,
+          `    → Domains & Routes.`,
           `  • a plain DNS record: dashboard → ${zone.name} → DNS → Records.`,
         ].join('\n'),
       );
@@ -853,62 +829,26 @@ export async function ensureAccessList(cf, accountId, { listId = '', adopt = '' 
 }
 
 /**
- * The Pages project still holding `hostname`, or null.
+ * Destinations already on the Access application that this tool did not put
+ * there, carried across so a write never narrows what the application guards.
  *
- * Only one thing creates this situation: a deployment built before the
- * dashboard became a Worker, whose project has not been deleted yet. It matters
- * because that project is still bound to D1 and both R2 buckets and still
- * answers on its own pages.dev names, so Cloudflare Access has to keep covering
- * it for exactly as long as it exists.
+ * Writing the application is a full PUT, so every destination is restated on
+ * every run and anything left out is deleted. AREA 51 knows about exactly one
+ * hostname, the dashboard's. Anything else on the list was added by an operator
+ * to guard something, and dropping it is a decision rather than a default: the
+ * one direction this can be wrong in is the one that leaves a live host
+ * unauthenticated.
  *
- * A failure here returns null rather than throwing: this runs inside the step
- * that puts Access in place, and a Pages listing that cannot be read is not a
- * reason to leave the dashboard unprotected. `leftoverPagesNames` covers the
- * gap from the other side.
+ * So extra destinations survive until somebody removes them from the Access
+ * application by hand, which is where they came from.
  */
-async function findPagesHolder(cf, accountId, hostname) {
-  try {
-    const projects = (await cf.listPagesProjects(accountId)) || [];
-    return { project: projects.find((p) => (p.domains || []).includes(hostname)) || null, checked: true };
-  } catch {
-    return { project: null, checked: false };
-  }
-}
-
-/**
- * Every pages.dev name that must stay in the Access destinations: the leftover
- * project's own (apex + wildcard, because a wildcard does not match the apex),
- * plus any already on the live application.
- *
- * The second source is what makes this safe when the first one fails. An entry
- * that is on the application is there because some earlier run put it there to
- * guard something, and this is a full PUT: dropping it is a decision, not a
- * default, and it is not one to take on the strength of a listing that errored.
- */
-function leftoverPagesNames(stale, existing, checked) {
+function carriedOverDestinations(existing, hostname) {
   const names = new Set();
-  if (stale && stale.subdomain) {
-    names.add(stale.subdomain);
-    names.add(`*.${stale.subdomain}`);
-  }
-
-  // Entries already on the application are carried across ONLY when the Pages
-  // listing could not be read. That condition is the whole of it, and leaving it
-  // out was a bug: without it an entry on the application kept re-adding itself
-  // every run, so the destinations never narrowed after the project was deleted
-  // and an operator was left staring at guards for a host that no longer exists.
-  //
-  // With the listing read and no project holding the hostname, there is nothing
-  // to guard and the extra entries go. With the listing unreadable, dropping
-  // them would be a guess in the one direction that can expose data, so they
-  // stay and `ensureAccess` says why.
-  if (!checked) {
-    for (const d of (existing && existing.destinations) || []) {
-      const uri = d && d.uri;
-      if (!uri) continue;
-      const host = String(uri).replace(/^https?:\/\//, '').replace(/^\*\./, '').replace(/\/.*$/, '');
-      if (/(^|\.)pages\.dev$/i.test(host)) names.add(uri);
-    }
+  for (const d of (existing && existing.destinations) || []) {
+    const uri = d && d.uri;
+    if (!uri) continue;
+    if (String(uri).replace(/^https?:\/\//, '').replace(/\/.*$/, '') === hostname) continue;
+    names.add(uri);
   }
   return [...names];
 }
@@ -992,45 +932,15 @@ export async function ensureAccess(cf, accountId, opts) {
   // 3. The destinations to guard, derived from what this dashboard is actually
   // reachable at rather than from what it ought to be reachable at.
   //
-  // On a finished deployment that is exactly ONE name, and it is the whole
-  // reason the dashboard is a Worker rather than a Pages project. A Pages
-  // project answers on its custom domain AND `<project>.pages.dev` AND every
-  // preview deployment under `*.<project>.pages.dev`; Access is enforced per
-  // hostname, so an application listing only the custom domain left those an
-  // UNAUTHENTICATED BYPASS onto every captured request and email. The dashboard
-  // Worker sets `workers_dev = false` and `preview_urls = false`, so
-  // DASHBOARD_HOSTNAME is the only name it answers on.
+  // DASHBOARD_HOSTNAME is the only name the dashboard answers on, and that is
+  // why the application needs exactly one destination. The dashboard Worker sets
+  // `workers_dev = false` and `preview_urls = false`, so there is no second name
+  // to guard and no preview URL to forget about. Access is enforced per
+  // hostname, so any name a deployment answers on and the application does not
+  // list is an unauthenticated way in.
   //
-  // The exception is the one moment both products exist: an upgrade from the
-  // Pages era, before the old project has been deleted. It is still deployed and
-  // still bound to D1 and both R2 buckets, so it still serves the entire API on
-  // its pages.dev names. Writing this application is a full PUT, so narrowing
-  // the list to the Worker's hostname would DELETE the entries that were
-  // guarding them, and leave the deployment worse off than before the upgrade:
-  // shut on the name the operator checks, open on the two they have stopped
-  // thinking about.
-  //
-  // So a leftover project keeps its names guarded, and the extra entries fall
-  // away by themselves once it is gone, which is the only state in which one
-  // destination is the whole truth. The list itself is assembled further down,
-  // where the live application has been read and its own entries can be carried
-  // across.
-  const pages = await findPagesHolder(cf, accountId, hostname);
-  const stale = pages.project;
-  if (stale) {
-    degraded(
-      followUps,
-      `the Pages project ${stale.name} still serves this dashboard, so Access still has to guard it`,
-      [
-        `Retire it, and this resolves itself on the next run:`,
-        `  1. dashboard → Workers & Pages → ${stale.name} → Custom domains → remove ${hostname}`,
-        `  2. re-run \`./a51 setup\` so the worker takes the hostname`,
-        `  3. dashboard → Workers & Pages → ${stale.name} → Settings → Delete project`,
-        `Until step 3 that project still holds the D1 and R2 bindings, and still serves`,
-        `every captured request and email on its own pages.dev names.`,
-      ].join('\n'),
-    );
-  }
+  // Anything else already on the application is carried across rather than
+  // dropped, because this write is a full PUT. See `carriedOverDestinations`.
 
   // 4. The policy.
   //
@@ -1074,13 +984,11 @@ export async function ensureAccess(cf, accountId, opts) {
     const apps = (await cf.listAccessApps(accountId)) || [];
     const existing = apps.find((a) => (a.domain || '').replace(/\/$/, '') === hostname);
 
-    // Assembled here because it depends on the live application. `stale` is the
-    // primary source, but the Pages listing it needs is allowed to fail quietly
-    // (a token without Cloudflare Pages:Edit, say), so a pages.dev entry already
-    // on the application is carried across too. Between them, a list that gets
-    // NARROWER than the surface it guards takes two independent failures.
+    // Assembled here because it depends on the live application: the dashboard
+    // hostname, plus whatever else is already listed, so a run can only ever
+    // widen what Access guards.
     const destinations = [{ type: 'public', uri: hostname }];
-    for (const uri of leftoverPagesNames(stale, existing, pages.checked)) destinations.push({ type: 'public', uri });
+    for (const uri of carriedOverDestinations(existing, hostname)) destinations.push({ type: 'public', uri });
 
     const body = {
       name: 'AREA 51 dashboard',
@@ -1102,7 +1010,7 @@ export async function ensureAccess(cf, accountId, opts) {
       ok(`Access application protects ${color.bold(hostname)} (${gate})`);
     }
     if (destinations.length > 1) {
-      warn(`Access also guards ${destinations.slice(1).map((d) => d.uri).join(', ')}, because a Pages project still serves this dashboard (see follow-ups)`);
+      warn(`Access also guards ${destinations.slice(1).map((d) => d.uri).join(', ')}, which were already on the application. Remove them there if nothing needs them`);
     }
     info(color.dim(operatorCount > 0
       ? `allow-list: the "${ACCESS_LIST_NAME}" list (${listId})`

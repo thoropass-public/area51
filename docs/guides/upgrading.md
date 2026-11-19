@@ -2,6 +2,61 @@
 
 One page per upgrade that needs more than `git pull && ./a51 deploy all`.
 
+## v1.2.0 → v1.3.0
+
+**You need a new API token.** This is the whole upgrade, and nothing works until
+it is done. Your captured data is untouched and no hostname changes.
+
+AREA 51 authenticates with an **Account API token** now. Every call it makes is
+account-scoped, verification included, and the two kinds of token are not
+interchangeable: a token made under My Profile is rejected with
+`[1000] Invalid API Token`, which is what `./a51 doctor` will tell you the
+moment you pull this version.
+
+An account token belongs to the account rather than to a person, so it keeps
+working when whoever created it leaves.
+
+### 1. Create it
+
+Cloudflare dashboard → **Manage Account → API Tokens → Create Token**. Build two
+policies, listed in full in
+[getting-started](getting-started.md#api-token):
+
+- **Policy 1, the account:** Workers Scripts, D1, Workers R2 Storage,
+  Access: Apps, Access: Policies, Access: Organizations Identity Providers and
+  Groups, Email Routing Addresses, Zero Trust, all **Write**; Account Settings,
+  **Read**.
+- **Policy 2, the zones you deploy on:** Zone Settings, DNS, Workers Routes,
+  Email Routing Rules, all **Write**; Zone, **Read**.
+
+List every zone you run a black hole on in policy 2. A zone missing from it
+fails every call the same way a missing permission does.
+
+**Do not grant Cloudflare Pages.** It is no longer used for anything.
+
+### 2. Swap it
+
+Replace `CLOUDFLARE_API_TOKEN` in `.env` with the new value, then:
+
+```
+./a51 doctor
+```
+
+A green run means the swap is done. Nothing is redeployed and nothing in
+Cloudflare changes.
+
+### 3. Revoke the old one
+
+Once `doctor` passes, delete the old token at **My Profile → API Tokens**. It
+still has every permission it ever had until you do.
+
+### What else changed
+
+Nothing a token can see. The takeover path no longer detaches a Pages project's
+custom domain for you: a hostname held by anything other than a Worker on this
+account is reported as taken, with the dashboard click-path, for you to free and
+run again.
+
 ## v1.1.0 → v1.2.0
 
 **Your captured data is not touched by this upgrade.** It changes one schema

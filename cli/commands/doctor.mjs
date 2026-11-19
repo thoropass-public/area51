@@ -91,7 +91,7 @@ export async function run(args) {
   // deliberately bogus key rather than a real one.
 
   try {
-    const token = await cf.verifyToken();
+    const token = await cf.verifyToken(accountId);
     if (token && token.status === 'active') r.ok('API token is active');
     else r.fail(`API token status is "${token && token.status}"`, 'Create a new token and update CLOUDFLARE_API_TOKEN in .env.');
   } catch (err) {
@@ -178,10 +178,8 @@ export async function run(args) {
     // payload a human uploaded.
     { target: 'cleanup', label: 'Cleanup', name: env.CLEANUP_WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
     // The dashboard writes the FILES bucket, and nothing else does, so it needs
-    // the binding the other two are forbidden. As a Pages project it
-    // could not be checked here at all: its bindings lived in the Pages API, on
-    // two separate deployment configs, and verifying them took a bespoke check
-    // of its own.
+    // the binding the other two are forbidden. Its bindings are declared in its
+    // own wrangler.toml.template, so they are checked exactly like the rest.
     { target: 'dashboard', label: 'Dashboard', name: env.DASHBOARD_WORKER_NAME, bindings: ['DB', 'EML', 'FILES'], forbidden: [] },
   ];
   for (const check of WORKER_CHECKS) {
@@ -364,12 +362,6 @@ export async function run(args) {
   // The worker and its bindings were checked with the other three above. All
   // that is left is the hostname, and Cloudflare manages the DNS record behind a
   // Custom Domain, so there is no record to verify separately.
-  //
-  // Four checks used to live here and went with the Pages project: bindings on
-  // the production config, bindings on the preview config, `production_branch ==
-  // main` (a Pages deploy silently lands as a preview otherwise), and whether the
-  // dashboard CNAME pointed at the project's real *.pages.dev subdomain, which
-  // Cloudflare suffixes on a global name collision.
   section('Dashboard');
   if (env.DASHBOARD_WORKER_NAME && env.DASHBOARD_HOSTNAME) {
     try {
@@ -379,7 +371,7 @@ export async function run(args) {
       } else {
         r.fail(
           `${env.DASHBOARD_HOSTNAME} is not a Custom Domain on ${env.DASHBOARD_WORKER_NAME}`,
-          'Run `./a51 setup` to bind it. If setup reports the name as occupied, something else still holds it, most likely a Pages project from before the dashboard became a worker.',
+          'Run `./a51 setup` to bind it. If setup reports the name as occupied, something else is serving that hostname: find it in the Cloudflare dashboard, remove its claim on the name, and run setup again.',
         );
       }
     } catch (err) {
@@ -491,13 +483,10 @@ export async function run(args) {
         }
       }
 
-      // There is deliberately no *.pages.dev bypass check here any more. A Pages
-      // project answered on its custom domain AND <project>.pages.dev AND every
-      // *.pages.dev preview deployment, so this file used to assert the Access
-      // app listed all three and FAILED the deployment if either extra one went
-      // missing. The dashboard worker sets workers_dev = false and
-      // preview_urls = false, so DASHBOARD_HOSTNAME is the only name it answers
-      // on. There is no second URL that could be left unauthenticated.
+      // One hostname is checked because one hostname is all there is. The
+      // dashboard worker sets workers_dev = false and preview_urls = false, so
+      // DASHBOARD_HOSTNAME is the only name it answers on and there is no
+      // second URL that could be left unauthenticated.
     }
   } catch (err) {
     r.warn(`could not check Cloudflare Access: ${err.message}`, 'The token needs Account · Access: Apps:Edit and Access: Policies:Edit to read this.');

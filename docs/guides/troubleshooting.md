@@ -31,7 +31,7 @@ it. What each check actually asserts is documented in
 | `could not create R2 bucket …` | R2 is not enabled on the account | Dashboard → R2 → *Get started*, then re-run |
 | `wrangler is not installed` | Dependencies were never installed | `npm install` at the repository root |
 | `could not create a Zero Trust organization` | Team names are globally unique and yours is taken | Set `ACCESS_TEAM_NAME` in `.env`, run `./a51 users sync` |
-| `could not bind <host> to area51-black-holes: [100117] … already has externally managed DNS records` | Something else holds the hostname: a Pages project, another Worker, or a plain A/CNAME record | Fixed. A confirmed takeover now releases the name (detaching the Pages or Worker custom domain, else deleting the record) and binds again. If the follow-up still names a holder, detach it in the dashboard and re-run |
+| `could not bind <host> to area51-black-holes: [100117] … already has externally managed DNS records` | Something else holds the hostname: another Worker, or a plain A/CNAME record | A confirmed takeover releases the name, detaching a Worker Custom Domain or deleting a plain record, and binds again. If it reports the name as taken, something else is serving it: remove that association in the Cloudflare dashboard and re-run |
 | A command finishes with `Needs a human (n)` and exit code 2 | Some steps could not complete | Each entry prints the dashboard click-path; fix and re-run `./a51 setup` |
 | `unsubstituted placeholders in …wrangler.toml.template` | A template references a value not declared for that target | Add the key to the target's `vars` list in `cli/lib/wrangler.mjs` |
 
@@ -40,7 +40,7 @@ it. What each check actually asserts is documented in
 | Symptom | Cause | Fix |
 |---|---|---|
 | Everything returns 404, including configured paths | The hostname is not bound to the catcher | `./a51 doctor --fix`, or `./a51 black-holes add <zone>` |
-| `black-holes add` reports the bind failed and names a Pages project or Worker still holding the host | The release could not finish. For a Pages project this is the expected result without the optional *Cloudflare Pages:Edit*; otherwise a token without *Workers Routes:Edit*, or a holder on another account | Follow the click-path in the follow-up to detach it, then re-run the command |
+| `black-holes add` reports the hostname as taken | Something AREA 51 does not manage is serving it, or the token lacks *Workers Routes:Write*, or the holder is on another account | Find what owns the name in the Cloudflare dashboard, remove its claim on it, then re-run the command |
 | An endpoint exists but still returns 404 | URI mismatch; matching is exact on `url.pathname` (case, trailing slash, no globs) | Compare the stored `uri` against the path you requested |
 | A file endpoint returns 404 with `http_file_missing` in the logs | The row outlived its object (someone emptied the bucket) | Re-upload from the endpoint modal, or delete the endpoint. The modal flags this as *object missing from storage* |
 | A file endpoint returns 404 with `http_file_binding_missing` | The `FILES` binding is not on the **worker** | Confirm `R2_FILES_BUCKET_NAME` in `.env`, then `./a51 deploy black-holes` |
@@ -71,9 +71,7 @@ order, is [guides/upgrading](upgrading.md).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Upgrading from v1.0.x: setup reports `<host> already has a DNS record that is not part of this deployment` | The old Pages project still holds `DASHBOARD_HOSTNAME`, through the CNAME Cloudflare manages for it. The dashboard is a Worker now, and Cloudflare will not put a Custom Domain on a name another product owns | Detach it at its owner (Workers & Pages → *project* → Custom domains), **not** in DNS. Deleting a managed record leaves the project still claiming the name. Then re-run `./a51 setup`, and delete the project once the worker serves the host |
-| Upgrading from v1.0.x: setup says `the Pages project <name> still serves this dashboard` | Expected, and not an error. That project is still deployed and still bound to D1 and both R2 buckets, so it still answers on its `pages.dev` names. Access keeps guarding them until it is gone | Follow the three steps in the follow-up. The extra destinations disappear on the next run once the project is deleted; until then `./a51 setup` refuses to narrow Access to the worker's hostname alone |
-| Upgrading from v1.0.x: `deploy` or `doctor` complains about `DASHBOARD_WORKER_NAME` | It replaced `PAGES_PROJECT_NAME`, which is no longer read | Add `DASHBOARD_WORKER_NAME=area51-dashboard` to `.env`, or run `./a51 setup`, which writes the default |
+| setup reports `<host> already has a DNS record that is not part of this deployment` | Something that is not a Worker on this account is serving `DASHBOARD_HOSTNAME`, and Cloudflare will not put a Custom Domain on a name another product owns | Find what owns it in the Cloudflare dashboard and remove its claim on the name, at the owning product rather than in DNS. Deleting a managed record leaves its owner still claiming the name. Then re-run `./a51 setup` |
 | `/api/*` returns 500, or HTML instead of JSON | The `DB` binding did not reach the worker | `./a51 doctor` names the missing binding; `./a51 deploy dashboard` re-renders the config and re-uploads. The bindings are declared in `dashboard/wrangler.toml.template`, so check `.env` if it recurs |
 | Uploading a file to an endpoint returns 500 | The `FILES` binding did not reach the worker | Same fix |
 | `/api/emails/<id>/raw` returns 500 | The `EML` binding did not reach the worker | Same fix, and note this breaks *every* email body, not just Download Raw |

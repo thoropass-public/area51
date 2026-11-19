@@ -82,14 +82,17 @@ export async function run(args) {
   }
 
   const cf = new Cloudflare(env.CLOUDFLARE_API_TOKEN);
-  await verifyToken(cf);
 
+  // The account comes first, and the order is forced rather than chosen:
+  // verifying an Account API token is itself an account-scoped call, so there is
+  // nothing to verify against until the id is known.
   if (!env.CLOUDFLARE_ACCOUNT_ID) {
     env.CLOUDFLARE_ACCOUNT_ID = await resolveAccount(cf, env);
   } else {
     skip(`account ${color.bold(env.CLOUDFLARE_ACCOUNT_ID)} (from .env)`);
   }
   const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  await verifyToken(cf, accountId);
 
   // ── 2. zone + hostnames ───────────────────────────────────────────────────
   step('Domain and hostnames');
@@ -382,11 +385,7 @@ export async function run(args) {
 
   step(`Deploy ${WORKER_TARGETS.dashboard.label}`);
   // Its D1 and R2 bindings are declared in dashboard/wrangler.toml.template and
-  // travel with this upload. As a Pages project they existed only in
-  // Cloudflare's API and had to be PATCHed on BEFORE the first upload, or every
-  // /api/* call 500d for a missing DB binding. That is why this used to be a
-  // create-then-patch-then-upload-then-maybe-patch-and-reupload dance instead of
-  // one line.
+  // travel with this upload, so the worker is never live without them.
   if (skipUploads) {
     skip(canUpload ? 'skipped, no database id to bind' : 'skipped, wrangler is not installed');
   } else if (!deployWorker('dashboard', env).ok) {
@@ -549,9 +548,8 @@ async function confirmZoneTakeover(cf, zone, env, { dryRun = false } = {}) {
  * documented intent of the takeover confirmed above, not a collision.
  */
 async function findDerivedHostnameConflicts(cf, accountId, zone, env) {
-  // Both are Custom Domains on a worker, so both ask the same question. When the
-  // dashboard was a Pages project this list needed two different ownership
-  // tests against two different APIs.
+  // Both are Custom Domains on a worker, so both ask the same question against
+  // the same API.
   const checks = [
     ['DASHBOARD_HOSTNAME', env.DASHBOARD_HOSTNAME, env.DASHBOARD_WORKER_NAME],
     ['AUTOPILOT_HOSTNAME', env.AUTOPILOT_HOSTNAME, env.AGENT_WORKER_NAME],

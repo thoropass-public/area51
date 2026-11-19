@@ -8,7 +8,7 @@
 //
 // The S3 API needs S3-style credentials, but Cloudflare derives those directly
 // from any account API token, and there is NO separate R2 token to create by hand:
-//   Access Key ID     = the API token's id      (GET /user/tokens/verify → id)
+//   Access Key ID     = the API token's id      (GET /accounts/<id>/tokens/verify → id)
 //   Secret Access Key = SHA-256 hex of the token value
 // (https://developers.cloudflare.com/r2/api/tokens/). So the same
 // CLOUDFLARE_API_TOKEN that provisions everything can also empty a bucket.
@@ -76,8 +76,8 @@ export function sigV4Authorization({
 }
 
 /** Derive R2 S3 credentials from the account API token the CLI already holds. */
-export async function deriveR2Credentials(cf) {
-  const info = await cf.verifyToken();
+export async function deriveR2Credentials(cf, accountId) {
+  const info = await cf.verifyToken(accountId);
   if (!info || !info.id) {
     throw new Error('could not read the API token id (needed to derive R2 S3 credentials)');
   }

@@ -4,7 +4,7 @@ Everything runs on one Cloudflare account. There are four Workers, one D1
 database and two R2 buckets. No origin server, no container, no long-lived
 process.
 
-The dashboard is one of the four. It was a Cloudflare Pages project until v1.1.0;
+The dashboard is one of the four;
 it is a Worker with static assets now, which is what gives it a single hostname
 for Cloudflare Access to guard
 ([decisions.md](../decisions.md#the-dashboard-is-a-worker-not-a-pages-project)).

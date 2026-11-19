@@ -110,17 +110,22 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
 // Home
 // ----------------------------------------------------------------
 
-// Black Holes (domains bound to the Black Holes worker) live in the D1
+// Black Holes (the zones bound to the Black Holes worker) live in the D1
 // `domains` table and are served to the frontend by the /api/config/domains
-// dashboard API. To edit them, write to D1 directly (no redeploy needed; the
-// next page load reads the new value):
+// dashboard API. Add one with `./a51 black-holes add <zone>`, which also does
+// the Cloudflare side; a row on its own is just a label. To edit the table
+// directly (no redeploy needed; the next page load reads the new value):
 //   wrangler d1 execute area51 --remote --command \
-//     "INSERT OR REPLACE INTO domains (domain, roles) VALUES ('<host>', '[\"http\",\"mail\"]')"
-// where each `roles` entry is "http", "mail", or both.
-
-function fmtRoles(roles) {
-  return (roles || []).map((r) => r.toLowerCase()).join(" · ");
-}
+//     "INSERT OR REPLACE INTO domains (domain) VALUES ('<host>')"
+//
+// A row is a hostname and nothing else. The chips used to carry an "http · mail"
+// scope label under the address, because a black hole could have one surface
+// without the other; every one of them now has both, so the label said the same
+// thing on every chip and is gone.
+//
+// Only black holes appear here. A subdomain an operator enabled for mail by hand
+// in Cloudflare is captured just the same — the worker's email handler never
+// consults this table — but it is not a black hole and is not listed.
 
 // Compute a chip's (left%, top%) inside the .orbit-stage. Distributes N
 // chips evenly around the alien's center, alternating between inner and
@@ -169,9 +174,9 @@ function Home({ setTab }) {
   ];
 
   // The orbit chips double as a default-host picker. `useDomains` reads the
-  // shared /api/config/domains cache as [{addr, roles}] (empty on miss/error so
-  // the alien still renders); `useActiveDomain` holds the persisted selection.
-  // Only hosts that serve http are selectable; mail-only hosts are locked out.
+  // shared /api/config/domains cache as [{addr}] (empty on miss/error so the
+  // alien still renders); `useActiveDomain` holds the persisted selection. Every
+  // black hole serves HTTP, so every chip is selectable.
   const domains = useDomains();
   const [activeDomain, selectDomain] = useActiveDomain();
 
@@ -196,8 +201,7 @@ function Home({ setTab }) {
             </svg>
             {domains.map((d, i) => {
               const p = chipPlacement(i, domains.length);
-              const eligible = isDefaultEligible(d.roles);
-              const selected = eligible && d.addr === activeDomain;
+              const selected = d.addr === activeDomain;
               return (
                 <div
                   key={d.addr}
@@ -205,22 +209,19 @@ function Home({ setTab }) {
                   style={{ left: `${p.leftPct}%`, top: `${p.topPct}%` }}
                 >
                   <div
-                    className={`orbit-domain${eligible ? " selectable" : " locked"}${selected ? " selected" : ""}`}
+                    className={`orbit-domain selectable${selected ? " selected" : ""}`}
                     style={{ animationDelay: `${-(i * 1.7) % 7}s` }}
-                    onClick={eligible ? () => selectDomain(d.addr) : undefined}
-                    onKeyDown={eligible ? (e) => {
+                    onClick={() => selectDomain(d.addr)}
+                    onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectDomain(d.addr); }
-                    } : undefined}
-                    role={eligible ? "button" : undefined}
-                    tabIndex={eligible ? 0 : undefined}
-                    aria-pressed={eligible ? selected : undefined}
-                    title={eligible
-                      ? (selected ? `${d.addr} is the default host for copied URLs` : `Set ${d.addr} as the default host`)
-                      : `${d.addr} serves mail only, so it can't be a default host`}
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selected}
+                    title={selected ? `${d.addr} is the default host for copied URLs` : `Set ${d.addr} as the default host`}
                   >
                     <span className="dot"/>
                     <span className="addr">{d.addr}</span>
-                    <span className="scope">{fmtRoles(d.roles)}</span>
                   </div>
                 </div>
               );

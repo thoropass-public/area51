@@ -23,7 +23,7 @@ for Cloudflare Access to guard
 | **D1 database** | binding `DB` on all four Workers | Seven tables. Metadata only, so no message bodies and no uploaded bytes. |
 | **R2: captured email** | binding `EML` on all four Workers | One verbatim `.eml` per captured message at `emails/<id>.eml`. |
 | **R2: endpoint files** | binding `FILES` (catcher, dashboard, cleanup) | One object per file-backed endpoint, keyed by a random UUID. The dashboard is the only writer; the catcher reads; cleanup only deletes, on the monthly `/-/` purge; Autopilot has no binding to it at all. |
-| **Email Routing** | per mail-enabled zone | A catch-all rule that hands every inbound message to the catcher's `email()` handler. |
+| **Email Routing** | per black hole zone | A catch-all rule that hands every inbound message to the catcher's `email()` handler. |
 | **Cloudflare Access** | Zero Trust app on the dashboard hostname | The dashboard's only authentication. |
 
 All four Workers are deployed **independently** and share state exclusively
@@ -69,7 +69,7 @@ There is no retry queue.
 ## Email capture flow
 
 ```
-sender ──► anything@<mail-enabled black hole>
+sender ──► anything@<black hole>
               │  (Cloudflare Email Routing catch-all)
               ▼
          BlackHoles.email(message)

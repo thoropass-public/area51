@@ -11,7 +11,7 @@
 // the capture tables costs real reads for a number nobody acts on. The dashboard
 // makes the same trade (docs/decisions.md).
 
-import { loadContext, parseRoles } from '../lib/context.mjs';
+import { loadContext } from '../lib/context.mjs';
 import { heading, section, plain, color, kv, table, info, sym } from '../lib/log.mjs';
 import { listUsers } from '../lib/users.mjs';
 
@@ -63,10 +63,11 @@ export async function run() {
 }
 
 /**
- * The `domains` table, as a table. Each row shows the host, its roles, and the
- * two callback surfaces it actually offers, so the difference between an
- * http-only catcher and one that also takes mail is visible without decoding
- * the roles column.
+ * The `domains` table, as a table.
+ *
+ * One column, because the table has one column. Every black hole serves HTTP on
+ * every path and captures mail at every address, so the surfaces are spelled out
+ * once underneath rather than repeated, identically, on every row.
  */
 async function printBlackHoles(cf, accountId, env) {
   if (!env.D1_DATABASE_ID) {
@@ -76,7 +77,7 @@ async function printBlackHoles(cf, accountId, env) {
 
   let rows = [];
   try {
-    rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain, roles FROM domains ORDER BY domain');
+    rows = await cf.d1Rows(accountId, env.D1_DATABASE_ID, 'SELECT domain FROM domains ORDER BY domain');
   } catch (err) {
     plain(`  ${sym.fail} ${color.red(`could not read the domains table: ${err.message}`)}`);
     return;
@@ -86,24 +87,8 @@ async function printBlackHoles(cf, accountId, env) {
     return;
   }
 
-  const out = [[color.dim('HOST'), color.dim('ROLES'), color.dim('CAPTURES')]];
-  for (const row of rows) {
-    let roles = [];
-    try {
-      roles = parseRoles(JSON.parse(row.roles).join(','), { fallback: [] });
-    } catch {
-      roles = [];
-    }
-    const surfaces = [];
-    if (roles.includes('http')) surfaces.push(`https://${row.domain}/*`);
-    if (roles.includes('mail')) surfaces.push(`*@${row.domain}`);
-    out.push([
-      color.cyan(row.domain),
-      roles.length ? roles.join(', ') : color.yellow('none'),
-      color.dim(surfaces.join('  ') || '—'),
-    ]);
-  }
-  table(out);
+  for (const row of rows) plain(`  ${color.cyan(row.domain)}`);
+  plain(`  ${color.dim('each serves https://<host>/<any path> and captures <anything>@<host>')}`);
 }
 
 /**

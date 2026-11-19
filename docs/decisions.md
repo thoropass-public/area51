@@ -340,68 +340,93 @@ engagement that needed DNS-only capture, not against the idea of one.
 
 # Automation decisions
 
-## The black hole is always the zone apex, and setup does not ask
+## A black hole is a whole zone, and has no roles
 
-`./a51 setup` asks which zone to use and nothing else about layout. The black
-hole is that zone's apex with both roles; AREA 51 and Autopilot are derived as
-`area51.<zone>` and `autopilot.<zone>`. Four prompts (three hostnames and the
-roles) were removed.
+A black hole is a Cloudflare zone handed over to the catcher. The apex is bound
+to the Black Holes worker, Email Routing is enabled on the zone with its
+catch-all pointed at the same worker, and the `domains` table gets a row holding
+the hostname and nothing else. `./a51 black-holes add` takes a zone apex and
+refuses anything else. `./a51 setup` asks which zone and nothing else about
+layout, deriving `area51.<zone>` and `autopilot.<zone>`.
 
-**Why:** the catch-all rule that delivers mail to the catcher is **zone-scoped**.
-`PUT /zones/{id}/email/routing/rules/catch_all` takes no subdomain, and there is
-one per zone. It covers the apex *and* every subdomain enabled for Email Routing.
-So nothing anywhere on the zone can capture mail until the apex is a mail black
-hole, because the apex is what puts the catch-all there in the first place.
+It did not start this way. A black hole could carry any subset of the roles
+`["http","mail"]`, and could sit on a subdomain. Both are gone, for the same
+underlying reason.
 
-Making the apex the primary black hole establishes that foundation once, as part
-of the install, and as a bonus makes the HTTP host and the mail domain the same
-string so every callback address the CLI prints works. Offering it as a choice
-would mean offering a deployment where the mail half silently does nothing: mail
-to a subdomain with no MX bounces to the *sender*, which during an engagement is
-the target, not the operator. All the operator sees is a callback that never
-arrived, and the obvious reading of that is "the vulnerability did not fire": a
-false negative on a finding, the most expensive mistake this tool can cause. Two
-CLI lines used to hand out exactly that address.
+**Why the apex:** the catch-all rule that delivers mail to the catcher is
+**zone-scoped**. `PUT /zones/{id}/email/routing/rules/catch_all` takes no
+subdomain, and there is one per zone. It covers the apex *and* every subdomain
+enabled for Email Routing. So nothing anywhere on the zone can capture mail until
+the apex is a black hole, because the apex is what puts the catch-all there in
+the first place.
 
-**This does not mean subdomains cannot capture mail.** They can, and
-`./a51 black-holes add <sub.black-hole.tld> mail` does it, as the next entry
-explains. The apex is the foundation, not the only option.
+A subdomain was therefore never an *alternative* to the apex, only an addition on
+top of it, and the old `add` had to police that: it looked up the subdomain's
+zone apex in the `domains` table, checked it already had the `mail` role, and
+refused with a two-command fix if it did not. Taking the apex as given deletes
+the gate and the ordering problem it existed to catch.
 
-What this costs: the black hole can no longer sit on a subdomain while the apex
-serves a decoy site, and mail can no longer be declined for the primary black
-hole. Escape hatches remain. `./a51 black-holes add <host> http` adds an
-HTTP-only catcher on any hostname, and `DASHBOARD_HOSTNAME` /
-`AUTOPILOT_HOSTNAME` set by hand in `.env` are used as-is (including on another
-zone) without a prompt. Deliberate but unadvertised: reachable when someone knows
-they need them, never hit by accident.
+Offering mail as a choice meant offering a deployment where the mail half
+silently does nothing: mail to a subdomain with no MX bounces to the *sender*,
+which during an engagement is the target, not the operator. All the operator sees
+is a callback that never arrived, and the obvious reading of that is "the
+vulnerability did not fire" — a false negative on a finding, the most expensive
+mistake this tool can cause.
 
-## Mail on a subdomain: enable the name, reuse the zone catch-all
+**Why no roles:** once every black hole is a whole zone with both surfaces, the
+column can only ever hold `["http","mail"]`, and every reader of it is branching
+on a constant. There were a lot of readers: the CLI's `add`, `remove`, `list` and
+`status`; `doctor`, twice; `/api/config/domains`; the dashboard's Home orbit
+chips, which rendered the roles as a label under each address and greyed out
+mail-only hosts as ineligible defaults; and Autopilot's MCP tool descriptions,
+which told the agent to "pick a domain whose roles include 'http'" — instruction
+text an LLM reads and acts on. All of it described a distinction that no longer
+exists. `roles` was dropped from the schema in v1.2.0 rather than left in place,
+because it is `NOT NULL` with no default: a writer that stops supplying it cannot
+insert a row while the column is still there.
 
-`./a51 black-holes add <sub.black-hole.tld> mail` works, and it refuses unless
-`<black-hole.tld>` is already a mail black hole.
+**Subdomains are now outside the tool.** They still work, and they need nothing
+from AREA 51 to work — the catcher serves whatever hostname reaches it, and its
+email handler never consults the `domains` table, so a subdomain enabled by hand
+in the Cloudflare dashboard is captured identically to the apex. What is lost is
+*discovery*: such a host does not appear in `black-holes list`, in the Home orbit
+chips, or in `list_black_holes`. That is the trade. Owning the add path meant
+owning the ordering rule, the refusal, the role that encoded it, and a `doctor`
+check for each — a meaningful share of this command's surface area, to automate
+two clicks in a dashboard. [operations](guides/operations.md#putting-a-subdomain-on-the-catcher)
+documents both recipes instead.
 
-Two Cloudflare facts make it work, and both are load-bearing:
+**Removal cascades, because the alternative is silent.** A mail subdomain's MX
+records are locked and point at a catch-all that this black hole installed.
+Remove the black hole and leave them, and the subdomain keeps accepting mail that
+is then delivered nowhere: not captured, not bounced, just gone. So
+`black-holes remove` finds them — there is no endpoint listing enabled
+subdomains, so it reads `GET /zones/{id}/email/routing/dns` and treats every
+non-apex name carrying MX as one — lists them, and clears them on confirmation
+with `DELETE /zones/{id}/email/routing/dns` carrying that `name`. That body on
+DELETE is undocumented but deliberate: it is what the dashboard's own Subdomains
+screen calls, it takes the entry and its records together, and the same endpoint
+rejects an apex name with `[2007] must be a subdomains of <zone>`.
 
-- Email Routing is enabled **per name**. `POST /zones/{id}/email/routing/dns`
-  with `{"name": "<sub.black-hole.tld>"}` adds and locks MX + SPF for that name.
-  This is a different endpoint from `.../email/routing/enable`, which takes no
-  name and only ever addresses the apex. The apex path still uses `enable`,
-  because it works and there is no reason to move a live install onto a second
-  endpoint.
-- The zone's catch-all matches the apex **and** every enabled subdomain. So once
-  the name has MX, `<anything>@<sub.black-hole.tld>` reaches the same worker with
-  no per-subdomain rule to create, and no per-address rules either.
+Email Routing on the *zone* is still left enabled by `remove`. That is a decision
+about the whole zone, it unlocks and deletes the apex MX, and `./a51 destroy`
+already asks it properly.
 
-**Why it refuses without the apex:** the catch-all only exists once the apex is a
-mail black hole. Enabling a subdomain first would add and *lock* MX records whose
-mail has nowhere to be delivered. That is a black hole that accepts every message
-and drops it, which is strictly worse than refusing. The check reads the `domains`
-table for the apex row rather than asking Cloudflare, because that table is what
-the rest of the tool treats as the truth about which hosts are black holes.
+What all this costs: the black hole can no longer sit on a subdomain while the
+apex serves a decoy site, and there is no HTTP-only catcher that leaves a zone's
+mail alone. Both are now manual Cloudflare steps rather than CLI ones. The
+remaining escape hatch is unchanged: `DASHBOARD_HOSTNAME` and
+`AUTOPILOT_HOSTNAME` set by hand in `.env` are used as-is, including on another
+zone, without a prompt. Deliberate but unadvertised: reachable when someone knows
+they need it, never hit by accident.
 
-This is also why the subdomain path re-asserts the catch-all after enabling the
-name: the `PUT` is idempotent, and it repairs a catch-all somebody repointed by
-hand instead of letting the new subdomain's mail vanish alongside the apex's.
+**Migrating an existing deployment.** `db/schema.sql` carries
+`ALTER TABLE domains DROP COLUMN roles` as a migration, skipped once it has
+landed, so `./a51 deploy schema` and `./a51 doctor --fix` both converge. Rows for
+subdomain black holes survive the migration and keep working; `doctor` reports
+each as a leftover and `black-holes remove` still takes them out, offering that
+one name's Email Routing entry with it. See
+[upgrading](guides/upgrading.md).
 
 ## Taking a zone over is confirmed, and typed when the zone is in use
 
@@ -487,10 +512,16 @@ free. Adding a column broke that: SQLite has no `ADD COLUMN IF NOT EXISTS`, and 
 second run would fail on a duplicate column and take the whole schema step with
 it.
 
-**What it does instead:** `applySchema` recognizes `ALTER TABLE … ADD COLUMN`,
-reads `pragma_table_info(<table>)` first, and skips the statement when the column
-is already there. Migrations live at the foot of the file, after the `CREATE
-TABLE`s they alter.
+**What it does instead:** `applySchema` recognizes `ALTER TABLE … ADD COLUMN`
+and `ALTER TABLE … DROP COLUMN`, reads `pragma_table_info(<table>)` first, and
+skips the statement when the table is already in the state it asks for.
+Migrations live beside the `CREATE TABLE`s they alter.
+
+A DROP is the same question asked the other way round, and it arrived with the
+`domains.roles` removal in v1.2.0. It is the one migration shape here that is not
+additive, so it is worth naming the cost plainly: it is irreversible, and worker
+code that still names the column starts erroring the moment it lands. See the
+next entry for why that window is tolerable.
 
 **Why not just tolerate the error.** The obvious alternative is to catch the
 failure and carry on. Two things are wrong with it. It means string-matching
@@ -517,6 +548,17 @@ runs, seconds later. Mid-engagement that is a window where callbacks stop being 
 and the only trace is `http_endpoint_lookup_failed` in the logs.
 
 Migrate, then ship the code that depends on the migration.
+
+**This is the right order for an added column and the wrong one for a dropped
+one**, and it is not reordered for the dropped case. Additive migrations are the
+common case; a drop is rare, and its window is both short and self-healing. For
+the few seconds the uploads take, old code's `SELECT` of the dropped column
+fails, and every reader of `domains` is written to degrade to an empty list
+rather than throw: the dashboard's Home shows no chips, Autopilot's
+`list_black_holes` returns none, and both recover on their own. Nothing stops
+capturing, because neither the catcher's HTTP path nor its email handler reads
+that table at all. An operator who wants no window deploys the workers by name
+first and `./a51 deploy schema` last.
 
 `doctor` checks for the column too, alongside `r2_key` and `filename`. It is
 there because the failure is invisible from outside: the catcher's lookup throws

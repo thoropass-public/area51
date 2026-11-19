@@ -30,8 +30,13 @@ the Custom Domains bound to it.
 
 Email Routing is **not** configured in `wrangler.toml`, because Wrangler v4 removed the
 `[triggers] email` key. The worker exports an `email()` handler and the zone's
-catch-all rule delivers to it; `./a51 setup` and `./a51 black-holes add … mail` set
-that rule over the API.
+catch-all rule delivers to it; `./a51 setup` and `./a51 black-holes add` set that
+rule over the API.
+
+The handler is **recipient-blind**: it stores whatever `message.to` holds and
+never consults the `domains` table. So every address on a black hole's zone is
+captured, and so is any subdomain an operator enabled for Email Routing by hand,
+with no step on the AREA 51 side. The only gate is the sender blacklist.
 
 ## HTTP handler
 
@@ -190,7 +195,7 @@ curl -i https://<black-hole>/nope            # 404! Not Found, and a row in Requ
 curl -i https://<black-hole>/<configured>    # your status, headers and body
 ```
 
-- Send a plain message to `anything@<mail-enabled-host>`: a row appears with
+- Send a plain message to `anything@<black-hole.tld>`: a row appears with
   `attachment_count = 0` and the object exists
   (`npx wrangler r2 object get <bucket> emails/<id>.eml`).
 - Send one with an attachment: the count is right, and the modal renders the body

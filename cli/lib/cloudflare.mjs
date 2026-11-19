@@ -425,15 +425,56 @@ export class Cloudflare {
   }
 
   /**
-   * Disable Email Routing on the zone AND delete every routing DNS record it
-   * added and locked: MX, SPF and DKIM. One call does both.
+   * Disable Email Routing on the WHOLE zone AND delete every routing DNS record
+   * it added and locked: MX, SPF and DKIM. One call does both.
    *
-   * There is no per-subdomain form, so this clears the apex and every subdomain
-   * enabled under it at once. Authorized by Zone · Zone Settings:Edit, the same
-   * permission that enables it.
+   * Zone-wide only because it is called with no body. The same endpoint takes a
+   * `{ name }`, which scopes it to one subdomain; that is
+   * `disableEmailRoutingForName` below. Authorized by Zone · Zone Settings:Edit,
+   * the same permission that enables it.
    */
   disableEmailRouting(zoneId) {
     return this.delete(`/zones/${zoneId}/email/routing/dns`);
+  }
+
+  /**
+   * Disable Email Routing for ONE subdomain: removes its Email Routing entry and
+   * deletes the MX + SPF records that entry locked, leaving the zone itself
+   * enabled and every other name on it untouched.
+   *
+   * The `name` body on DELETE is undocumented but deliberate, and it is the
+   * mirror of `enableEmailRoutingForName`: it is what the Cloudflare dashboard
+   * calls when you remove a subdomain under Email → Email Routing → Settings →
+   * Subdomains. Verified against a live zone on 2026-11-18: the entry and both
+   * records go in this one call, and POSTing the same endpoint with an APEX name
+   * is rejected with `[2007] must be a subdomains of <zone>`, which is how the
+   * API itself says the name form is for subdomains only.
+   *
+   * Immediately afterwards the zone briefly reports `synced: false` while
+   * Cloudflare reconciles the records it still manages. That settles on its own;
+   * it is not a failed delete.
+   *
+   * Not retried. Unlike the enable path, a repeat is not a harmless no-op worth
+   * absorbing: if the first call landed, the second is a delete of something that
+   * is already gone, and a caller is better off seeing that than having it
+   * swallowed.
+   */
+  disableEmailRoutingForName(zoneId, name) {
+    return this.delete(`/zones/${zoneId}/email/routing/dns`, { name });
+  }
+
+  /**
+   * The DNS records Email Routing manages on the zone: the apex MX + SPF, the
+   * DKIM TXT, and one MX set per subdomain enabled under Email → Email Routing
+   * → Settings → Subdomains.
+   *
+   * There is no endpoint that lists enabled subdomains directly, so this is how
+   * they are discovered: every distinct `name` carrying an MX record that is not
+   * the zone apex is a subdomain someone enabled. `black-holes remove` uses it to
+   * find what a zone still has before it strips mail off the zone.
+   */
+  listEmailRoutingRecords(zoneId) {
+    return this.get(`/zones/${zoneId}/email/routing/dns`);
   }
 
   getCatchAll(zoneId) {

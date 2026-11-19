@@ -192,8 +192,11 @@ export async function ensureDatabase(cf, accountId, name, knownId) {
 
 /**
  * Apply db/schema.sql statement by statement over the D1 HTTP API. The schema
- * is written with `CREATE TABLE IF NOT EXISTS`, so this is safe to re-run and
- * never drops data.
+ * is written with `CREATE TABLE IF NOT EXISTS`, so this is safe to re-run.
+ *
+ * It never drops a TABLE. It can drop a column, which is how a field that is no
+ * longer part of the data model leaves an existing deployment; those statements
+ * are listed as migrations in the schema file and skipped once they have landed.
  */
 /**
  * `ALTER TABLE <t> ADD COLUMN <c> …` → `{ table, column }`, else null.
@@ -204,6 +207,31 @@ export async function ensureDatabase(cf, accountId, name, knownId) {
  */
 function parseAddColumn(statement) {
   const m = statement.match(/^\s*ALTER\s+TABLE\s+([A-Za-z_]\w*)\s+ADD\s+(?:COLUMN\s+)?([A-Za-z_]\w*)/i);
+  return m ? { table: m[1], column: m[2] } : null;
+}
+
+/**
+ * `ALTER TABLE <t> DROP COLUMN <c>` → `{ table, column }`, else null.
+ *
+ * The mirror of `parseAddColumn`, and skipped by the same rule: SQLite has no
+ * `DROP COLUMN IF EXISTS`, so a migration that has already landed would fail on
+ * a column that is not there and take the whole run with it.
+ *
+ * A dropped column is the one migration shape here that is NOT additive, so it
+ * is worth being explicit about the cost: it is irreversible, and worker code
+ * that still names the column in a SELECT starts erroring the moment it lands.
+ *
+ * `./a51 deploy all` applies the schema BEFORE it uploads the workers, which is
+ * the right order for an added column and the wrong one for a dropped one. It is
+ * not reordered for this, because additive migrations are the common case and
+ * the cost here is small and self-healing: for the few seconds it takes the
+ * uploads to land, the old code's SELECT fails, and every reader of `domains`
+ * degrades to an empty list rather than an error. An operator who wants no
+ * window at all deploys the workers by name first and `./a51 deploy schema`
+ * last; docs/guides/upgrading.md says so.
+ */
+function parseDropColumn(statement) {
+  const m = statement.match(/^\s*ALTER\s+TABLE\s+([A-Za-z_]\w*)\s+DROP\s+(?:COLUMN\s+)?([A-Za-z_]\w*)/i);
   return m ? { table: m[1], column: m[2] } : null;
 }
 
@@ -218,8 +246,14 @@ export async function applySchema(cf, accountId, databaseId) {
     // provisioning follows, and it is better than tolerating the error: a
     // column that is genuinely missing still has to be added successfully, and
     // a broken ALTER still throws with the statement that broke.
-    const addColumn = parseAddColumn(statement);
-    if (addColumn) {
+    //
+    // A DROP is the same question asked the other way round, so the two share
+    // one lookup: read the table's columns, then skip when what the statement
+    // wants is already true.
+    const added = parseAddColumn(statement);
+    const dropped = added ? null : parseDropColumn(statement);
+    const columnChange = added || dropped;
+    if (columnChange) {
       // pragma_table_info() rather than a bare PRAGMA, because it is an
       // ordinary SELECT and goes through D1's query endpoint like every other
       // statement here.
@@ -233,9 +267,10 @@ export async function applySchema(cf, accountId, databaseId) {
       const columns = await cf.d1Rows(
         accountId,
         databaseId,
-        `SELECT name FROM pragma_table_info('${addColumn.table}')`,
+        `SELECT name FROM pragma_table_info('${columnChange.table}')`,
       );
-      if (columns.some((c) => c.name === addColumn.column)) {
+      const present = columns.some((c) => c.name === columnChange.column);
+      if (present === Boolean(added)) {
         skipped += 1;
         continue;
       }
@@ -285,9 +320,23 @@ export async function ensureBuckets(cf, accountId, { emails, files }, followUps)
  * Make `hostname` a working black hole: bound to the Black Holes worker for
  * HTTP, catch-all Email Routing for mail, and a row in the `domains` table so
  * the dashboard and Autopilot both know about it.
+ *
+ * All three, always. A black hole used to be able to carry a subset of the
+ * roles ["http","mail"], which made every caller here and every reader
+ * downstream ask which of the two surfaces a given host actually had. It is now
+ * a whole Cloudflare zone handed over to the catcher, so both surfaces are
+ * simply on; see docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles.
+ *
+ * `hostname` is the zone apex in every path that creates a black hole:
+ * `./a51 setup` passes the zone, and `./a51 black-holes add` refuses anything
+ * else. The one caller that can still pass a subdomain is `./a51 doctor --fix`,
+ * re-applying a row an older version of this tool wrote, so the mail step below
+ * keeps its per-name branch. Repairing what is already there is not the same
+ * decision as creating it, and a legacy row deserves to be fixed rather than
+ * failed.
  */
 export async function ensureBlackHole(cf, accountId, opts) {
-  const { hostname, roles, workerName, databaseId, followUps } = opts;
+  const { hostname, workerName, databaseId, followUps } = opts;
 
   const zone = await zoneForHostname(cf, accountId, hostname);
   if (!zone) {
@@ -299,16 +348,11 @@ export async function ensureBlackHole(cf, accountId, opts) {
     return false;
   }
 
-  if (roles.includes('http')) {
-    await attachBlackHoleDomain(cf, accountId, { hostname, workerName, zone, followUps });
-  }
-
-  if (roles.includes('mail')) {
-    await ensureEmailRouting(cf, zone, workerName, followUps, hostname);
-  }
+  await attachBlackHoleDomain(cf, accountId, { hostname, workerName, zone, followUps });
+  await ensureEmailRouting(cf, zone, workerName, followUps, hostname);
 
   if (databaseId) {
-    await upsertDomainRow(cf, accountId, databaseId, hostname, roles, followUps);
+    await upsertDomainRow(cf, accountId, databaseId, hostname, followUps);
   }
   return true;
 }
@@ -466,10 +510,15 @@ async function releaseHostname(cf, accountId, zone, hostname, keepService) {
  *     name has MX behind it, `<anything>@<subdomain>` lands in the same worker
  *     with no per-subdomain rule to create.
  *
- * The caller must already have established that the zone apex is a mail black
- * hole. Without its catch-all pointing at the worker there is nothing for this
- * subdomain's mail to be delivered to, and `./a51 black-holes add` refuses before
- * it reaches here rather than enabling a name whose mail goes nowhere.
+ * Nothing creates a subdomain black hole any more: `./a51 black-holes add` takes
+ * the zone apex and nothing else. This survives for `./a51 doctor --fix`, which
+ * re-applies rows written by an older version of this tool, and it is correct
+ * only because such a row's apex is necessarily already a black hole — that was
+ * the precondition the old `add` enforced before it would write the row.
+ *
+ * Without the apex's catch-all pointing at the worker there would be nothing for
+ * this subdomain's mail to be delivered to, and enabling the name anyway would
+ * build a host that accepts every message and drops it.
  */
 async function ensureSubdomainEmailRouting(cf, zone, workerName, followUps, hostname) {
   const manual = `Add it by hand: dashboard → ${zone.name} → Email → Email Routing → Settings\n→ Subdomains → enter ${hostname}.`;
@@ -629,21 +678,29 @@ export async function ensureDestinationAddress(cf, accountId, address, followUps
   }
 }
 
-/** Insert or update one row in the `domains` table. */
-export async function upsertDomainRow(cf, accountId, databaseId, hostname, roles, followUps = []) {
+/**
+ * Insert one row in the `domains` table.
+ *
+ * The table is now a bare list of hostnames, so there is nothing left to update
+ * on a conflict and the insert is a plain `DO NOTHING`. It stays an upsert
+ * rather than becoming a guarded insert because `ensureBlackHole` is re-run
+ * constantly — by `setup`, by `doctor --fix` — and a row that is already right
+ * must not be an error.
+ */
+export async function upsertDomainRow(cf, accountId, databaseId, hostname, followUps = []) {
   try {
     await cf.d1Query(
       accountId,
       databaseId,
-      'INSERT INTO domains (domain, roles) VALUES (?, ?) ON CONFLICT(domain) DO UPDATE SET roles = excluded.roles',
-      [hostname, JSON.stringify(roles)],
+      'INSERT INTO domains (domain) VALUES (?) ON CONFLICT(domain) DO NOTHING',
+      [hostname],
     );
-    ok(`domains table: ${color.bold(hostname)} = ${JSON.stringify(roles)}`);
+    ok(`domains table: ${color.bold(hostname)}`);
   } catch (err) {
     degraded(
       followUps,
       `could not write ${hostname} to the domains table: ${err.message}`,
-      `Run it by hand:\n  ./a51 black-holes add ${hostname} ${roles.join(',')}`,
+      `If this is a NOT NULL error on \`roles\`, the schema migration has not run yet:\n  ./a51 deploy schema\nThen retry:\n  ./a51 black-holes add ${hostname}`,
     );
   }
 }

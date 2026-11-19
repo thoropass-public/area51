@@ -39,7 +39,7 @@ it. What each check actually asserts is documented in
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Everything returns 404, including configured paths | The hostname is not bound to the catcher | `./a51 doctor` → `./a51 black-holes add <host> http,mail` |
+| Everything returns 404, including configured paths | The hostname is not bound to the catcher | `./a51 doctor --fix`, or `./a51 black-holes add <zone>` |
 | `black-holes add` reports the bind failed and names a Pages project or Worker still holding the host | The release could not finish: usually a token without *Cloudflare Pages:Edit* / *Workers Routes:Edit*, or a holder on another account | Follow the click-path in the follow-up to detach it, then re-run the command |
 | An endpoint exists but still returns 404 | URI mismatch; matching is exact on `url.pathname` (case, trailing slash, no globs) | Compare the stored `uri` against the path you requested |
 | A file endpoint returns 404 with `http_file_missing` in the logs | The row outlived its object (someone emptied the bucket) | Re-upload from the endpoint modal, or delete the endpoint. The modal flags this as *object missing from storage* |
@@ -53,10 +53,10 @@ it. What each check actually asserts is documented in
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Nothing arrives in Emails | Email Routing is off, or its catch-all is not pointed at the catcher | `./a51 doctor` names this; fix with `./a51 black-holes add <host> http,mail` |
+| Nothing arrives in Emails | Email Routing is off, or its catch-all is not pointed at the catcher | `./a51 doctor` names this; fix with `./a51 black-holes add <zone>` |
 | Nothing arrives, and routing looks right | The zone apex has to be the mail domain, because Email Routing catch-alls are zone-wide | Send to `*@<zone>`, not `*@<subdomain>` |
-| A subdomain mail black hole captures nothing, and `doctor` says it has no MX records of its own | Email Routing was never enabled for that name, or was removed from the zone's Subdomains list | `./a51 black-holes add <host> mail` re-enables it |
-| `<host> cannot capture mail until <zone> does` | You asked for `mail` on a subdomain whose zone apex is not a mail black hole. The catch-all that delivers mail is zone-scoped and only exists once the apex has it | Add the apex first: `./a51 black-holes add <zone> http,mail`, then re-run the subdomain |
+| A subdomain captures no mail, and `doctor` says it has no MX records of its own | Email Routing was never enabled for that name, or was removed from the zone's Subdomains list | Re-add it: zone → Email → Email Routing → Settings → Subdomains. The CLI no longer manages subdomains ([why](operations.md#putting-a-subdomain-on-the-catcher)) |
+| `<host> is not a zone apex, and a black hole is a whole zone` | You gave `black-holes add` a subdomain. A black hole is a whole zone, because the catch-all that delivers mail is zone-scoped | Add the zone: `./a51 black-holes add <zone>`. To put just that subdomain on the catcher, see [operations](operations.md#putting-a-subdomain-on-the-catcher) |
 | Mail to a subdomain bounces after `black-hole add … mail` reported success | DNS for the newly enabled name can take a minute to propagate | Wait, then retry. `./a51 doctor` confirms the zone catch-all still points at the catcher |
 | Sender gets a bounce saying *Address not accepted* | The `From:` address is on `email_blacklist` | Remove it in Settings; up to 60 minutes to propagate |
 | A row exists but the body will not load | The `EML` binding is missing on the dashboard worker, or the object is gone | `./a51 doctor`; check `npx wrangler r2 object get <bucket> emails/<id>.eml` |

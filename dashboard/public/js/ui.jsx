@@ -657,9 +657,14 @@ function PinRibbon({ matches }) {
 // ---- Black hole domains (shared cache + active-default selection) ----
 //
 // The configured black holes are fetched once from /api/config/domains and
-// cached on window.DOMAINS as [{addr, roles}], so both the Home orbit chips
+// cached on window.DOMAINS as [{addr}], so both the Home orbit chips
 // (useDomains) and the endpoint copy button (useActiveDomain) read one source
 // regardless of which tab loads first.
+//
+// Every black hole serves HTTP, so every one of them can be the default host.
+// There used to be an eligibility test here, because a black hole could be
+// mail-only and a mail-only host has no URL to copy. Black holes now always do
+// both, so the test is gone along with the `locked` chip state it drove.
 
 const ACTIVE_DOMAIN_KEY = "area51:activeDomain";
 let _domainsPromise = null;
@@ -669,7 +674,7 @@ function loadDomains() {
   _domainsPromise = API.listDomains()
     .then((res) => {
       const list = Array.isArray(res && res.domains) ? res.domains : [];
-      window.DOMAINS = list.map((d) => ({ addr: d.domain, roles: Array.isArray(d.roles) ? d.roles : [] }));
+      window.DOMAINS = list.map((d) => ({ addr: d.domain }));
       window.dispatchEvent(new Event("area51:domains"));
       return window.DOMAINS;
     })
@@ -677,22 +682,15 @@ function loadDomains() {
   return _domainsPromise;
 }
 
-// A host can be the default as long as it serves http (with or without mail).
-// A mail-only host cannot be the default.
-function isDefaultEligible(roles) {
-  return (roles || []).map((r) => String(r).toLowerCase()).includes("http");
-}
-
-// Resolve the effective default: the stored choice if it's still present and
-// eligible, otherwise the first eligible host so a default always exists when
-// one is possible.
+// Resolve the effective default: the stored choice if it is still configured,
+// otherwise the first host, so a default always exists once any black hole does.
 function resolveActiveDomain() {
-  const eligible = (window.DOMAINS || []).filter((d) => isDefaultEligible(d.roles));
-  if (!eligible.length) return null;
+  const hosts = window.DOMAINS || [];
+  if (!hosts.length) return null;
   let stored = null;
   try { stored = window.localStorage.getItem(ACTIVE_DOMAIN_KEY); } catch {}
-  if (stored && eligible.some((d) => d.addr === stored)) return stored;
-  return eligible[0].addr;
+  if (stored && hosts.some((d) => d.addr === stored)) return stored;
+  return hosts[0].addr;
 }
 
 // Live list of black holes for rendering (Home orbit chips).
@@ -723,8 +721,7 @@ function useActiveDomain() {
     };
   }, []);
   const select = useCallback((value) => {
-    const d = (window.DOMAINS || []).find((x) => x.addr === value);
-    if (!d || !isDefaultEligible(d.roles)) return;
+    if (!(window.DOMAINS || []).some((x) => x.addr === value)) return;
     try { window.localStorage.setItem(ACTIVE_DOMAIN_KEY, value); } catch {}
     window.dispatchEvent(new Event("area51:activeDomain"));
   }, []);
@@ -787,5 +784,5 @@ Object.assign(window, {
   ToastProvider, useToast, Modal, ModalHead,
   ConfirmProvider, useConfirm, useDebouncedValue, Icon,
   usePinnedFilters, pinColorVars, pinMatches, PinRibbon,
-  useDomains, useActiveDomain, isDefaultEligible, copyText,
+  useDomains, useActiveDomain, copyText,
 });

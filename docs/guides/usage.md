@@ -11,9 +11,11 @@ If you have not deployed yet, start with
 
 Three nouns and you have the whole tool:
 
-- A **black hole** is a hostname you own that captures everything. Every path on
+- A **black hole** is a domain you own that captures everything. Every path on
   it, every address at it. `https://<black-hole.tld>/anything` is captured;
-  `anything@<black-hole.tld>` is captured. Nothing needs to be created first.
+  `anything@<black-hole.tld>` is captured. Nothing needs to be created first, and
+  there is nothing to configure per host: a black hole is a whole Cloudflare zone
+  and always does both.
 - An **endpoint** is a row you add to change what a *specific* path answers with.
   Without one, a path answers `404! Not Found`, and the request is still
   captured. Endpoints exist to serve a target something, not to enable capture.
@@ -160,8 +162,8 @@ reached a renderer.
 
 ## Drive email flows: signup, reset, verification
 
-Every address at a mail-enabled black hole is live. There is nothing to create, so
-invent an address per test.
+Every address at a black hole is live. There is nothing to create, so invent an
+address per test.
 
 1. Use `whatever+tag@<host>` in the target's signup, invite or reset form.
 2. Open **Emails**. The message arrives with envelope metadata, and opening it

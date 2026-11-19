@@ -57,7 +57,7 @@ grace period and no second accepted value.
 | `GET` | `/requests` | `{served_at, window_minutes: 60, rows: [{id, ts, method, url, ip}]}`, every request from the last 60 minutes, newest first |
 | `GET` | `/emails` | `{served_at, window_minutes: 60, rows: [{id, ts, from_addr, to_addr, subject}]}`, **envelope metadata only, no body** |
 | `GET` | `/emails/<id>/raw` | The raw `.eml` (`message/rfc822`) for one message. **Hard 60-minute gate:** served only if `SELECT id FROM emails WHERE id = ? AND ts >= now-60min` matches, so an older or unknown id is a `404` even if the caller knows it. |
-| `GET` | `/domains` | `{served_at, endpoint_prefix: "/-/", domains: [{domain, roles}]}`, the same `domains` table the dashboard reads, so an agent can build `https://<domain>/-/<path>` |
+| `GET` | `/domains` | `{served_at, endpoint_prefix: "/-/", domains: [{domain}]}`, the same `domains` table the dashboard reads, so an agent can build `https://<domain>/-/<path>`. Every black hole serves HTTP and captures mail, so there is nothing for an agent to choose between |
 | `GET` | `/autopilot/endpoints` | `{rows: [{uri, status, headers, body}]}` for every URI under `/-/`, ascending. A file-backed row also carries `file: {filename, content_type}` and an empty `body`. |
 | `POST` | `/autopilot/endpoints` | Upsert. Body `{uri, status, headers, body}`. `uri` **must** start with `/-/`. `400` if it does not, and `400` if the URI is currently file-backed. |
 | `GET` | `/autopilot/endpoints/<uri>` | Read one; URI percent-encoded in the path. Same prefix rule. |

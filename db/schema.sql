@@ -97,12 +97,31 @@ CREATE TABLE IF NOT EXISTS email_blacklist (
 -- live by the dashboard (/api/config/domains, for the Home host picker) and by
 -- the Autopilot worker (so an agent can build https://<domain>/-/<path>).
 --
+-- One column, and that is the whole point. A black hole is a Cloudflare zone
+-- apex handed over to the catcher, serving HTTP on every path and capturing
+-- mail at every address, so there is nothing to record per host beyond its
+-- name. See docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles.
+--
 -- Managed with `./a51 black-holes add|remove|list`; changes take effect on the next
 -- page load or agent call, with no redeploy.
 CREATE TABLE IF NOT EXISTS domains (
-  domain TEXT PRIMARY KEY,
-  roles TEXT NOT NULL      -- JSON array, subset of ["http","mail"]
+  domain TEXT PRIMARY KEY
 );
+
+-- Migration (v1.2.0): drop the `roles` column.
+--
+-- It held a JSON array, a subset of ["http","mail"], from when a black hole
+-- could capture one surface without the other. Every black hole now does both,
+-- so the column could only ever read ["http","mail"] and every reader of it was
+-- branching on a constant.
+--
+-- The column is dropped rather than left in place because it is NOT NULL with no
+-- default: a writer that has stopped supplying it cannot insert a row while it
+-- is still there. applySchema() skips this once the column is gone, so it is
+-- safe to re-run, but it is irreversible: worker code that still SELECTs `roles`
+-- fails against the migrated table, and every reader of `domains` is written to
+-- degrade to an empty list when that happens rather than erroring outright.
+ALTER TABLE domains DROP COLUMN roles;
 
 -- ─── users ──────────────────────────────────────────────────────────────────
 -- The operators of this deployment, and the single source of truth for both

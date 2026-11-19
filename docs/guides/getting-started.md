@@ -75,9 +75,11 @@ Setup reads the zone first and **stops** if it finds MX or apex records: it list
 them by name and makes you type `TAKEOVER`. A fresh
 throwaway domain with only the default records gets a plain y/N instead.
 
-Mail is not optional here. The primary black hole always carries both roles.
-`./a51 black-holes add <host> http` still adds an HTTP-only catcher afterward, on
-any hostname, and leaves that zone's mail records alone.
+Mail is not optional, and this is the one thing to be sure about before you
+start. A black hole is a whole zone, and it always captures both HTTP and mail.
+There is no HTTP-only black hole and no way to leave a zone's mail alone while
+making it a black hole, so the domain you pick should be one you are willing to
+hand over completely.
 
 ### 5. Node.js 20+
 
@@ -159,8 +161,8 @@ questions:
 | AREA 51 | `area51.<black-hole.tld>` | Behind Cloudflare Access. |
 | Autopilot | `autopilot.<black-hole.tld>` | Public but useless without an operator key; every route answers 401. |
 
-The black hole always carries **both roles** (`http` and `mail`), which gives you
-two callback surfaces on one domain:
+A black hole always captures both, which gives you two callback surfaces on one
+domain:
 
 ```
 HTTP callbacks    https://<black-hole.tld>/<anything>
@@ -180,34 +182,24 @@ callback address the tool prints works. The alternative is a subdomain black hol
 with no MX behind it, which bounces the target's mail back at the target and
 shows you nothing, which reads as "the vulnerability didn't fire."
 
-This does **not** mean subdomains are HTTP-only. See below.
-
 ### Adding more black holes
 
-```bash
-./a51 black-holes add <http-only.black-hole.tld> http  # HTTP catcher, no mail records touched
-./a51 black-holes add <sub.black-hole.tld> mail        # email capture on a subdomain
-./a51 black-holes add <other-black-hole.tld>           # asks which roles you want
-```
-
-With no roles argument it asks: HTTP and email, HTTP only, or email only.
-
-**Mail on a subdomain works**, and needs nothing manual. AREA 51 enables Email
-Routing for that exact name (MX + SPF added and locked for it), and the zone's
-existing catch-all already covers every enabled subdomain, so it delivers to
-the catcher. `<anything>@<sub.black-hole.tld>` is captured like any other address.
-
-The one rule: **the subdomain's own zone apex must already be a mail black hole.**
-For your primary zone `setup` did that. For a *different* zone, add its apex
-first:
+A black hole is a zone, so another black hole is another zone on the same
+Cloudflare account:
 
 ```bash
-./a51 black-holes add <other-black-hole.tld> http,mail      # the foundation
-./a51 black-holes add <sub.other-black-hole.tld> mail       # then the subdomain
+./a51 black-holes add <other-black-hole.tld>
 ```
 
-Adding the subdomain first is refused, because without the apex's catch-all its
-mail would be accepted and then silently dropped.
+It takes the zone apex and nothing else. There is no roles argument: the new zone
+gets both surfaces, exactly like the first one, and the same `TAKEOVER`
+confirmation guards its records.
+
+**Subdomains are not black holes.** A subdomain can still be put on the catcher,
+for HTTP or for mail, but it is a Cloudflare dashboard step rather than an AREA
+51 one — the catcher needs nothing from you to handle it, so the CLI does not
+own it. [operations](operations.md#putting-a-subdomain-on-the-catcher) has both
+recipes.
 
 ### The two private hostnames
 
@@ -236,8 +228,8 @@ sidebar into `.env`.
 ### 2. Zone, and the takeover confirmation
 
 Lists your active zones and asks which one to use. That is the only layout
-question: the black hole becomes that zone's apex with both roles, and AREA 51
-and Autopilot become `area51.<zone>` and `autopilot.<zone>`.
+question: the black hole becomes that zone, and AREA 51 and Autopilot become
+`area51.<zone>` and `autopilot.<zone>`.
 
 Setup then prints what taking the zone over means, and asks you to confirm it:
 
@@ -345,7 +337,7 @@ nothing else to configure.
 *Manual equivalents:*
 Workers & Pages → *worker* → Settings → Domains & Routes → Add → Custom Domain ·
 zone → Email → Email Routing → Get started · Routing rules → Catch-all → Edit →
-*Send to a Worker* · `./a51 black-holes add <host> http,mail`.
+*Send to a Worker* · `./a51 black-holes add <zone>`.
 
 ### 8. Autopilot hostname
 
@@ -416,8 +408,8 @@ policy *Allow* with an Emails or Email domain rule.
 `doctor` is the real acceptance test. It checks the schema (including columns
 added by later releases), both buckets, all four Workers **and the bindings that
 actually reached them**, the operator list and whether Access enforces exactly
-it, every black hole's Custom Domain and mail routing (including that a subdomain
-mail black hole has MX records of its own), the dashboard's Custom Domain, and
+it, every black hole's Custom Domain and mail routing (including that a leftover
+subdomain row has MX records of its own), the dashboard's Custom Domain, and
 the Access application and its policy. Then it makes live requests:
 
 - the black hole answers `404` on an unknown path,
@@ -434,7 +426,7 @@ Then, in order:
    [verify-deployment](verify-deployment.md) walks the Workers, the database, both
    buckets and the Access application, screenshot by screenshot.
 2. **Create an endpoint** in the dashboard and `curl` it.
-3. **Send mail** to `anything@<mail-enabled-host>` and watch **Emails**.
+3. **Send mail** to `anything@<black-hole.tld>` and watch **Emails**.
 4. **Register Autopilot** with your agent
    ([autopilot](../internals/autopilot.md#registering-with-claude-code)).
 5. **Read [usage](usage.md)**, the engagement playbooks, and
@@ -447,7 +439,7 @@ Then, in order:
 | Pulled new code | `./a51 deploy all` |
 | Schema changed upstream | `./a51 deploy schema` (or `./a51 doctor --fix`) |
 | Changed a hostname, bucket or worker name in `.env` | `./a51 setup`, but read [operations.md](operations.md#renaming-things) first: renaming a Worker or a bucket creates a *new* one and orphans the old |
-| Added a domain | `./a51 black-holes add <host> http,mail` |
+| Added a domain | `./a51 black-holes add <zone>` |
 | Someone joined or left | `./a51 users add <email>` / `./a51 users remove <email>`, which covers both doors at once |
 | Want it gone | `./a51 destroy` |
 

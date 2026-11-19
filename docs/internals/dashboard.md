@@ -324,8 +324,10 @@ filter change cannot land late and clobber the filtered view.
   before React paints so there is no flash of the wrong theme.
 - **`Home`** is the landing tab. Its orbit chips double as the **default-host
   picker** for copied endpoint URLs, persisted to
-  `localStorage['area51:activeDomain']`. Only hosts with the `http` role are
-  selectable; mail-only hosts are locked out.
+  `localStorage['area51:activeDomain']`. Every black hole serves HTTP, so every
+  chip is selectable; a chip is its address and nothing else. Only black holes
+  appear here — a mail subdomain an operator enabled by hand is captured just the
+  same, but it is not in the `domains` table and is not listed.
 - **`Settings`** is blacklist management only. Purging is deliberately not in the
   UI ([decisions.md](../decisions.md#no-purge-in-the-dashboard)); use `./a51 purge`.
 

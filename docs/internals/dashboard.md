@@ -254,7 +254,33 @@ The scope is not persisted. A session starts on the working set, because a
 dashboard that quietly opens on the Archive because of something you clicked
 last week is a dashboard that misreports what is being served.
 
-*The modal* is in exactly one of two states. In **text mode** it shows Headers /
+*The modal is read-only for two kinds of endpoint*, and the pair is deliberate:
+an **archived** one and an **agent-staged** one both belong to a lifecycle the
+editor is not part of. Archived rows are frozen by the server. Agent-staged rows
+are Autopilot's — it can read, replace and delete them — and the cleanup run
+takes all of them on a schedule, so an operator editing one is editing a
+response an agent may overwrite, on a row that disappears next month.
+
+Each gets the one action that ends that state, in the modal's single primary
+slot: **Unarchive** for the first, **Move to Endpoints** for the second.
+*Move to Endpoints* opens the URI field alone — the body stays locked, because
+a move is a rename and not an edit — prefilled with the path minus the prefix,
+so `/-/acme/oauth-callback` is proposed as `/acme/oauth-callback`. The operator
+edits it freely; the only thing refused is a target still under `/-/`, which
+would have moved nothing.
+
+Whether the target is taken is settled by the **server**, not by a lookup from
+the browser first. `PATCH` already answers `409 <uri> already exists`, and that
+answer is authoritative where a pre-check would be a second round trip that is
+stale the moment it returns. The refusal lands back on the URI field rather than
+in a toast, so the path is still there to edit. `apiFetch` carries the HTTP
+status on the thrown error for exactly this: a caller distinguishing one refusal
+from another without matching on message text. A successful move closes and
+refreshes but does **not** follow the endpoint to the Endpoints scope — the row
+leaves the list you are standing in, and jumping scope after every move would
+make triaging a staged engagement a fight. The toast names where it went.
+
+*Otherwise the modal* is in exactly one of two states. In **text mode** it shows Headers /
 Status / Body editors plus a **Serve a file** drop target. Attaching a file
 switches to **file mode**: those three editors are *unmounted* rather than
 disabled, because a grayed-out field still invites a click. They are replaced by
@@ -274,8 +300,9 @@ UUID, so a file-backed endpoint keeps its object with no R2 call, and captured
 requests keep the URL they were actually made to. The rename is sent before the
 body write, so a name clash comes back as `409` with nothing changed and the
 modal still showing what was typed. Renaming *into* `/-/` is allowed and
-confirmed first, because it hands the endpoint to Autopilot and to the purge
-schedule.
+confirmed first, because it hands the endpoint to Autopilot, to the purge
+schedule, and to the read-only treatment above — after which changing it again
+means moving it back out.
 
 *Archiving* sits beside Delete, as the undo-able half of it. An archived endpoint
 keeps its row and its R2 object and stops being served, because the catcher's

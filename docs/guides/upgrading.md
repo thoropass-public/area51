@@ -18,6 +18,7 @@ column and the shape of one CLI command. Budget five minutes.
 | Home orbit chips | address + an `http · mail` label | address only |
 | Endpoints toolbar | an **Archive** toggle, plus a `:autopilot:` search term nothing advertised | one scope switch: **Endpoints · Autopilot · Archive** |
 | Creating under `/-/` | allowed from the dashboard | refused; create outside the prefix and rename in |
+| Editing under `/-/` | an ordinary edit | read-only, with **Move to Endpoints** to take it out of the prefix first |
 
 A black hole is now a whole Cloudflare zone that always captures both HTTP and
 mail, so there is nothing left to record per host and nothing to choose when

@@ -82,7 +82,13 @@ async function apiFetch(path, init) {
   const body = isJson ? await resp.json().catch(() => null) : null;
   if (!resp.ok) {
     const msg = (body && body.error) || `HTTP ${resp.status}`;
-    throw new Error(msg);
+    const err = new Error(msg);
+    // The status rides along so a caller can tell one refusal from another
+    // without matching on the message text. `409` in particular is a real
+    // branch: for a rename it means the path is taken, and the caller wants to
+    // put that back on the field rather than toast it and close.
+    err.status = resp.status;
+    throw err;
   }
   return body;
 }

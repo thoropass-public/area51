@@ -234,6 +234,13 @@ const AUTOPILOT_PREFIX = "/-/";
 
 const isAutopilotUri = (uri) => String(uri || "").startsWith(AUTOPILOT_PREFIX);
 
+// The path an agent-staged endpoint is offered when it is moved out: the same
+// path with the prefix taken off, so `/-/acme/oauth-callback` is proposed as
+// `/acme/oauth-callback`. A suggestion, not a rule — the operator edits it, and
+// the only thing enforced is that the result is not back under the prefix.
+const withoutAutopilotPrefix = (uri) =>
+  "/" + String(uri || "").slice(AUTOPILOT_PREFIX.length).replace(/^\/+/, "");
+
 function EndpointsTab() {
   const toast = useToast();
   const confirm = useConfirm();
@@ -299,6 +306,17 @@ function EndpointsTab() {
     setActiveId(null);
     await fetchFirst();
     toast("Endpoint saved", "success");
+  };
+
+  // Same close-and-refresh, without the toast: a move has already said what it
+  // did and where the endpoint went, which "Endpoint saved" would contradict
+  // one line later. The list does not follow it — the row leaves the Autopilot
+  // scope you are standing in, and jumping to Endpoints after every move would
+  // make triaging a staged engagement a fight.
+  const handleMoved = async () => {
+    setModal(null);
+    setActiveId(null);
+    await fetchFirst();
   };
 
   const handleDelete = async (uri) => {
@@ -377,6 +395,7 @@ function EndpointsTab() {
           uri={modal.uri}
           onClose={() => { setModal(null); setActiveId(null); }}
           onSaved={handleSaved}
+          onMoved={handleMoved}
           onDelete={handleDelete}
         />
       )}
@@ -439,7 +458,7 @@ function EndpointRow({ row, active, matches, onOpen }) {
 // browser. The upload handler re-checks it against Content-Length.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
-function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
+function EndpointModal({ mode, uri, onClose, onSaved, onMoved, onDelete }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(mode === "edit");
@@ -488,10 +507,74 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   // the same treatment file mode gets. A grayed-out field still invites a
   // click, and the server refuses the write anyway.
   const frozen = mode === "edit" && form.archived;
+
+  // An agent-staged endpoint is read-only here, for the same reason an archived
+  // one is: it belongs to a lifecycle this modal is not part of. Agents own what
+  // is under `/-/` — Autopilot can read, replace and delete it — and the cleanup
+  // run deletes all of it on a schedule. An operator editing a response an agent
+  // is about to overwrite, on a row that disappears next month, is editing
+  // something that is not really theirs.
+  //
+  // The way out is the same one the fence already had: move it out of the
+  // prefix. That is a single primary-key update, it takes the endpoint out of
+  // Autopilot's reach and off the purge schedule in one go, and the row — file
+  // and all — arrives in the ordinary Endpoints list where everything is
+  // editable again. So the modal offers that move rather than an edit.
+  const agentOwned = mode === "edit" && isAutopilotUri(uri);
+  const [moving, setMoving] = useState(false);
+  const [moveTo, setMoveTo] = useState("");
+  const [moveError, setMoveError] = useState("");
+
+  // Two different locks. Content is read-only for as long as the row is
+  // agent-owned, the move included: moving is a rename, not an edit, and the
+  // body you can see is still the agent's until it lands. Only the URI opens
+  // up, and only while the move is being typed.
+  const contentLocked = frozen || agentOwned;
+  const uriLocked = frozen || (agentOwned && !moving);
+
   // The one path a new endpoint may not take. Checked as you type AND again in
   // `save`, from this same expression, so the field and the Save button can
   // never disagree about what is allowed.
   const newIntoPrefix = mode === "new" && isAutopilotUri(form.uri.trim());
+
+  // The same question for the move target, and the reason it cannot be waved
+  // through: a "move" that lands back under `/-/` has moved nothing.
+  const moveIntoPrefix = isAutopilotUri(moveTo.trim());
+
+  const beginMove = () => {
+    setMoveTo(withoutAutopilotPrefix(uri));
+    setMoveError("");
+    setMoving(true);
+  };
+
+  // The move is ONE write: the rename. Not `save`, which would also push the
+  // status, headers and body back — a pointless write on a row nobody edited,
+  // and one that would quietly make this modal an editor after all.
+  //
+  // Whether the target is taken is decided by the server, not by a lookup from
+  // here first. A check would be a second round trip that is out of date the
+  // moment it returns; the rename itself answers 409 with the name, which is
+  // the same answer, authoritative, and already the thing that races correctly.
+  // So the refusal lands back on the field and the operator picks another.
+  const moveOut = async () => {
+    const target = moveTo.trim();
+    if (!target) { setMoveError("A path is required"); return; }
+    if (!target.startsWith("/")) { setMoveError("URI must start with /"); return; }
+    if (moveIntoPrefix) { setMoveError(`That is still under ${AUTOPILOT_PREFIX}. Pick a path outside it.`); return; }
+
+    setMoveError("");
+    setSaving(true);
+    try {
+      await API.patchEndpoint(uri, { uri: target });
+    } catch (e) {
+      setSaving(false);
+      if (e.status === 409) { setMoveError(e.message); return; }
+      toast("Move failed: " + e.message, "error");
+      return;
+    }
+    toast(`Moved to ${target}. It is an ordinary endpoint now, and editable`, "success");
+    onMoved();
+  };
 
   const pickFile = (f) => {
     if (!f) return;
@@ -560,7 +643,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
     if (renaming && isAutopilotUri(targetUri) && !isAutopilotUri(uri)) {
       const ok = await confirm({
         title: "Move into Autopilot's prefix",
-        message: `${targetUri} is under ${AUTOPILOT_PREFIX}. Agents will be able to read, replace and delete it, and the monthly cleanup deletes everything under that prefix. Archived endpoints cannot live there at all.`,
+        message: `${targetUri} is under ${AUTOPILOT_PREFIX}. Agents will be able to read, replace and delete it, and the monthly cleanup deletes everything under that prefix. It also stops being editable here: to change it again you move it back out. Archived endpoints cannot live there at all.`,
         confirmLabel: "Move it",
       });
       if (!ok) return;
@@ -598,10 +681,34 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
     }
   };
 
+  // The helper line under the URI doubles as that field's error, so it is
+  // worked out once here rather than as a five-deep ternary inside the render.
+  // Order matters: the state the operator is actually IN wins over the state
+  // the row is in.
+  const uriHelperIsError = moving ? Boolean(moveError || moveIntoPrefix) : newIntoPrefix;
+  let uriHelper;
+  if (moving && moveError) {
+    uriHelper = <>{moveError} Pick another path.</>;
+  } else if (moving && moveIntoPrefix) {
+    uriHelper = <>Still under {AUTOPILOT_PREFIX}. Moving it there moves nothing — pick a path outside the prefix.</>;
+  } else if (moving) {
+    uriHelper = <>Where it will be served once it leaves {AUTOPILOT_PREFIX}. <span style={{fontFamily:"var(--mono)"}}>{uri}</span> stops serving.</>;
+  } else if (newIntoPrefix) {
+    uriHelper = <>{AUTOPILOT_PREFIX} is Autopilot's namespace: agents own what lives there and the cleanup run deletes all of it on a schedule. Create this elsewhere, then rename it in if you really mean to hand it over.</>;
+  } else if (agentOwned) {
+    uriHelper = <>Staged by an agent. Everything under {AUTOPILOT_PREFIX} is Autopilot's to read, replace and delete, and the cleanup run deletes all of it on a schedule — so it is not edited here. Move it out to make it yours.</>;
+  } else if (frozen) {
+    uriHelper = "Archived. This path is not served. Unarchive it to make any change.";
+  } else if (mode === "edit" && form.uri.trim() !== uri) {
+    uriHelper = <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>;
+  } else {
+    uriHelper = "Path the black hole will serve. Must start with /";
+  }
+
   return (
     <Modal open onClose={onClose}>
       <ModalHead
-        title={mode === "new" ? "NEW ENDPOINT" : "EDIT ENDPOINT"}
+        title={mode === "new" ? "NEW ENDPOINT" : agentOwned ? "AUTOPILOT ENDPOINT" : "EDIT ENDPOINT"}
         id={mode === "edit" ? form.uri : undefined}
         onClose={onClose}
       />
@@ -612,12 +719,28 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
           <>
             <div className="field">
               <label>URI</label>
-              {/* Editable in both modes. A rename is an ordinary primary-key
-                  update. Nothing else in either store is keyed by the URI,
-                  so a file-backed endpoint keeps its object. The write is
-                  applied by Save, not as you type. */}
-              {frozen ? (
+              {/* A rename is an ordinary primary-key update. Nothing else in
+                  either store is keyed by the URI, so a file-backed endpoint
+                  keeps its object — which is also what makes the move out of
+                  `/-/` carry an uploaded payload with it. The write is applied
+                  by the button, not as you type.
+
+                  Three renderings, because there are three things this field
+                  is: the row's path (locked), a path being edited, and a move
+                  target. The move gets its own state rather than borrowing
+                  `form.uri`, so abandoning it leaves nothing behind. */}
+              {uriLocked ? (
                 <div className="readonly-value">{form.uri}</div>
+              ) : moving ? (
+                <input
+                  type="text"
+                  placeholder="/acme/oauth-callback"
+                  value={moveTo}
+                  onChange={(e) => { setMoveTo(e.target.value); setMoveError(""); }}
+                  autoFocus
+                  spellCheck={false}
+                  aria-invalid={uriHelperIsError || undefined}
+                />
               ) : (
                 <input
                   type="text"
@@ -629,18 +752,10 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
                   aria-invalid={newIntoPrefix || undefined}
                 />
               )}
-              <div className={`helper${newIntoPrefix ? " helper-error" : ""}`}>
-                {newIntoPrefix
-                  ? <>{AUTOPILOT_PREFIX} is Autopilot's namespace: agents own what lives there and the cleanup run deletes all of it on a schedule. Create this elsewhere, then rename it in if you really mean to hand it over.</>
-                  : frozen
-                    ? "Archived. This path is not served. Unarchive it to make any change."
-                    : mode === "edit" && form.uri.trim() !== uri
-                      ? <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>
-                      : "Path the black hole will serve. Must start with /"}
-              </div>
+              <div className={`helper${uriHelperIsError ? " helper-error" : ""}`}>{uriHelper}</div>
             </div>
 
-            {frozen ? (
+            {contentLocked ? (
               <div className="field">
                 {savedFile ? (
                   <>
@@ -719,7 +834,10 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
         )}
       </div>
       <div className="modal-foot">
-        {mode === "edit" && (
+        {/* While a move is being typed the footer is the move and nothing else.
+            Delete and Archive are still true of this row, but offering them
+            mid-decision is offering a different decision. */}
+        {mode === "edit" && !moving && (
           <button className="btn danger" onClick={() => onDelete(uri)} disabled={saving || loading}>
             Delete
           </button>
@@ -728,22 +846,38 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
             Unmounted rather than disabled for an Autopilot endpoint, matching
             how the file-mode editors are handled: a grayed-out button still
             invites a click, and this one has nothing to offer. An agent-staged
-            endpoint is deleted, or renamed out of /-/ to become an ordinary
+            endpoint is deleted, or moved out of /-/ to become an ordinary
             endpoint that can then be archived. */}
-        {mode === "edit" && !loading && !isAutopilotUri(uri) && (
+        {mode === "edit" && !loading && !moving && !agentOwned && (
           <button className="btn" onClick={toggleArchive} disabled={saving}>
             {form.archived ? "Unarchive" : "Archive"}
           </button>
         )}
         <div className="spacer"/>
-        <button className="btn ghost" onClick={onClose}>{frozen ? "Close" : "Cancel"}</button>
-        {!frozen && (
+        {/* Cancelling a move returns to the locked view rather than closing the
+            modal. Backing out of a path you were choosing should not also throw
+            away the endpoint you were looking at. */}
+        <button className="btn ghost" onClick={moving ? () => { setMoving(false); setMoveError(""); } : onClose}>
+          {moving ? "Cancel" : (frozen || agentOwned) ? "Close" : "Cancel"}
+        </button>
+        {/* One primary slot, always holding the thing to do here: save your
+            edits, start the move, or finish it. An archived endpoint has
+            nothing in it, because its one action is Unarchive on the left. */}
+        {moving ? (
+          <button className="btn primary" onClick={moveOut} disabled={saving || moveIntoPrefix || !moveTo.trim()}>
+            {saving ? <><span className="spinner"/> moving</> : "Move"}
+          </button>
+        ) : agentOwned ? (
+          <button className="btn primary" onClick={beginMove} disabled={saving || loading}>
+            Move to Endpoints
+          </button>
+        ) : !frozen ? (
           <button className="btn primary" onClick={save} disabled={saving || loading || newIntoPrefix}>
             {saving
               ? <><span className="spinner"/> {file ? "uploading" : "saving"}</>
               : (mode === "new" ? "Create" : "Save changes")}
           </button>
-        )}
+        ) : null}
       </div>
     </Modal>
   );

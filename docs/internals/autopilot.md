@@ -77,8 +77,17 @@ agent polling during an engagement wants freshness over saved reads
 
 `AUTOPILOT_PREFIX = '/-/'` is hardcoded. Autopilot cannot read, create, update or
 delete an endpoint outside that namespace. A URI that does not start with `/-/`
-is rejected with `400` before any query runs. The dashboard, by contrast, has CRUD
-over the whole table.
+is rejected with `400` before any query runs.
+
+The dashboard has CRUD over the whole table, but it declines most of it inside
+the prefix, and the two fences point in opposite directions on purpose. Autopilot
+may not leave `/-/`; the dashboard does not *work* in it. It will not create an
+endpoint there, and one that is there opens read-only with a single action,
+**Move to Endpoints**, that renames it out. The server still accepts those
+writes — the restraint is the interface's, not the API's — because the reason is
+about who owns a row rather than about what is permitted: an operator editing
+inside `/-/` is editing something an agent may overwrite, on a row the purge
+deletes next month.
 
 This means a confused or runaway agent can, at worst, scribble over stubs it or
 another agent created under `/-/`. It cannot touch a hand-crafted endpoint, the
@@ -95,9 +104,11 @@ Third, and it is a rule the dashboard enforces rather than this worker:
 taking it out of service, and an agent-staged endpoint has no use for that
 state. It would be agent-owned, unserved, and deleted by the purge regardless,
 which is three lifecycles at once. An agent-staged stub is either
-deleted, or renamed out of `/-/` from the dashboard, and that rename is exactly
+deleted, or moved out of `/-/` from the dashboard, and that move is exactly
 what converts it into an ordinary endpoint: it leaves Autopilot's reach, leaves
-the purge, and becomes archivable like any other. Nothing an agent can
+the purge, and becomes editable and archivable like any other. It is the same
+rename either way — *Move to Endpoints* is that rename with the prefix stripped
+off the proposed path and a check that the target is not back inside it. Nothing an agent can
 call reaches `archived`, and no archived row can exist under the prefix for one
 to find.
 

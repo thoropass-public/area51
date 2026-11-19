@@ -79,7 +79,7 @@ real inbox can serve both fields.
 
 | Key | Default | Notes |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | none | **Required.** Permissions listed in [getting-started.md#api-token](../guides/getting-started.md#api-token). Also passed to wrangler through the environment, so wrangler never opens a browser login. |
+| `CLOUDFLARE_API_TOKEN` | none | **Required**, and it has to be an **Account API token** (Manage Account → API Tokens), not one made under My Profile. Every call the CLI makes is account-scoped, verification included, so a user token is rejected with `[1000] Invalid API Token`. Permissions listed in [getting-started.md#api-token](../guides/getting-started.md#api-token). Also passed to wrangler through the environment, so wrangler never opens a browser login. |
 | `CLOUDFLARE_ACCOUNT_ID` | discovered | Filled in by setup. Set it by hand to skip the account prompt. |
 | `CLOUDFLARE_ZONE` | prompted | The zone setup provisions on. Only used to offer sensible hostname defaults and to resolve zone ids. |
 

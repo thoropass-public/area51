@@ -518,7 +518,7 @@ an address record it did not create for that Worker. It answers
 `[100117] Hostname 'x' already has externally managed DNS records (A, CNAME,
 etc). Delete them first or try a different hostname.` A domain worth pointing
 targets at is usually in exactly that state: a parked A record, or a CNAME left
-behind by a Pages project or another Worker.
+behind by whatever served the domain before.
 
 So `ensureBlackHole` treats that refusal as a step rather than an end. It
 releases the name, then binds again. The alternative was a follow-up asking the
@@ -536,15 +536,79 @@ Three rules keep this from becoming an accident:
   name the doomed records first and gate on a typed `TAKEOVER`. The derived
   hostnames (`area51.<zone>`, `autopilot.<zone>`) get no such prompt, so they
   keep the older behavior: report the conflict, skip the step, carry on.
-- **Ask the owner before touching DNS.** A Worker Custom Domain is detached, a
-  Pages custom domain is detached, and only what is left is deleted as a DNS
-  record. Deleting Cloudflare's managed record behind its owner's back leaves
-  that product still claiming a hostname it no longer serves, and the DNS API
-  does not reliably allow it anyway.
+- **Ask the owner before touching DNS.** A Worker Custom Domain is detached
+  first, and only what is left is deleted as a DNS record. Deleting Cloudflare's
+  managed record behind its owner's back leaves that product still claiming a
+  hostname it no longer serves, and the DNS API does not reliably allow it
+  anyway.
 
-Whatever could not be released is named in the follow-up, with the dashboard
-click-path for it. `[100117]` on its own does not say which product is holding
-the name, which is how this failed the first time.
+**A Worker is the only holder it releases.** Anything else serving the name is
+reported as taken, with the dashboard click-path, and the operator removes it
+and runs again.
+
+That is narrower than it could be, on purpose. Releasing another product's claim
+means one branch of code per product, each with its own API, its own permission
+on the token, and its own way of going out of date when Cloudflare changes the
+product. The CLI used to carry such a branch for Pages,
+which bought one automatic step on one kind of conflict and cost a permission
+that every install had to grant whether or not it ever hit that case.
+
+The message does not age. Whoever holds the name, the fix is the same: find it,
+remove its claim, run again. `[100117]` on its own does not even say the name is
+taken in terms an operator can act on, which is how this failed the first
+time.
+
+## The CLI authenticates with an Account API token
+
+Cloudflare offers two kinds of API token. One is made under My Profile and
+belongs to the person who made it. The other is made under Manage Account and
+belongs to the account. AREA 51 takes the second and refuses the first.
+
+A deployment outlives the person who installed it. The black holes keep
+capturing, the cleanup worker keeps running on its cron, and agents keep calling
+Autopilot. A token tied to one person's profile goes down with that person's
+access, which for a team account means an offboarding breaks a deployment nobody
+was thinking about that week.
+
+**There is no fallback to the user route.** The two verify endpoints reject each
+other's tokens outright with `[1000] Invalid API Token`, so a fallback would
+only let a token of the wrong kind reach a later call and fail somewhere less
+obvious. Failing at verification, where the message says what is wrong, is the
+better outcome.
+
+Three things follow from it:
+
+- **The account id is resolved before anything is verified.** Verifying an
+  account token is itself an account-scoped call, `GET /accounts/<id>/tokens/verify`,
+  so there is nothing to verify against until the id is known. `setup` used to
+  verify first. Now it does not.
+- **A failed account listing is not fatal.** `resolveAccount` still lists
+  accounts, because turning an id into a name the operator recognises is worth
+  one call. An account token is entitled not to answer that, so when it does not,
+  the CLI asks for the id instead. It is on the first screen of the dashboard and
+  in the URL of every page under it.
+- **R2's S3 credentials come from the same reply.** `deriveR2Credentials` uses
+  the token id as the access key id and `sha256(token)` as the secret, so this
+  one call is on the path of every R2 object operation the CLI makes.
+
+**What was checked before committing to it.** A read-only probe ran every
+endpoint family the CLI touches against a real account token: both verify
+routes, account and zone listings, all four Email Routing endpoints, Access
+applications and organizations, Gateway lists, D1 reads and queries, R2 bucket
+listing, an S3 list signed from the token id, and the Workers domains and
+scripts APIs. Everything passed except the user verify route, which is the one
+that was supposed to fail.
+
+Email Routing is worth naming. It has no row in Cloudflare's published
+compatibility matrix for account-owned tokens, so on paper it was the thing most
+likely to stop this working. It works. Treat that as behaviour to re-test rather
+than a contract, the same as the undocumented `name` body on the Email Routing
+DELETE.
+
+What it costs: a deployment upgrading from v1.2.0 has to replace its token
+before anything runs, because the old one is rejected by every command. That is
+the only breaking change in the series so far, and
+[upgrading](guides/upgrading.md) leads with it.
 
 ## Provisioning goes through the REST API, not wrangler
 

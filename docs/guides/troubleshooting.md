@@ -71,7 +71,7 @@ order, is [guides/upgrading](upgrading.md).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| setup reports `<host> already has a DNS record that is not part of this deployment` | Something that is not a Worker on this account is serving `DASHBOARD_HOSTNAME`, and Cloudflare will not put a Custom Domain on a name another product owns | Find what owns it in the Cloudflare dashboard and remove its claim on the name, at the owning product rather than in DNS. Deleting a managed record leaves its owner still claiming the name. Then re-run `./a51 setup` |
+| setup reports `<host> already has a DNS record that is not part of this deployment` | Some other product is serving `DASHBOARD_HOSTNAME`, and Cloudflare will not put a Custom Domain on a name another product owns | Find what owns it in the Cloudflare dashboard and remove its claim on the name, at the owning product rather than in DNS. Deleting a managed record leaves its owner still claiming the name. Then re-run `./a51 setup` |
 | `/api/*` returns 500, or HTML instead of JSON | The `DB` binding did not reach the worker | `./a51 doctor` names the missing binding; `./a51 deploy dashboard` re-renders the config and re-uploads. The bindings are declared in `dashboard/wrangler.toml.template`, so check `.env` if it recurs |
 | Uploading a file to an endpoint returns 500 | The `FILES` binding did not reach the worker | Same fix |
 | `/api/emails/<id>/raw` returns 500 | The `EML` binding did not reach the worker | Same fix, and note this breaks *every* email body, not just Download Raw |

@@ -165,7 +165,8 @@ whole interaction, self-hosted:
 - **R2 object storage** enabled, and **Zero Trust** activated once. One click
   each; neither can be turned on through the API.
 - **Node.js 20+**.
-- One **API token**. The exact permission list is in
+- One **Account API token**, made under Manage Account rather than My Profile so
+  it belongs to the account and not to a person. The exact permission list is in
   [getting-started](docs/guides/getting-started.md#api-token).
 
 Everything else is created for you: the database, storage, four Workers (the

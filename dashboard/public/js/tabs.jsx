@@ -308,12 +308,15 @@ function EndpointsTab() {
     toast("Endpoint saved", "success");
   };
 
-  // Same close-and-refresh, without the toast: a move has already said what it
-  // did and where the endpoint went, which "Endpoint saved" would contradict
-  // one line later. The list does not follow it — the row leaves the Autopilot
-  // scope you are standing in, and jumping to Endpoints after every move would
-  // make triaging a staged engagement a fight.
-  const handleMoved = async () => {
+  // Close and refresh WITHOUT a toast, for the writes that announce themselves.
+  // A move says where the endpoint went and an archive says whether the path is
+  // still served; "Endpoint saved" stacked under either one contradicts it a
+  // line later. (Both used to do exactly that.)
+  //
+  // The list does not follow a move, either: the row leaves the Autopilot scope
+  // you are standing in, and jumping to Endpoints after every move would make
+  // triaging a staged engagement a fight.
+  const handleActed = async () => {
     setModal(null);
     setActiveId(null);
     await fetchFirst();
@@ -395,7 +398,7 @@ function EndpointsTab() {
           uri={modal.uri}
           onClose={() => { setModal(null); setActiveId(null); }}
           onSaved={handleSaved}
-          onMoved={handleMoved}
+          onActed={handleActed}
           onDelete={handleDelete}
         />
       )}
@@ -458,7 +461,7 @@ function EndpointRow({ row, active, matches, onOpen }) {
 // browser. The upload handler re-checks it against Content-Length.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
-function EndpointModal({ mode, uri, onClose, onSaved, onMoved, onDelete }) {
+function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(mode === "edit");
@@ -573,7 +576,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onMoved, onDelete }) {
       return;
     }
     toast(`Moved to ${target}. It is an ordinary endpoint now, and editable`, "success");
-    onMoved();
+    onActed();
   };
 
   const pickFile = (f) => {
@@ -603,7 +606,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onMoved, onDelete }) {
     try {
       await API.patchEndpoint(uri, { archived: !form.archived });
       toast(form.archived ? "Endpoint unarchived. It is served again" : "Endpoint archived. It is no longer served", "success");
-      onSaved();
+      onActed();
     } catch (e) {
       toast((form.archived ? "Unarchive" : "Archive") + " failed: " + e.message, "error");
       setSaving(false);
@@ -842,27 +845,40 @@ function EndpointModal({ mode, uri, onClose, onSaved, onMoved, onDelete }) {
             Delete
           </button>
         )}
-        {/* Archive is the undo-able half of Delete, so it sits beside it.
-            Unmounted rather than disabled for an Autopilot endpoint, matching
-            how the file-mode editors are handled: a grayed-out button still
-            invites a click, and this one has nothing to offer. An agent-staged
-            endpoint is deleted, or moved out of /-/ to become an ordinary
-            endpoint that can then be archived. */}
-        {mode === "edit" && !loading && !moving && !agentOwned && (
+        {/* ARCHIVE only, not Unarchive. Archiving is the undo-able half of
+            Delete, so it belongs beside it, on the quiet side of the footer:
+            it takes an endpoint out of service. Unarchive is the opposite
+            errand — the one thing an archived endpoint is open to have done to
+            it — so it is the primary below rather than a second grey button
+            here. Unmounted for an Autopilot endpoint, matching how the
+            file-mode editors are handled: a grayed-out button still invites a
+            click, and this one has nothing to offer. An agent-staged endpoint
+            is deleted, or moved out of /-/ to become an ordinary endpoint that
+            can then be archived. */}
+        {mode === "edit" && !loading && !moving && !agentOwned && !form.archived && (
           <button className="btn" onClick={toggleArchive} disabled={saving}>
-            {form.archived ? "Unarchive" : "Archive"}
+            Archive
           </button>
         )}
         <div className="spacer"/>
-        {/* Cancelling a move returns to the locked view rather than closing the
-            modal. Backing out of a path you were choosing should not also throw
-            away the endpoint you were looking at. */}
-        <button className="btn ghost" onClick={moving ? () => { setMoving(false); setMoveError(""); } : onClose}>
-          {moving ? "Cancel" : (frozen || agentOwned) ? "Close" : "Cancel"}
-        </button>
+        {/* One ghost button in the whole modal, and only because it is not a
+            synonym for closing: cancelling a MOVE returns to the locked view,
+            keeping the endpoint you were looking at open. Backing out of a
+            path you were choosing should not also throw away what you were
+            choosing it for.
+
+            Every other Cancel / Close here did exactly what the ✕ in the
+            header does, one pixel-row below it, spending the slot beside the
+            primary action on a duplicate — and reading as the cautious half of
+            a decision nobody was being asked to make. A modal that can be shut
+            with Escape, the backdrop and a ✕ does not need a fourth way. */}
+        {moving && (
+          <button className="btn ghost" onClick={() => { setMoving(false); setMoveError(""); }}>
+            Cancel
+          </button>
+        )}
         {/* One primary slot, always holding the thing to do here: save your
-            edits, start the move, or finish it. An archived endpoint has
-            nothing in it, because its one action is Unarchive on the left. */}
+            edits, unarchive, start the move, or finish it. */}
         {moving ? (
           <button className="btn primary" onClick={moveOut} disabled={saving || moveIntoPrefix || !moveTo.trim()}>
             {saving ? <><span className="spinner"/> moving</> : "Move"}
@@ -871,13 +887,17 @@ function EndpointModal({ mode, uri, onClose, onSaved, onMoved, onDelete }) {
           <button className="btn primary" onClick={beginMove} disabled={saving || loading}>
             Move to Endpoints
           </button>
-        ) : !frozen ? (
+        ) : frozen ? (
+          <button className="btn primary" onClick={toggleArchive} disabled={saving}>
+            {saving ? <><span className="spinner"/> unarchiving</> : "Unarchive"}
+          </button>
+        ) : (
           <button className="btn primary" onClick={save} disabled={saving || loading || newIntoPrefix}>
             {saving
               ? <><span className="spinner"/> {file ? "uploading" : "saving"}</>
               : (mode === "new" ? "Create" : "Save changes")}
           </button>
-        ) : null}
+        )}
       </div>
     </Modal>
   );

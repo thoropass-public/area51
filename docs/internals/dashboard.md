@@ -263,6 +263,20 @@ response an agent may overwrite, on a row that disappears next month.
 
 Each gets the one action that ends that state, in the modal's single primary
 slot: **Unarchive** for the first, **Move to Endpoints** for the second.
+
+*The footer holds no Close or Cancel*, in any of the modal's states but one.
+A ghost button that only shuts the modal says what the ✕ in the header already
+says one row above it, and spends the slot beside the primary action on a
+duplicate — which also reads as the cautious half of a decision nobody is being
+asked to make. The modal already closes on Escape, on the backdrop and on that
+✕. The exception is **Cancel during a move**, which is not a synonym for
+closing: it returns to the locked view with the endpoint still open, because
+backing out of a path you were choosing should not throw away what you were
+choosing it for.
+
+A write that announces itself — a move, an archive, an unarchive — closes and
+refreshes the list without the generic *Endpoint saved* toast, which would
+otherwise stack under the specific one and contradict it.
 *Move to Endpoints* opens the URI field alone — the body stays locked, because
 a move is a rename and not an edit — prefilled with the path minus the prefix,
 so `/-/acme/oauth-callback` is proposed as `/acme/oauth-callback`. The operator

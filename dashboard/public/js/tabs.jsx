@@ -858,22 +858,28 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
             Delete
           </button>
         )}
-        {/* ARCHIVE only, not Unarchive. Archiving is the undo-able half of
-            Delete, so it belongs beside it, on the quiet side of the footer:
-            it takes an endpoint out of service. Unarchive is the opposite
-            errand — the one thing an archived endpoint is open to have done to
-            it — so it is the primary below rather than a second grey button
-            here. Unmounted for an Autopilot endpoint, matching how the
-            file-mode editors are handled: a grayed-out button still invites a
-            click, and this one has nothing to offer. An agent-staged endpoint
-            is deleted, or moved out of /-/ to become an ordinary endpoint that
-            can then be archived. */}
+        <div className="spacer"/>
+        {/* ARCHIVE only, not Unarchive, and on the right with the primary
+            rather than next to Delete.
+
+            Delete is alone on the left because it is the only thing here you
+            cannot take back. Everything on the right is a way of keeping this
+            endpoint: Save keeps it serving, Archive keeps it without serving.
+            Grouping Archive with Delete filed it under "destroy" and put a
+            gap between it and the button it is actually an alternative to.
+
+            Unarchive is not here: it is the opposite errand, the one thing an
+            archived endpoint is open to have done to it, so it takes the
+            primary slot below. Unmounted for an Autopilot endpoint, matching
+            how the file-mode editors are handled: a grayed-out button still
+            invites a click, and this one has nothing to offer. An agent-staged
+            endpoint is deleted, or moved out of /-/ to become an ordinary
+            endpoint that can then be archived. */}
         {mode === "edit" && !loading && !moving && !agentOwned && !form.archived && (
           <button className="btn" onClick={toggleArchive} disabled={saving}>
             Archive
           </button>
         )}
-        <div className="spacer"/>
         {/* One ghost button in the whole modal, and only because it is not a
             synonym for closing: cancelling a MOVE returns to the locked view,
             keeping the endpoint you were looking at open. Backing out of a
@@ -908,7 +914,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
           <button className="btn primary" onClick={save} disabled={saving || loading || newIntoPrefix}>
             {saving
               ? <><span className="spinner"/> {file ? "uploading" : "saving"}</>
-              : (mode === "new" ? "Create" : "Save changes")}
+              : (mode === "new" ? "Create" : "Save")}
           </button>
         )}
       </div>

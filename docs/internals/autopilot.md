@@ -133,7 +133,7 @@ the agent is choosing, and a prompt that names an exact path wins. Enforcing it
 would mean refusing paths an operator deliberately asked for, and the prefix is
 the only thing that has to be a rule.
 
-What it buys is legibility. The dashboard's **Endpoints → Autopilot** scope is
+What it buys is legibility. The dashboard's **Endpoints → Autopilot** position is
 the whole agent-staged list, and searching `acme` inside it pulls up one
 engagement; a reader can tell what a stub was for without opening it. An agent that cannot work out the customer is told
 to say so rather than guess, and to fall back to `/-/<readable-name>`.

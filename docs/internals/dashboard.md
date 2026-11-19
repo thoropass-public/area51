@@ -196,15 +196,20 @@ box, so the row reads coarse to fine. Which list, narrow it, act on it.
 
 | Scope | Rows | *New endpoint* |
 |---|---|---|
-| **Endpoints** | being served, `uri NOT LIKE '/-/%'` | shown |
-| **Autopilot** | agent-staged, `uri LIKE '/-/%'` | hidden |
+| **Manual** | made by hand, `uri NOT LIKE '/-/%'` | shown |
+| **Autopilot** | staged by agents, `uri LIKE '/-/%'` | hidden |
 | **Archive** | `archived = 1` | hidden |
+
+The first two are named for **who made the endpoint**, which is what actually
+separates them. The switch sits inside the Endpoints tab, so a position called
+*Endpoints* would read as "all of them" while meaning the opposite, and *Live*
+would be worse: an endpoint under `/-/` is served exactly like any other.
 
 `{n} loaded` counts the rows on screen, so it is a count of the scope you are
 in, never of everything.
 
 The three are mutually exclusive **in the data**, which is why one switch
-replaced two independent controls. No row is in two of them: the working query
+replaced two independent controls. No row is in two of them: the Manual query
 excludes `/-/` and the Autopilot query requires it. And nothing is in Archive
 *and* Autopilot, because an endpoint under the prefix can never be archived
 ([invariant 3](../../CLAUDE.md)). Two toggles could be set to that fourth
@@ -212,7 +217,7 @@ combination; the only honest answer to it is an empty list with nothing on
 screen explaining why it must be empty. A three-position switch cannot be asked
 the question.
 
-*New endpoint* appears on **Endpoints** only, because that is the only list a
+*New endpoint* appears on **Manual** only, because that is the only list a
 dashboard-made endpoint can join. In the Archive it would file the row into the
 list you are not looking at. In Autopilot it would open a form the modal then
 refuses, and a button that opens a form you cannot submit is worse than no

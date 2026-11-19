@@ -80,7 +80,7 @@ across reloads while you keep testing.
 ## Control the response (redirects and metadata)
 
 When the target has to follow your response somewhere, create a **text endpoint**
-(**Endpoints → + New endpoint**), because text endpoints own their status and headers.
+(**Endpoints → Manual → + New endpoint**), because text endpoints own their status and headers.
 
 **Redirect into a filter bypass**, for SSRF that validates the first URL only:
 
@@ -226,7 +226,7 @@ from the page before?).
 ## Host a file payload
 
 For real binaries: an archive, a compiled artifact, a PDF, a font, a signed
-blob, an image with something appended. Open **Endpoints → + New endpoint**, set the path,
+blob, an image with something appended. Open **Endpoints → Manual → + New endpoint**, set the path,
 drop the file on **Serve a file** (or click it to browse), and press **Create**.
 
 The path cannot be under `/-/`: that is Autopilot's namespace, the monthly

@@ -182,7 +182,16 @@ function effectiveSearch(input, pins) {
 // the list is not something a search box should do, and the fix is to let the
 // list switch look like a list switch.
 const SCOPES = [
-  { id: "live", label: "Endpoints", title: "Endpoints being served" },
+  // "Manual" rather than "Endpoints": this switch lives inside the Endpoints
+  // tab, so a position with the same name as its own tab reads as "all of
+  // them" when it means the opposite. What separates the first two lists is who
+  // made the endpoint, a person or an agent, so the labels say that and the
+  // contrast with Autopilot does the explaining.
+  //
+  // Not "Live" either, which is the tempting one and is wrong: an endpoint
+  // under `/-/` is served exactly like any other, so "Live" next to "Autopilot"
+  // would claim something false about the agent-staged list.
+  { id: "manual", label: "Manual", title: "Endpoints you made by hand" },
   { id: "autopilot", label: "Autopilot", title: "Endpoints staged by agents under /-/" },
   { id: "archived", label: "Archive", title: "Endpoints kept but not served" },
 ];
@@ -255,12 +264,12 @@ function EndpointsTab() {
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
   const [modal, setModal] = useState(null); // {mode:'edit'|'new', uri?}
-  // One of SCOPES. Not persisted, deliberately: the working set is where a
-  // session should start, and a dashboard that silently opens on the Archive
-  // because of something you did last week is a dashboard that lies about what
-  // is being served.
-  const [scope, setScope] = useState("live");
-  const live = scope === "live";
+  // One of SCOPES. Not persisted: the hand-made set is where a session should
+  // start, and a dashboard that silently opens on the Archive because of
+  // something you did last week is a dashboard that lies about what is being
+  // served.
+  const [scope, setScope] = useState("manual");
+  const manual = scope === "manual";
   const archived = scope === "archived";
   const autopilot = scope === "autopilot";
 
@@ -365,18 +374,18 @@ function EndpointsTab() {
             ? "no endpoints match that pattern"
             : archived ? "nothing archived"
             : autopilot ? "no agent has staged an endpoint"
-            : "no endpoints configured"
+            : "no endpoints configured yet"
         }
         leftToolbar={<ScopeSwitch scope={scope} setScope={setScope}/>}
         rightToolbar={
-          /* Only on Endpoints, the one list a dashboard-made endpoint can join.
+          /* Only on Manual, the one list a dashboard-made endpoint can join.
              In the Archive it would file the row into a list you are not
              looking at. In Autopilot it would offer to create something the
              modal then refuses: `/-/` is the agents' namespace and the
              dashboard does not create there (see `save` in EndpointModal). A
              button that opens a form you cannot submit is worse than no
              button. */
-          live && (
+          manual && (
             <button className="btn primary" onClick={() => setModal({ mode: "new" })}>
               <span className="plus">+</span> New endpoint
             </button>

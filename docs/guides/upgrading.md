@@ -75,7 +75,7 @@ else is a worker upload.
 | `black-holes remove` | leaves a subdomain's MX records behind | offers to clear the zone's mail subdomains first |
 | `.env` | `BLACK_HOLE_ROLES` | gone, and ignored if left in the file |
 | Home chips | address plus an `http · mail` label | address only |
-| Endpoints toolbar | an **Archive** toggle, plus a `:autopilot:` search term nothing advertised | one scope switch: **Endpoints · Autopilot · Archive** |
+| Endpoints toolbar | an **Archive** toggle, plus a `:autopilot:` search term nothing advertised | one scope switch: **Manual · Autopilot · Archive** |
 | Creating under `/-/` | allowed from the dashboard | refused; create outside the prefix and rename in |
 | Editing under `/-/` | an ordinary edit | read-only, with **Move to Endpoints** to take it out of the prefix first |
 | `black-holes remove <primary>` | removed it, and the next `setup` put it back | refused, with no override flag |

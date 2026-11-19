@@ -307,7 +307,7 @@ function EndpointsTab() {
 
   const open = (uri) => {
     setActiveId(uri);
-    setModal({ mode: "edit", uri });
+    setModal({ mode: "edit", uri, fromScope: scope });
   };
 
   const handleSaved = async () => {
@@ -405,6 +405,7 @@ function EndpointsTab() {
         <EndpointModal
           mode={modal.mode}
           uri={modal.uri}
+          fromScope={modal.fromScope}
           onClose={() => { setModal(null); setActiveId(null); }}
           onSaved={handleSaved}
           onActed={handleActed}
@@ -470,7 +471,7 @@ function EndpointRow({ row, active, matches, onOpen }) {
 // browser. The upload handler re-checks it against Content-Length.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
-function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
+function EndpointModal({ mode, uri, fromScope, onClose, onSaved, onActed, onDelete }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(mode === "edit");
@@ -719,22 +720,30 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
 
   return (
     <Modal open onClose={onClose}>
-      {/* The title names the MODE where you can act and the STATE where you
-          cannot, because the state is the reason you cannot. "EDIT ENDPOINT"
-          over a read-only archived endpoint promises something the modal then
-          refuses, and the operator finds out by clicking into fields that are
-          not fields. Naming it ARCHIVED answers the question before it is
-          asked, the way AUTOPILOT already does. A move keeps the AUTOPILOT
-          title: the row is still one until the rename lands, and the field and
-          the footer are already saying what is happening. */}
+      {/* The title names which of the three lists this endpoint is in, using
+          the same words as the scope switch, so the modal and the list agree.
+          Only a new endpoint is named for the mode, because it is not in any
+          list yet.
+
+          It is settled before the fetch returns. `agentOwned` reads the prefix
+          off the URI and `fromScope` is the list the row was opened from, so
+          the header is correct on the first frame. Deriving "archived" from
+          the loaded row instead would show EDIT for as long as the request
+          takes and then swap, which looks like a bug in a modal that is
+          telling you what you may do to the thing. A move keeps the AUTOPILOT
+          title: the row is one until the rename lands, and the field and the
+          footer already say what is happening. */}
       <ModalHead
         title={
           mode === "new" ? "NEW ENDPOINT"
             : agentOwned ? "AUTOPILOT ENDPOINT"
-              : frozen ? "ARCHIVED ENDPOINT"
-                : "EDIT ENDPOINT"
+              : (frozen || fromScope === "archived") ? "ARCHIVED ENDPOINT"
+                : "MANUAL ENDPOINT"
         }
-        id={mode === "edit" ? form.uri : undefined}
+        /* The stored path, not `form.uri`. It is known before the fetch, so it
+           does not appear a beat after the title, and it keeps identifying the
+           row while the field below holds a rename you have not saved. */
+        id={mode === "edit" ? uri : undefined}
         onClose={onClose}
       />
       <div className="modal-body">

@@ -266,10 +266,18 @@ are Autopilot's, which can read, replace and delete them, and the cleanup run
 takes all of them on a schedule. An operator editing one is editing a response
 an agent may overwrite, on a row that disappears next month.
 
-Each says so in its own header, `ARCHIVED ENDPOINT` or `AUTOPILOT ENDPOINT`,
-rather than the `EDIT ENDPOINT` that promises something the modal then refuses.
-The title names the mode where you can act and the state where you cannot,
-because the state is the reason you cannot.
+Each says so in its own header. The title names **which list the endpoint is
+in**, in the same words as the scope switch, so the modal and the list agree:
+`MANUAL ENDPOINT`, `AUTOPILOT ENDPOINT`, `ARCHIVED ENDPOINT`. Only a new
+endpoint is named for the mode, `NEW ENDPOINT`, because it is not in any list
+yet.
+
+The header settles before the row loads. The prefix comes off the URI and the
+list the row was opened from is passed in with it, so both the title and the
+path under it are right on the first frame. Reading "archived" off the fetched
+row instead would show one title for as long as the request takes and then swap
+it, which looks like a bug in a modal whose job is telling you what you may do
+to the thing.
 
 Each also gets the one action that ends that state, in the modal's single
 primary slot: **Unarchive** for the first, **Move to Endpoints** for the

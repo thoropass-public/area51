@@ -81,7 +81,7 @@ else is a worker upload.
 | `black-holes remove <primary>` | removed it, and the next `setup` put it back | refused, with no override flag |
 | `black-holes list`, `status` | every host looks the same | the primary is marked |
 | `doctor` | did not check `BLACK_HOLE_HOSTNAME` | requires it in `.env`, and fails if the primary has no row |
-| Endpoint modal title | always `EDIT ENDPOINT` | `ARCHIVED ENDPOINT` or `AUTOPILOT ENDPOINT` when it is read-only |
+| Endpoint modal title | always `EDIT ENDPOINT` | named for the list it is in: `MANUAL`, `AUTOPILOT` or `ARCHIVED ENDPOINT` |
 | Endpoint modal buttons | `Close` / `Cancel`, `Archive` next to `Delete`, `Save changes` | no Close or Cancel, `Archive` next to `Save`, and `Unarchive` is the primary |
 
 A black hole is now a whole Cloudflare zone that always captures both HTTP and

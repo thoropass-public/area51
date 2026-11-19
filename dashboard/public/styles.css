@@ -538,6 +538,58 @@ select {
   to { transform: rotate(360deg); }
 }
 
+/* Scope switch: which of the three endpoint lists is on screen.
+   One control with three positions rather than three buttons, because the
+   three lists are mutually exclusive in the data — see SCOPES in tabs.jsx.
+   It leads the toolbar, before the search box, so the row reads coarse to
+   fine: which list, then narrow it, then the action. Built to read as a
+   single object: the track is one filled surface and the chosen position is
+   lifted out of it, so "one of these is on" is legible without reading the
+   labels. `.btn.active` used to be the Archive button's selected state and
+   styled nothing at all, which is part of why that toolbar was hard to read. */
+.scope-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 2px;
+  background: var(--n1);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.scope-opt {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 3px;
+  font-size: 13.5px;
+  color: var(--n4);
+  white-space: nowrap;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.scope-opt:hover { color: var(--s0); }
+
+.scope-opt.active {
+  background: var(--n3);
+  color: var(--s1);
+}
+
+/* The chosen position has to read as LIFTED out of the track, and "lifted"
+   is lighter in both themes — which is not one pair of variables. The n0..n3
+   ramp runs dark-to-light on the dark palette and light-to-dark on the cream
+   one, so the dark rule above lifts by going UP the ramp and this one lifts by
+   going down to the page color. Same perception, opposite direction, which is
+   why it is written twice rather than factored into one variable. The shadow
+   only belongs on the light theme, where a near-white chip on a warm grey
+   track has nothing else to separate it. */
+[data-theme="light"] .scope-switch { background: var(--n2); }
+
+[data-theme="light"] .scope-opt.active {
+  background: var(--n0);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.10);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -972,7 +1024,6 @@ button.row-icon.copy-link.copied { color: var(--green); }
 }
 
 /* Star pin chip glyph stays fully opaque (color comes from its assigned pin color) */
-.pin-chip.pin-special .pin-glyph { opacity: 1; }
 
 /* Star toggle inside the email modal header */
 .modal-star {

@@ -16,6 +16,7 @@ column and the shape of one CLI command. Budget five minutes.
 | `black-holes remove` | leaves a subdomain's MX records behind | offers to clear the zone's mail subdomains first |
 | `.env` | `BLACK_HOLE_ROLES` | gone, and ignored if left in the file |
 | Home orbit chips | address + an `http · mail` label | address only |
+| Endpoints toolbar | an **Archive** toggle, plus a `:autopilot:` search term nothing advertised | one scope switch: **Endpoints · Autopilot · Archive** |
 
 A black hole is now a whole Cloudflare zone that always captures both HTTP and
 mail, so there is nothing left to record per host and nothing to choose when
@@ -71,6 +72,10 @@ it, offering that one name's Email Routing entry and MX records with it.
 
 - `BLACK_HOLE_ROLES` in `.env` is no longer read by anything. Delete the line, or
   leave it; nothing depends on it either way.
+- **Tell anyone who used `:autopilot:` that it is gone.** Typing it now searches
+  for that literal string and finds nothing. Agent-staged endpoints are the
+  **Autopilot** position on the new scope switch, and searching inside it
+  narrows within that list. Nothing about the stored data changes.
 - Adding a subdomain to the catcher is no longer a CLI command. Both recipes —
   HTTP on one subdomain, mail on one subdomain — are now in
   [operations](operations.md#putting-a-subdomain-on-the-catcher), and both are
@@ -231,7 +236,7 @@ Then try the new behavior:
 | robots.txt | `curl https://<black-hole>/robots.txt` returns `Disallow: /` |
 | Archive | Archive an endpoint. `curl` it and get a 404, find it under **Archive**, unarchive it and it serves again |
 | Rename | Rename an endpoint. The old path 404s, the new one serves |
-| Autopilot endpoints | Stage one under `/-/`. It does not appear in the list; searching `:autopilot:` shows it |
+| Autopilot endpoints | Stage one under `/-/`. It does not appear in the Endpoints list; the **Autopilot** scope shows it |
 | Inline images | Send yourself an email with an inline image to a mail black hole and open it |
 
 ### Decide what the purge should do

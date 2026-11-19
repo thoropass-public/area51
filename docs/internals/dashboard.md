@@ -192,18 +192,33 @@ check mark, and toasts the host it used. Clicking it does not open the modal. Th
 active host comes from the Home picker, and with none selected the button toasts
 an error instead.
 
-*What the list contains.* Three things decide which rows you see, and none of
-them mix:
+*What the list contains.* There are **three lists, and one control that picks
+between them** — a scope switch at the head of the toolbar, before the search
+box, so the row reads coarse to fine: which list, narrow it, act on it.
 
-- **Archived endpoints are their own view.** The toolbar's **Archive** toggle
-  swaps the list rather than widening it. *New endpoint* is hidden inside the
-  Archive view, since creating one there would file it straight into the list
-  you are not looking at.
-- **Agent-staged endpoints are not in either view.** Everything under Autopilot's
-  `/-/` prefix is excluded by the query. Searching the exact term `:autopilot:`
-  switches the list over to them.
-- **Everything else is the working list.** `{n} loaded` counts the rows on
-  screen, so by default that means hand-written endpoints only.
+| Scope | Rows | *New endpoint* |
+|---|---|---|
+| **Endpoints** | being served, `uri NOT LIKE '/-/%'` | creates an ordinary endpoint |
+| **Autopilot** | agent-staged, `uri LIKE '/-/%'` | shown, with the URI prefilled `/-/` |
+| **Archive** | `archived = 1` | hidden |
+
+`{n} loaded` counts the rows on screen, so it is a count of the scope you are
+in, never of everything.
+
+The three are mutually exclusive **in the data**, which is why one switch
+replaced two independent controls. No row is in two of them: the working query
+excludes `/-/` and the Autopilot query requires it. And nothing is in Archive
+*and* Autopilot, because an endpoint under the prefix can never be archived
+([invariant 3](../../CLAUDE.md)). Two toggles could be set to that fourth
+combination; the only honest answer to it is an empty list with nothing on
+screen explaining why it must be empty. A three-position switch cannot be asked
+the question.
+
+*New endpoint* is hidden in the Archive, since creating one there would file it
+straight into the list you are not looking at. It stays in **Autopilot**,
+because making a `/-/` endpoint by hand is a real workflow rather than an edge
+case: a file-backed payload can only be uploaded by a person, and Autopilot's
+own instructions send agents here to ask for one.
 
 The `/-/` exclusion happens in SQL rather than the browser, and the reason is
 paging. `/-/` sorts first under `ORDER BY uri ASC`, because `-` is 0x2D and sits
@@ -213,14 +228,15 @@ them. Filtered in the browser, the operator gets an empty list with a *Load more
 button under it and their own endpoints not yet fetched. Filtered in the query, a
 page of this list is a page of what they asked for.
 
-`:autopilot:` is matched exactly, never as a substring, since `/foo:autopilot:bar`
-is a legal URI and searching for it should find that row rather than change which
-list you are on. It is stripped from the terms before they are sent, so
-`:autopilot: oauth` means "agent-staged endpoints matching oauth": the scope is
-ANDed and the remaining terms are ORed among themselves as always. It works from
-a pin as well as the input, so the scope can be made sticky by pinning it. There
-is deliberately no hint in the interface that the term exists, and no count of
-what is hidden.
+The scope switch replaced a `:autopilot:` search token, and the reason it had to
+go is that it was a term typed into the search box that did not search: it
+swapped which list you were looking at. Nothing in the interface advertised it,
+so the operators who did know it read a scope change as a filter that found
+nothing. Changing the list is not a thing a search box should do.
+
+The scope is not persisted. A session starts on the working set, because a
+dashboard that quietly opens on the Archive because of something you clicked
+last week is a dashboard that misreports what is being served.
 
 *The modal* is in exactly one of two states. In **text mode** it shows Headers /
 Status / Body editors plus a **Serve a file** drop target. Attaching a file

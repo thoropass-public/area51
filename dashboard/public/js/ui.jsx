@@ -109,12 +109,11 @@ const qs = (params) => {
 };
 
 const API = {
-  // `archived` selects which side of the list to read. The two are separate
-  // views, never merged: the working list is unarchived endpoints and the
-  // Archive view is the rest.
-  // `archived` selects which side of the list to read, `autopilot` selects
-  // whether it is the agent-staged set or everything else. Both are scopes, not
-  // filters: the server applies them in SQL and `search` narrows within them.
+  // `archived` and `autopilot` together pick ONE of the three endpoint lists,
+  // which is why the UI sends them from a single three-position control rather
+  // than two toggles (see SCOPES in tabs.jsx). Both are scopes, not filters:
+  // the server applies them in SQL and `search` narrows within the result.
+  // Neither is sent when false, so the default query is the working set.
   listEndpoints: ({ cursor, search, archived, autopilot } = {}) =>
     apiFetch('/api/endpoints' + qs({
       cursor,

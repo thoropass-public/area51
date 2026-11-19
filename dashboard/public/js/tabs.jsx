@@ -6,11 +6,17 @@
 function ListView({
   search, setSearch,
   pins, onPin, onUnpin, onClearPins,
-  pinPlaceholder, pinColor, specialPins,
+  pinPlaceholder, pinColor,
   rows, loading, hasMore, onLoadMore, loadingMore,
   onRefresh,
   header, renderRow, emptyText, gridClass, total,
-  rightToolbar,
+  // Two toolbar slots, and the difference between them is the point.
+  // `leftToolbar` leads the row: it is for a control that decides WHICH rows
+  // exist. `rightToolbar` sits against the search box: it is for a control that
+  // narrows the rows you already have, or acts on them. Putting a scope switch
+  // and a filter in the same slot is what made the old Endpoints toolbar read
+  // as a row of unrelated buttons.
+  leftToolbar, rightToolbar,
 }) {
   const canPin = !!(search && search.trim());
   const hasPins = Array.isArray(pins) && pins.length > 0;
@@ -39,25 +45,25 @@ function ListView({
   return (
     <>
       <div className="toolbar">
+        {leftToolbar}
         <div className="search-wrap">
           <span className="icon"><Icon.search/></span>
           <div className="pin-strip">
             {hasPins && pins.map((p) => {
-              const sp = specialPins && specialPins[p];
               const cv = pinColorVars(pinColor && pinColor(p));
               return (
                 <span
                   key={p}
-                  className={`pin-chip${sp ? " pin-special" : ""}`}
-                  title={sp ? sp.title : `Pinned filter "${p}", click × to remove`}
+                  className="pin-chip"
+                  title={`Pinned filter "${p}", click × to remove`}
                   style={{ background: cv.soft, borderColor: cv.edge, color: cv.base }}
                 >
-                  <span className="pin-glyph" style={{ color: cv.base }}>{sp ? sp.glyph : <Icon.pin/>}</span>
-                  <span className="pin-val">{sp ? sp.label : p}</span>
+                  <span className="pin-glyph" style={{ color: cv.base }}><Icon.pin/></span>
+                  <span className="pin-val">{p}</span>
                   <button
                     className="pin-x"
                     onClick={() => onUnpin && onUnpin(p)}
-                    aria-label={`Remove pin ${sp ? sp.label : p}`}
+                    aria-label={`Remove pin ${p}`}
                   >
                     <Icon.x/>
                   </button>
@@ -156,25 +162,52 @@ function effectiveSearch(input, pins) {
   return all;
 }
 
-// The one search term that does not search: it switches the Endpoints list over
-// to the agent-staged set instead of narrowing within the list you are on.
+// Which of the three endpoint lists is on screen.
 //
-// Agent-staged endpoints are not shown anywhere else. An engagement leaves
-// dozens or hundreds of them, they are nobody's working set, and they sort to
-// the top of every page because `/-/` begins with a character below `/`. So
-// they are their own list, reached by asking for it.
+// They are mutually exclusive in the DATA, not merely in the interface, and
+// that is why this is one control with three positions rather than three
+// buttons. The list query in dashboard/src/api/endpoints/index.js is
+// `uri NOT LIKE '/-/%'` for the working set and `uri LIKE '/-/%'` for the
+// agent-staged one, so no endpoint is ever in both; and an endpoint under `/-/`
+// can never be archived (CLAUDE.md invariant 3), so "archived AND agent-staged"
+// has no rows by construction.
 //
-// It is matched EXACTLY, never as a substring, because `/foo:autopilot:bar` is
-// a legal endpoint URI and searching for it should find that row rather than
-// changing which list you are looking at. The token is stripped out before the
-// rest of the terms are sent, so `:autopilot: oauth` reads as "agent-staged
-// endpoints matching oauth": a scope, ANDed with the terms, which the server
-// still ORs among themselves.
-const AUTOPILOT_TOKEN = ":autopilot:";
+// Independent toggles could ask for that fourth state, and the only honest
+// answer to it is an empty list with nothing on screen to explain why it must
+// be empty. A three-position switch cannot be asked.
+//
+// This replaces a `:autopilot:` search token that was handled here: a term
+// typed into the search box that did not search, but swapped which list you
+// were looking at. Operators read it as a filter that found nothing. Changing
+// the list is not something a search box should do, and the fix is to let the
+// list switch look like a list switch.
+const SCOPES = [
+  { id: "live", label: "Endpoints", title: "Endpoints being served" },
+  { id: "autopilot", label: "Autopilot", title: "Endpoints staged by agents under /-/" },
+  { id: "archived", label: "Archive", title: "Endpoints kept but not served" },
+];
 
-function splitAutopilotScope(terms) {
-  const rest = terms.filter((t) => t !== AUTOPILOT_TOKEN);
-  return { autopilot: rest.length !== terms.length, terms: rest };
+// Rendered into ListView's `leftToolbar`, so it reads before the search box:
+// which list, then narrow it. It is a radio group, not three buttons — one is
+// always on, and choosing one unchooses the others, which is exactly the
+// constraint the data already has.
+function ScopeSwitch({ scope, setScope }) {
+  return (
+    <div className="scope-switch" role="radiogroup" aria-label="Which endpoints to show">
+      {SCOPES.map((s) => (
+        <button
+          key={s.id}
+          role="radio"
+          aria-checked={scope === s.id}
+          className={`scope-opt${scope === s.id ? " active" : ""}`}
+          onClick={() => setScope(s.id)}
+          title={s.title}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // ----------------------------------------------------------------
@@ -196,24 +229,25 @@ function EndpointsTab() {
   const [search, setSearch] = useState("");
   const dq = useDebouncedValue(search, 300);
   const { pins, addPin, removePin, clearPins, colors, pinColor } = usePinnedFilters("endpoints");
-  const allTerms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
-  // Works from the input and from a pin, so the scope can be made sticky by
-  // pinning it, the same way any other term is.
-  const { autopilot, terms } = useMemo(() => splitAutopilotScope(allTerms), [allTerms]);
+  const terms = useMemo(() => effectiveSearch(dq, pins), [dq, pins]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeId, setActiveId] = useState(null);
   const [modal, setModal] = useState(null); // {mode:'edit'|'new', uri?}
-  // Which side of the list is on screen. Archived endpoints are never mixed in
-  // with the working list. The button swaps the view rather than widening it.
-  const [showArchived, setShowArchived] = useState(false);
+  // One of SCOPES. Not persisted, deliberately: the working set is where a
+  // session should start, and a dashboard that silently opens on the Archive
+  // because of something you did last week is a dashboard that lies about what
+  // is being served.
+  const [scope, setScope] = useState("live");
+  const archived = scope === "archived";
+  const autopilot = scope === "autopilot";
 
   const fetchFirst = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await API.listEndpoints({ search: terms, archived: showArchived, autopilot });
+      const r = await API.listEndpoints({ search: terms, archived, autopilot });
       setRows(r);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -223,7 +257,7 @@ function EndpointsTab() {
     } finally {
       setLoading(false);
     }
-  }, [terms, toast, showArchived, autopilot]);
+  }, [terms, toast, archived, autopilot]);
 
   useEffect(() => { fetchFirst(); }, [fetchFirst]);
 
@@ -232,7 +266,7 @@ function EndpointsTab() {
     setLoadingMore(true);
     try {
       const cursor = rows[rows.length - 1].uri;
-      const r = await API.listEndpoints({ search: terms, cursor, archived: showArchived, autopilot });
+      const r = await API.listEndpoints({ search: terms, cursor, archived, autopilot });
       setRows((xs) => [...xs, ...r]);
       setHasMore(r.length === 50);
     } catch (e) {
@@ -280,7 +314,9 @@ function EndpointsTab() {
         search={search} setSearch={setSearch}
         pins={pins} onPin={addPin} onUnpin={removePin} onClearPins={clearPins} pinColor={pinColor}
         onRefresh={fetchFirst}
-        pinPlaceholder="Search Endpoints…"
+        /* Names the scope, so the box reads as "narrow THIS list" rather than
+           "search endpoints" while you are looking at the other two. */
+        pinPlaceholder={`Search ${SCOPES.find((x) => x.id === scope).label}…`}
         rows={rows} loading={loading} hasMore={hasMore}
         onLoadMore={loadMore} loadingMore={loadingMore}
         gridClass="endpoint-grid"
@@ -293,25 +329,28 @@ function EndpointsTab() {
         emptyText={
           search
             ? "no endpoints match that pattern"
-            : showArchived ? "nothing archived" : "no endpoints configured"
+            : archived ? "nothing archived"
+            : autopilot ? "no agent has staged an endpoint"
+            : "no endpoints configured"
         }
-        rightToolbar={<>
-          <button
-            className={`btn${showArchived ? " active" : ""}`}
-            onClick={() => setShowArchived((v) => !v)}
-            aria-pressed={showArchived}
-            title={showArchived ? "Back to the endpoints being served" : "Endpoints kept but not served"}
-          >
-            {showArchived ? "← Endpoints" : "Archive"}
-          </button>
-          {/* Creating one from inside the Archive view would put it straight
-              into the list you are not looking at. */}
-          {!showArchived && (
-            <button className="btn primary" onClick={() => setModal({ mode: "new" })}>
+        leftToolbar={<ScopeSwitch scope={scope} setScope={setScope}/>}
+        rightToolbar={
+          /* Hidden in the Archive, because creating one there would put it
+             straight into the list you are not looking at. Shown in Autopilot,
+             because creating an endpoint under `/-/` by hand is a REAL
+             workflow, not an edge case: a file-backed payload can only be
+             uploaded by a person, so Autopilot's own instructions tell agents
+             to ask an operator to make one right here. The URI is prefilled
+             with the prefix when that is the list you are on. */
+          !archived && (
+            <button
+              className="btn primary"
+              onClick={() => setModal({ mode: "new", initialUri: autopilot ? AUTOPILOT_PREFIX : "" })}
+            >
               <span className="plus">+</span> New endpoint
             </button>
-          )}
-        </>}
+          )
+        }
         renderRow={(r) => (
           <EndpointRow
             key={r.uri}
@@ -326,6 +365,7 @@ function EndpointsTab() {
         <EndpointModal
           mode={modal.mode}
           uri={modal.uri}
+          initialUri={modal.initialUri}
           onClose={() => { setModal(null); setActiveId(null); }}
           onSaved={handleSaved}
           onDelete={handleDelete}
@@ -390,7 +430,7 @@ function EndpointRow({ row, active, matches, onOpen }) {
 // browser. The upload handler re-checks it against Content-Length.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
-function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
+function EndpointModal({ mode, uri, initialUri, onClose, onSaved, onDelete }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(mode === "edit");
@@ -398,7 +438,10 @@ function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   // `form.uri` is editable in edit mode now, so the path the row is stored
   // under has to be held separately: every write targets `uri` (the prop, the
   // row as it exists) and may MOVE it to form.uri.
-  const [form, setForm] = useState({ uri: "", status: 200, headers: "Content-Type: text/plain", body: "", archived: false });
+  // `initialUri` only seeds a NEW endpoint, and only ever with the Autopilot
+  // prefix: it saves the operator retyping `/-/` when they are already looking
+  // at that list. Edit mode overwrites the whole form from the server below.
+  const [form, setForm] = useState({ uri: initialUri || "", status: 200, headers: "Content-Type: text/plain", body: "", archived: false });
   // An endpoint is EITHER text-backed or file-backed, never both: a hosted file
   // can't be mixed with a hand-written body or a chosen status. `file` is a
   // picked-but-not-yet-uploaded File; `savedFile` is what the row already serves

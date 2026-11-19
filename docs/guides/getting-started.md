@@ -100,11 +100,11 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Account | **Workers Scripts** · Edit | deploying the four Workers (the dashboard is one of them) |
 | Account | **D1** · Edit | creating the database, applying the schema, all SQL the CLI runs |
 | Account | **Workers R2 Storage** · Edit | creating both buckets, deleting objects during a purge |
-| Account | **Cloudflare Pages** · Edit | detaching a Pages project's custom domain when it holds a hostname a black hole is taking over. AREA 51 creates no Pages project of its own, since the dashboard has been a Worker since v1.1.0, but a domain worth taking over often has someone else's Pages site on it, and without this the takeover degrades to a manual dashboard step |
 | Account | **Account Settings** · Read | discovering the account id |
-| Account | **Access: Apps and Policies** · Edit | the Access application in front of the dashboard |
+| Account | **Access: Apps** · Edit | the Access application in front of the dashboard |
+| Account | **Access: Policies** · Edit | the allow policy on that application. Cloudflare used to offer these two as one group called *Access: Apps and Policies*; older screenshots show it that way. Grant both |
 | Account | **Access: Organizations, Identity Providers, and Groups** · Edit | creating the Zero Trust organization and enabling one-time PIN login |
-| Account | **Zero Trust** · Edit | the operator email list the Access policy points at. Lists live under the Gateway/Zero Trust resource tree, *not* under Access: Apps and Policies. See the note below. |
+| Account | **Zero Trust** · Edit | the operator email list the Access policy points at. Lists live under the Gateway/Zero Trust resource tree, *not* under Access: Apps or Access: Policies. See the note below. |
 | Account | **Email Routing Addresses** · Edit | registering the fallback inbox as a destination |
 | Zone | **Zone** · Read | resolving hostnames to zones |
 | Zone | **Zone Settings** · Edit | **enabling Email Routing** (it writes and locks the MX/SPF records). Easy to miss; see the warning below. |
@@ -113,6 +113,29 @@ Create it at **My Profile → API Tokens → Create Token → Custom token**.
 | Zone | **Email Routing Rules** · Edit | setting the catch-all rule that points inbound mail at the worker |
 
 That is **fourteen** permissions: nine Account-scoped, five Zone-scoped.
+
+### One optional extra
+
+| Scope | Permission | What it buys |
+|---|---|---|
+| Account | **Cloudflare Pages** · Edit | one step of a takeover |
+
+AREA 51 creates no Pages project of its own, since the dashboard has been a
+Worker since v1.1.0, so nothing needs this to install or to run. What it does is
+let a confirmed takeover detach a Pages project's custom domain when one is
+holding a hostname a black hole needs, and a domain worth taking over often has
+someone else's Pages site on it.
+
+Grant it and the takeover finishes by itself. Withhold it and that one step
+stops, reports the conflict as a follow-up with the exact click-path, and the
+run carries on at exit `2`. Detach the domain by hand, re-run, and you are in
+the same place. Read-only is no use either way: the detach is a write.
+
+If you are creating an **Account API token** rather than a user one, the same
+fourteen apply, but you build them as two policies instead of one flat list: an
+Account policy holding the nine account permissions, and a Zone policy holding
+the five, scoped to the zones you deploy on. An account token is owned by the
+account rather than by a person, so it survives that person leaving.
 
 > **The Email Routing trap.** *Enabling* Email Routing lives under **Zone
 > Settings**, not **Email Routing Rules**. Email Routing Rules only covers the

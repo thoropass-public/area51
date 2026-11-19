@@ -40,7 +40,7 @@ it. What each check actually asserts is documented in
 | Symptom | Cause | Fix |
 |---|---|---|
 | Everything returns 404, including configured paths | The hostname is not bound to the catcher | `./a51 doctor --fix`, or `./a51 black-holes add <zone>` |
-| `black-holes add` reports the bind failed and names a Pages project or Worker still holding the host | The release could not finish: usually a token without *Cloudflare Pages:Edit* / *Workers Routes:Edit*, or a holder on another account | Follow the click-path in the follow-up to detach it, then re-run the command |
+| `black-holes add` reports the bind failed and names a Pages project or Worker still holding the host | The release could not finish. For a Pages project this is the expected result without the optional *Cloudflare Pages:Edit*; otherwise a token without *Workers Routes:Edit*, or a holder on another account | Follow the click-path in the follow-up to detach it, then re-run the command |
 | An endpoint exists but still returns 404 | URI mismatch; matching is exact on `url.pathname` (case, trailing slash, no globs) | Compare the stored `uri` against the path you requested |
 | A file endpoint returns 404 with `http_file_missing` in the logs | The row outlived its object (someone emptied the bucket) | Re-upload from the endpoint modal, or delete the endpoint. The modal flags this as *object missing from storage* |
 | A file endpoint returns 404 with `http_file_binding_missing` | The `FILES` binding is not on the **worker** | Confirm `R2_FILES_BUCKET_NAME` in `.env`, then `./a51 deploy black-holes` |

@@ -74,20 +74,26 @@ full table with per-permission rationale is [docs/guides/getting-started.md#api-
 
 | Scope | Permissions |
 |---|---|
-| **Account** | Workers Scripts:Edit · D1:Edit · Workers R2 Storage:Edit · Cloudflare Pages:Edit · Account Settings:Read · Access: Apps and Policies:Edit · Access: Organizations, Identity Providers, and Groups:Edit · **Zero Trust:Edit** · Email Routing Addresses:Edit |
+| **Account** | Workers Scripts:Edit · D1:Edit · Workers R2 Storage:Edit · Account Settings:Read · Access: Apps:Edit · Access: Policies:Edit · Access: Organizations, Identity Providers, and Groups:Edit · **Zero Trust:Edit** · Email Routing Addresses:Edit |
 | **Zone** | Zone:Read · **Zone Settings:Edit** · DNS:Edit · Workers Routes:Edit · Email Routing Rules:Edit |
 
 Then, under **Zone Resources**, *Include* the zone you deploy onto (or *All
-zones*). All fourteen are required: the primary black hole always carries the
-`mail` role, so the Email Routing permissions and Zone Settings are never
-optional at setup time.
+zones*). All fourteen are required: the primary black hole always captures mail,
+so the Email Routing permissions and Zone Settings are never optional at setup
+time.
 
-`Cloudflare Pages:Edit` looks like a leftover, since nothing here creates a Pages
-project any more, since the dashboard became a Worker. It is not: it is what lets
-a confirmed takeover **detach a Pages project's custom domain** when one holds a
-hostname a black hole needs, and a domain worth taking over very often has
-someone else's Pages site on it. Removing it degrades that takeover to a manual
-dashboard step.
+Cloudflare **split `Access: Apps and Policies` into two groups**, `Access: Apps`
+and `Access: Policies`. Grant both. Anything written before the split, this
+repo's own screenshots included, shows one combined row.
+
+**One optional fourteenth: `Cloudflare Pages:Edit`.** Nothing here creates a
+Pages project any more, since the dashboard became a Worker, so nothing needs it
+to install or to run. What it buys is one step of a takeover: with it, a
+confirmed takeover can **detach a Pages project's custom domain** when one holds
+a hostname a black hole needs, and a domain worth taking over very often has
+someone else's Pages site on it. Without it, that step stops and prints the
+dashboard click-path instead. Read-only is no use either way, because the detach
+is a write.
 
 Four traps account for almost every "permission is set but still denied":
 - **The operator email list needs `Account · Zero Trust:Edit`**, NOT Access: Apps
@@ -212,7 +218,7 @@ schema, domain bindings and the Access policy.
      time**; never key a query on something derived from the secret. D1
      unreachable answers **503, not 401**.
    - Managing the list needs `Account · Zero Trust:Edit`, which is a *different*
-     permission from `Access: Apps and Policies:Edit`.
+     permission from `Access: Apps:Edit` and `Access: Policies:Edit`.
 
 9. **`.env` is the only state.** No lock file, no state file, nothing in a home
    dir. ("Lock file" here means a *deployment*-state file, Terraform-style. It

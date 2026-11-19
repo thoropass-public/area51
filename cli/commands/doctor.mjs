@@ -500,7 +500,7 @@ export async function run(args) {
       // on. There is no second URL that could be left unauthenticated.
     }
   } catch (err) {
-    r.warn(`could not check Cloudflare Access: ${err.message}`, 'The token needs Account · Access: Apps and Policies:Edit to read this.');
+    r.warn(`could not check Cloudflare Access: ${err.message}`, 'The token needs Account · Access: Apps:Edit and Access: Policies:Edit to read this.');
   }
 
   // ── live probes ───────────────────────────────────────────────────────────

@@ -16,18 +16,24 @@ Everything below was provisioned by a single **Custom token** (My Profile → AP
 Tokens → Create Token). A correct token carries exactly these **fourteen**
 permissions: nine Account-scoped, five Zone-scoped.
 
-*Cloudflare Pages · Edit* is still among them even though nothing here creates a
-Pages project: it is what lets a confirmed takeover detach a Pages project's
-custom domain when one holds a hostname a black hole needs
+- **Account** · Workers Scripts, D1, Workers R2 Storage, Access: Apps,
+  Access: Policies, Access: Organizations Identity Providers and Groups,
+  Email Routing Addresses, Zero Trust, all **Edit**; Account Settings, **Read**.
+- **Zone** · Zone Settings, DNS, Workers Routes, Email Routing Rules, all
+  **Edit**; Zone, **Read**.
+
+*Cloudflare Pages · Edit* is **optional** and is not in the list above. Nothing
+here creates a Pages project. With it, a confirmed takeover can detach a Pages
+project's custom domain when one holds a hostname a black hole needs; without
+it, that step prints the click-path for you to do by hand
 ([getting-started](getting-started.md#api-token)).
 
 ![Cloudflare API token permissions](../../.github/assets/cf-token-permissions.png)
 
-- **Account** · Workers Scripts, D1, Workers R2 Storage, Cloudflare Pages,
-  Access: Apps and Policies, Access: Organizations Identity Providers and Groups,
-  Email Routing Addresses, Zero Trust, all **Edit**; Account Settings, **Read**.
-- **Zone** · Zone Settings, DNS, Workers Routes, Email Routing Rules, all
-  **Edit**; Zone, **Read**.
+> The screenshot predates two changes and is kept because the rest of it is
+> still accurate. It shows *Cloudflare Pages*, which is optional now, and one
+> combined *Access: Apps and Policies* row, which Cloudflare has since split
+> into *Access: Apps* and *Access: Policies*. The list above is current.
 
 
 ---

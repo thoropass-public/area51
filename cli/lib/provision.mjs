@@ -472,7 +472,15 @@ async function releaseHostname(cf, accountId, zone, hostname, keepService) {
       }
     }
   } catch (err) {
-    leftovers.push(`could not list this account's Pages projects (${err.message}).`);
+    // `Cloudflare Pages:Edit` is optional on the token, so this is the expected
+    // path for a deployment that chose not to grant it. Say that, rather than
+    // reporting a permission the operator deliberately withheld as a fault.
+    leftovers.push(
+      `could not check this account's Pages projects (${err.message}).\n` +
+      'That is expected without the optional `Cloudflare Pages:Edit`. If a Pages\n' +
+      `project holds ${hostname}, detach it by hand: dashboard → Workers & Pages\n` +
+      '→ the project → Custom domains.',
+    );
   }
 
   // 3. Whatever address record is left. Re-read rather than reuse a listing from
@@ -1105,8 +1113,8 @@ export async function ensureAccess(cf, accountId, opts) {
       followUps,
       `could not configure Cloudflare Access on ${hostname}: ${err.message}`,
       isAuthError(err)
-        ? authFixHint('Account · Access: Apps and Policies:Edit', { extra: manual })
-        : `${manual}\nThe token needs Account · Access: Apps and Policies:Edit.`,
+        ? authFixHint('Account · Access: Apps:Edit and Access: Policies:Edit', { extra: manual })
+        : `${manual}\nThe token needs Account · Access: Apps:Edit and Access: Policies:Edit.`,
     );
   }
 }

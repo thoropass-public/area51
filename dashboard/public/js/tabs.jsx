@@ -585,7 +585,10 @@ function EndpointModal({ mode, uri, fromScope, onClose, onSaved, onActed, onDele
       toast("Move failed: " + e.message, "error");
       return;
     }
-    toast(`Moved to ${target}. It is an ordinary endpoint now, and editable`, "success");
+    // Names the list as well as the path. The row has just left the one you
+    // are standing in, so "it is in Manual now" is the half of the answer the
+    // empty space in front of you does not give.
+    toast(`Moved to ${target}. It is in Manual now, and editable`, "success");
     onActed();
   };
 
@@ -922,7 +925,7 @@ function EndpointModal({ mode, uri, fromScope, onClose, onSaved, onActed, onDele
           </button>
         ) : agentOwned ? (
           <button className="btn primary" onClick={beginMove} disabled={saving || loading}>
-            Move to Endpoints
+            Move to Manual
           </button>
         ) : frozen ? (
           <button className="btn primary" onClick={toggleArchive} disabled={saving}>

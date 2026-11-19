@@ -77,7 +77,7 @@ else is a worker upload.
 | Home chips | address plus an `http · mail` label | address only |
 | Endpoints toolbar | an **Archive** toggle, plus a `:autopilot:` search term nothing advertised | one scope switch: **Manual · Autopilot · Archive** |
 | Creating under `/-/` | allowed from the dashboard | refused; create outside the prefix and rename in |
-| Editing under `/-/` | an ordinary edit | read-only, with **Move to Endpoints** to take it out of the prefix first |
+| Editing under `/-/` | an ordinary edit | read-only, with **Move to Manual** to take it out of the prefix first |
 | `black-holes remove <primary>` | removed it, and the next `setup` put it back | refused, with no override flag |
 | `black-holes list`, `status` | every host looks the same | the primary is marked |
 | `doctor` | did not check `BLACK_HOLE_HOSTNAME` | requires it in `.env`, and fails if the primary has no row |
@@ -141,7 +141,7 @@ Then open the dashboard and try the parts that moved:
 |---|---|
 | Scope switch | Endpoints → the switch at the left of the toolbar. **Autopilot** lists what agents staged, **Archive** what you archived |
 | Create guard | + New endpoint, type a path starting `/-/`. The field turns red and **Create** is disabled |
-| Read-only prefix | Open an endpoint under `/-/`. It says `AUTOPILOT ENDPOINT` and offers **Move to Endpoints** |
+| Read-only prefix | Open an endpoint under `/-/`. It says `AUTOPILOT ENDPOINT` and offers **Move to Manual** |
 | Move | Use it. The path is prefilled without the prefix, and the endpoint lands in the Endpoints list |
 | Primary black hole | `./a51 black-holes remove <your setup zone>` is refused |
 

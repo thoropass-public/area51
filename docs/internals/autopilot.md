@@ -83,7 +83,7 @@ The dashboard has CRUD over the whole table, but it declines most of it inside
 the prefix, and the two fences point in opposite directions on purpose. Autopilot
 may not leave `/-/`; the dashboard does not *work* in it. It will not create an
 endpoint there, and one that is there opens read-only with a single action,
-**Move to Endpoints**, that renames it out. The server still accepts those
+**Move to Manual**, that renames it out. The server still accepts those
 writes, so the restraint is the interface's and not the API's. The reason is
 about who owns a row rather than what is permitted: an operator editing
 inside `/-/` is editing something an agent may overwrite, on a row the purge
@@ -107,7 +107,7 @@ which is three lifecycles at once. An agent-staged stub is either
 deleted, or moved out of `/-/` from the dashboard, and that move is exactly
 what converts it into an ordinary endpoint: it leaves Autopilot's reach, leaves
 the purge, and becomes editable and archivable like any other. It is the same
-rename either way. *Move to Endpoints* is that rename with the prefix stripped
+rename either way. *Move to Manual* is that rename with the prefix stripped
 off the proposed path, plus a check that the target is not back inside it.
 Nothing an agent can
 call reaches `archived`, and no archived row can exist under the prefix for one

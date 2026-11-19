@@ -280,7 +280,7 @@ it, which looks like a bug in a modal whose job is telling you what you may do
 to the thing.
 
 Each also gets the one action that ends that state, in the modal's single
-primary slot: **Unarchive** for the first, **Move to Endpoints** for the
+primary slot: **Unarchive** for the first, **Move to Manual** for the
 second.
 
 *The footer holds no Close or Cancel*, in any of the modal's states but one.
@@ -296,7 +296,7 @@ choosing it for.
 A write that announces itself, such as a move, an archive or an unarchive,
 closes and refreshes the list without the generic *Endpoint saved* toast. That
 toast would otherwise stack under the specific one and contradict it.
-*Move to Endpoints* opens the URI field and nothing else. The body stays
+*Move to Manual* opens the URI field and nothing else. The body stays
 locked, because a move is a rename and not an edit. The field is prefilled with
 the path minus the prefix, so `/-/acme/oauth-callback` is proposed as
 `/acme/oauth-callback`. The operator

@@ -135,7 +135,7 @@ schema, domain bindings and the Access policy.
    scope only and the modal refuses the prefix, because typing a path is not a
    reasonable way to opt into agent ownership plus scheduled deletion. And one
    that is there is **not editable**, exactly like an archived one: the modal
-   shows it read-only and offers *Move to Endpoints*, which renames it out of
+   shows it read-only and offers *Move to Manual*, which renames it out of
    the prefix and is the only way back to editing it. Renaming an endpoint
    *into* the prefix is still allowed, and asks first; that is also how a
    file-backed payload reaches a `/-/` path. The fourth rule is the cleanup

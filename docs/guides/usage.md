@@ -236,7 +236,7 @@ then rename it in. The file moves with the rename, and the confirmation you get
 is the one explaining what the prefix means.
 
 Once it is under `/-/` it is **read-only here**, like an archived endpoint: the
-modal shows what it serves and offers **Move to Endpoints**, which renames it
+modal shows what it serves and offers **Move to Manual**, which renames it
 back out and makes it editable again. So get it right before you move it in, or
 move it out, fix it, and move it back.
 

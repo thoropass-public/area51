@@ -230,7 +230,7 @@ export async function run(args) {
   // The primary black hole is the zone this deployment runs on: .env names it,
   // the dashboard and Autopilot are subdomains of it, and `black-holes remove`
   // refuses it. None of that puts a row in the table, so a table that has rows
-  // but not THAT one is worth a failure rather than silence — it means the
+  // but not THAT one is worth a failure rather than silence. It means the
   // dashboard lists black holes while omitting the one every operator reaches
   // AREA 51 through.
   //
@@ -240,8 +240,8 @@ export async function run(args) {
   const hasPrimary = blackHoles.some((row) => String(row.domain).trim().toLowerCase() === primaryHost);
   if (primaryHost && blackHoles.length && !hasPrimary) {
     if (fix) {
-      // Added to the list on success, so the checks below — binding, Email
-      // Routing, the live probe — cover it in this same run rather than only in
+      // Added to the list on success, so the checks below (binding, Email
+      // Routing, the live probe) cover it in this same run rather than only in
       // the next one. `ensureBlackHole` has just written the row it reads.
       const repaired = await repair(r, `could not add the primary black hole ${env.BLACK_HOLE_HOSTNAME}`,
         () => ensureBlackHole(cf, accountId, { hostname: env.BLACK_HOLE_HOSTNAME, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps }),
@@ -268,7 +268,7 @@ export async function run(args) {
 
   // Every row is checked for both surfaces, because every black hole has both.
   // There is no longer a roles column to branch on, so the only thing that varies
-  // between rows is whether the host is its zone's apex — and it always should
+  // between rows is whether the host is its zone's apex, and it always should
   // be. `add` refuses anything else, so a non-apex row is a leftover from an older
   // deployment. It is reported as one and then checked for what it actually is,
   // rather than failed outright, because it may still be capturing perfectly

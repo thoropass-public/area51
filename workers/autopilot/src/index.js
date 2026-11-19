@@ -623,7 +623,7 @@ async function handleMcp(request, env) {
           "them everything needed in one message: the exact path you want (it",
           "must start with /-/), which file to upload, and why. It takes them",
           "two steps, because the dashboard does not create endpoints under",
-          "/-/ directly — that namespace is deleted on a schedule, so nothing",
+          "/-/ directly. That namespace is deleted on a schedule, so nothing",
           "lands in it by typing a path. Tell them to:",
           "",
           "  1. AREA 51 → Endpoints → + New endpoint, at any path OUTSIDE /-/",

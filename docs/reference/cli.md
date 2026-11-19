@@ -205,7 +205,7 @@ subdomains of it and the zone-wide catch-all that makes this deployment capture
 mail is attached to it, so `remove` refuses it
 ([why](../decisions.md#the-primary-black-hole-cannot-be-removed)). Every other
 black hole is secondary: catcher only, and removable. The distinction lives in
-`.env` and nowhere else — the `domains` table stays one column.
+`.env` and nowhere else, so the `domains` table stays one column.
 
 ### add
 
@@ -213,8 +213,8 @@ black hole is secondary: catcher only, and removable. The distinction lives in
 [operations](../guides/operations.md#putting-a-subdomain-on-the-catcher), which
 covers putting one on the catcher by hand. The refusal is mechanics before it is
 policy: the catch-all rule that delivers mail is zone-scoped, so the apex is what
-makes a zone capture anything at all, and a subdomain was never an alternative to
-it — only an addition on top.
+makes a zone capture anything at all. A subdomain was never an alternative to
+it, only an addition on top.
 
 Before provisioning, `add` prints what changes and takes consent for the
 destructive part:
@@ -236,12 +236,13 @@ DNS and the certificate take a minute.
 no flag to override it. Removing it would leave the dashboard, Autopilot and the
 zone catch-all exactly where they were, and would not even stick: `.env` still
 names the host, so the next `./a51 setup` or `./a51 doctor --fix` puts it back.
-The refusal names the two things an operator might have meant instead — moving
-AREA 51 to another zone (edit `.env`, re-run `setup`, after which the old apex is
-an ordinary black hole this command will take) or `./a51 destroy`.
+The refusal names the two things an operator might have meant instead. One is
+moving AREA 51 to another zone: edit `.env`, re-run `setup`, and the old apex
+becomes an ordinary black hole this command will take. The other is
+`./a51 destroy`.
 
-For any other host, `remove` works in this order — Cloudflare state first, the D1
-row last — so a run that dies halfway leaves a black hole that still reports
+For any other host, `remove` works in this order, Cloudflare state first and the
+D1 row last, so a run that dies halfway leaves a black hole that still reports
 itself rather than bindings with nothing naming them:
 
 1. **Mail subdomains on the zone are found and offered up.** Any subdomain

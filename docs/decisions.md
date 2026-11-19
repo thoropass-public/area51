@@ -370,8 +370,8 @@ Offering mail as a choice meant offering a deployment where the mail half
 silently does nothing: mail to a subdomain with no MX bounces to the *sender*,
 which during an engagement is the target, not the operator. All the operator sees
 is a callback that never arrived, and the obvious reading of that is "the
-vulnerability did not fire" — a false negative on a finding, the most expensive
-mistake this tool can cause.
+vulnerability did not fire". That is a false negative on a finding, the most
+expensive mistake this tool can cause.
 
 **Why no roles:** once every black hole is a whole zone with both surfaces, the
 column can only ever hold `["http","mail"]`, and every reader of it is branching
@@ -379,34 +379,39 @@ on a constant. There were a lot of readers: the CLI's `add`, `remove`, `list` an
 `status`; `doctor`, twice; `/api/config/domains`; the dashboard's Home orbit
 chips, which rendered the roles as a label under each address and greyed out
 mail-only hosts as ineligible defaults; and Autopilot's MCP tool descriptions,
-which told the agent to "pick a domain whose roles include 'http'" — instruction
-text an LLM reads and acts on. All of it described a distinction that no longer
+which told the agent to "pick a domain whose roles include 'http'". That last
+one is instruction text an LLM reads and acts on. All of it described a distinction that no longer
 exists. `roles` was dropped from the schema in v1.2.0 rather than left in place,
 because it is `NOT NULL` with no default: a writer that stops supplying it cannot
 insert a row while the column is still there.
 
 **Subdomains are now outside the tool.** They still work, and they need nothing
-from AREA 51 to work — the catcher serves whatever hostname reaches it, and its
+from AREA 51 to work. The catcher serves whatever hostname reaches it, and its
 email handler never consults the `domains` table, so a subdomain enabled by hand
 in the Cloudflare dashboard is captured identically to the apex. What is lost is
 *discovery*: such a host does not appear in `black-holes list`, in the Home orbit
 chips, or in `list_black_holes`. That is the trade. Owning the add path meant
 owning the ordering rule, the refusal, the role that encoded it, and a `doctor`
-check for each — a meaningful share of this command's surface area, to automate
-two clicks in a dashboard. [operations](guides/operations.md#putting-a-subdomain-on-the-catcher)
-documents both recipes instead.
+check for each. That is a meaningful share of this command's surface area, spent
+to automate two clicks in a dashboard.
+[operations](guides/operations.md#putting-a-subdomain-on-the-catcher) documents
+the recipes instead: one subdomain, every subdomain at once, and mail.
 
 **Removal cascades, because the alternative is silent.** A mail subdomain's MX
 records are locked and point at a catch-all that this black hole installed.
 Remove the black hole and leave them, and the subdomain keeps accepting mail that
 is then delivered nowhere: not captured, not bounced, just gone. So
-`black-holes remove` finds them — there is no endpoint listing enabled
-subdomains, so it reads `GET /zones/{id}/email/routing/dns` and treats every
-non-apex name carrying MX as one — lists them, and clears them on confirmation
-with `DELETE /zones/{id}/email/routing/dns` carrying that `name`. That body on
-DELETE is undocumented but deliberate: it is what the dashboard's own Subdomains
-screen calls, it takes the entry and its records together, and the same endpoint
-rejects an apex name with `[2007] must be a subdomains of <zone>`.
+`black-holes remove` finds them, lists them, and clears them on confirmation.
+
+Finding them takes a detour, because no endpoint lists the subdomains a zone has
+enabled. It reads `GET /zones/{id}/email/routing/dns` instead and treats every
+non-apex name carrying an MX record as one.
+
+Clearing one is `DELETE /zones/{id}/email/routing/dns` with that `name` in the
+body. The body on DELETE is undocumented but deliberate: it is what the
+dashboard's own Subdomains screen calls, it takes the entry and its records
+together, and the same endpoint rejects an apex name with
+`[2007] must be a subdomains of <zone>`.
 
 Email Routing on the *zone* is still left enabled by `remove`. That is a decision
 about the whole zone, it unlocks and deletes the apex MX, and `./a51 destroy`
@@ -439,7 +444,7 @@ apex. `./a51 black-holes remove` refuses it, with no override flag.
 The usual argument for a guard is that the operation is dangerous. This one is
 stronger: the operation does not work. `BLACK_HOLE_HOSTNAME` in `.env` still
 names the host afterwards, and `./a51 setup` is the documented way to converge a
-deployment after almost any change — so the next routine run binds the apex and
+deployment after almost any change, so the next routine run binds the apex and
 re-inserts the row. `./a51 doctor --fix` does the same. A command whose effect
 the next ordinary command silently undoes is worse than one that refuses,
 because the operator believes something happened.
@@ -461,7 +466,7 @@ and the data properly. `destroy` is unaffected by the guard because it tears
 down directly rather than calling this command.
 
 **Where "primary" is stored: `.env`, and nowhere else.** The obvious
-alternative — an `is_primary` column on `domains` — is wrong twice over. The
+alternative, an `is_primary` column on `domains`, is wrong twice over. The
 table was *just* reduced to one column, and a second per-host flag would
 reintroduce exactly the thing that removal was about. More fundamentally,
 primary is a property of **this deployment**, not of the zone: the same apex
@@ -473,8 +478,8 @@ hostnames from the same answer, which keeps it consistent with
 What this costs: the comparison is a string match against `.env`, so a
 deployment whose `.env` is missing or whose `BLACK_HOLE_HOSTNAME` is blank has no
 primary to protect and `remove` will take any host. That is the right failure
-direction — a tool that cannot tell which host is load-bearing should not invent
-one — and `doctor` reports a missing `BLACK_HOLE_HOSTNAME` separately.
+direction, since a tool that cannot tell which host is load-bearing should not
+invent one, and `doctor` reports a missing `BLACK_HOLE_HOSTNAME` separately.
 
 `doctor` carries the other half of the rule: a `domains` table that has rows but
 not the primary's is a failure, not silence, because it means the dashboard lists

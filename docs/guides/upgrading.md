@@ -5,7 +5,11 @@ One page per upgrade that needs more than `git pull && ./a51 deploy all`.
 ## v1.1.0 → v1.2.0
 
 **Your captured data is not touched by this upgrade.** It changes one schema
-column and the shape of one CLI command. Budget five minutes.
+column, the shape of one CLI command, and a number of things in the dashboard.
+Budget five minutes.
+
+The schema change is the only part that needs care about ordering. Everything
+else is a worker upload.
 
 ### What changes
 
@@ -15,10 +19,15 @@ column and the shape of one CLI command. Budget five minutes.
 | `black-holes add` | `<host> [http,mail]`, any hostname | `<zone>`, a zone apex only |
 | `black-holes remove` | leaves a subdomain's MX records behind | offers to clear the zone's mail subdomains first |
 | `.env` | `BLACK_HOLE_ROLES` | gone, and ignored if left in the file |
-| Home orbit chips | address + an `http · mail` label | address only |
+| Home chips | address plus an `http · mail` label | address only |
 | Endpoints toolbar | an **Archive** toggle, plus a `:autopilot:` search term nothing advertised | one scope switch: **Endpoints · Autopilot · Archive** |
 | Creating under `/-/` | allowed from the dashboard | refused; create outside the prefix and rename in |
 | Editing under `/-/` | an ordinary edit | read-only, with **Move to Endpoints** to take it out of the prefix first |
+| `black-holes remove <primary>` | removed it, and the next `setup` put it back | refused, with no override flag |
+| `black-holes list`, `status` | every host looks the same | the primary is marked |
+| `doctor` | did not check `BLACK_HOLE_HOSTNAME` | requires it in `.env`, and fails if the primary has no row |
+| Endpoint modal title | always `EDIT ENDPOINT` | `ARCHIVED ENDPOINT` or `AUTOPILOT ENDPOINT` when it is read-only |
+| Endpoint modal buttons | `Close` / `Cancel`, `Archive` next to `Delete`, `Save changes` | no Close or Cancel, `Archive` next to `Save`, and `Unarchive` is the primary |
 
 A black hole is now a whole Cloudflare zone that always captures both HTTP and
 mail, so there is nothing left to record per host and nothing to choose when
@@ -65,10 +74,21 @@ as their upload lands. Capture is unaffected either way.
 ./a51 doctor
 ```
 
-`list` loses its ROLES column. `doctor` reports a **subdomain black hole** from
-an older deployment as a warning rather than a failure: such a row keeps working,
-and `./a51 black-holes remove <that host>` takes it out when you no longer want
-it, offering that one name's Email Routing entry and MX records with it.
+`list` loses its ROLES column and marks the primary. `doctor` reports a
+**subdomain black hole** from an older deployment as a warning rather than a
+failure: such a row keeps working, and `./a51 black-holes remove <that host>`
+takes it out when you no longer want it, offering that one name's Email Routing
+entry and MX records with it.
+
+Then open the dashboard and try the parts that moved:
+
+| Feature | Check |
+|---|---|
+| Scope switch | Endpoints → the switch at the left of the toolbar. **Autopilot** lists what agents staged, **Archive** what you archived |
+| Create guard | + New endpoint, type a path starting `/-/`. The field turns red and **Create** is disabled |
+| Read-only prefix | Open an endpoint under `/-/`. It says `AUTOPILOT ENDPOINT` and offers **Move to Endpoints** |
+| Move | Use it. The path is prefilled without the prefix, and the endpoint lands in the Endpoints list |
+| Primary black hole | `./a51 black-holes remove <your setup zone>` is refused |
 
 ### Leftovers you can clean up
 
@@ -78,10 +98,10 @@ it, offering that one name's Email Routing entry and MX records with it.
   for that literal string and finds nothing. Agent-staged endpoints are the
   **Autopilot** position on the new scope switch, and searching inside it
   narrows within that list. Nothing about the stored data changes.
-- Adding a subdomain to the catcher is no longer a CLI command. Both recipes —
-  HTTP on one subdomain, mail on one subdomain — are now in
-  [operations](operations.md#putting-a-subdomain-on-the-catcher), and both are
-  Cloudflare dashboard steps that need nothing from AREA 51.
+- Adding a subdomain to the catcher is no longer a CLI command. The recipes are
+  now in [operations](operations.md#putting-a-subdomain-on-the-catcher): HTTP on
+  one subdomain, HTTP on every subdomain at once, and mail on one subdomain. All
+  three are Cloudflare dashboard steps that need nothing from AREA 51.
 
 ### If it goes wrong
 

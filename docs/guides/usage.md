@@ -232,7 +232,7 @@ drop the file on **Serve a file** (or click it to browse), and press **Create**.
 The path cannot be under `/-/`: that is Autopilot's namespace, the monthly
 cleanup empties it, and the dashboard will not create there. When an agent has
 asked you for a file at a specific `/-/` path, create it anywhere else first and
-then rename it in — the file moves with the rename, and the confirmation you get
+then rename it in. The file moves with the rename, and the confirmation you get
 is the one explaining what the prefix means.
 
 Once it is under `/-/` it is **read-only here**, like an archived endpoint: the

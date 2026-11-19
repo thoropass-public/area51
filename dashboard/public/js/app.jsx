@@ -124,8 +124,8 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
 // thing on every chip and is gone.
 //
 // Only black holes appear here. A subdomain an operator enabled for mail by hand
-// in Cloudflare is captured just the same — the worker's email handler never
-// consults this table — but it is not a black hole and is not listed.
+// in Cloudflare is captured just the same, because the worker's email handler
+// never consults this table, but it is not a black hole and is not listed.
 
 // Compute a chip's (left%, top%) inside the .orbit-stage. Distributes N
 // chips evenly around the alien's center, alternating between inner and

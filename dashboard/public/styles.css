@@ -540,7 +540,7 @@ select {
 
 /* Scope switch: which of the three endpoint lists is on screen.
    One control with three positions rather than three buttons, because the
-   three lists are mutually exclusive in the data — see SCOPES in tabs.jsx.
+   three lists are mutually exclusive in the data. See SCOPES in tabs.jsx.
    It leads the toolbar, before the search box, so the row reads coarse to
    fine: which list, then narrow it, then the action. Built to read as a
    single object: the track is one filled surface and the chosen position is
@@ -576,7 +576,7 @@ select {
 }
 
 /* The chosen position has to read as LIFTED out of the track, and "lifted"
-   is lighter in both themes — which is not one pair of variables. The n0..n3
+   is lighter in both themes, and that is not one pair of variables. The n0..n3
    ramp runs dark-to-light on the dark palette and light-to-dark on the cream
    one, so the dark rule above lifts by going UP the ramp and this one lifts by
    going down to the page color. Same perception, opposite direction, which is

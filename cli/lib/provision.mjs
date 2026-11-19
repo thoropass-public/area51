@@ -513,7 +513,7 @@ async function releaseHostname(cf, accountId, zone, hostname, keepService) {
  * Nothing creates a subdomain black hole any more: `./a51 black-holes add` takes
  * the zone apex and nothing else. This survives for `./a51 doctor --fix`, which
  * re-applies rows written by an older version of this tool, and it is correct
- * only because such a row's apex is necessarily already a black hole — that was
+ * only because such a row's apex is necessarily already a black hole. That was
  * the precondition the old `add` enforced before it would write the row.
  *
  * Without the apex's catch-all pointing at the worker there would be nothing for
@@ -684,7 +684,7 @@ export async function ensureDestinationAddress(cf, accountId, address, followUps
  * The table is now a bare list of hostnames, so there is nothing left to update
  * on a conflict and the insert is a plain `DO NOTHING`. It stays an upsert
  * rather than becoming a guarded insert because `ensureBlackHole` is re-run
- * constantly — by `setup`, by `doctor --fix` — and a row that is already right
+ * constantly, by `setup` and by `doctor --fix`, and a row that is already right
  * must not be an error.
  */
 export async function upsertDomainRow(cf, accountId, databaseId, hostname, followUps = []) {

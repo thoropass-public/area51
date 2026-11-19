@@ -193,8 +193,8 @@ active host comes from the Home picker, and with none selected the button toasts
 an error instead.
 
 *What the list contains.* There are **three lists, and one control that picks
-between them** — a scope switch at the head of the toolbar, before the search
-box, so the row reads coarse to fine: which list, narrow it, act on it.
+between them**: a scope switch at the head of the toolbar, before the search
+box, so the row reads coarse to fine. Which list, narrow it, act on it.
 
 | Scope | Rows | *New endpoint* |
 |---|---|---|
@@ -223,15 +223,17 @@ button.
 **The dashboard does not create under `/-/`.** The modal refuses it as you
 type: the helper line under the URI turns into the reason, the field borders
 red and *Create* is disabled, with the same check repeated in `save()` so the
-field and the button cannot disagree. The prefix is not a folder, it is a
-lifecycle — everything under it is agent-owned, can never be archived, and is
-deleted wholesale on the `CLEANUP_AUTOPILOT_PURGE` schedule — and typing a path
-into a text box is not a reasonable way to opt into that.
+field and the button cannot disagree.
+
+The prefix looks like a folder but behaves like a lifecycle. Everything under
+it is agent-owned, can never be archived, and is deleted wholesale on the
+`CLEANUP_AUTOPILOT_PURGE` schedule. Typing a path into a text box is not a
+reasonable way to opt into that.
 
 **Renaming into `/-/` is still allowed**, and still asks first. That path is
 deliberate by construction: you already have the endpoint and you are choosing
 to hand it over. It is also how a file-backed payload reaches a `/-/` path,
-since an upload is a human step and Autopilot has no `FILES` binding — create
+since an upload is a human step and Autopilot has no `FILES` binding. Create
 it outside the prefix with its file, then rename it in. The file moves with the
 rename, because nothing but the row is keyed by the URI. Autopilot's own
 instructions walk an operator through those two steps.
@@ -257,11 +259,11 @@ last week is a dashboard that misreports what is being served.
 *The modal is read-only for two kinds of endpoint*, and the pair is deliberate:
 an **archived** one and an **agent-staged** one both belong to a lifecycle the
 editor is not part of. Archived rows are frozen by the server. Agent-staged rows
-are Autopilot's — it can read, replace and delete them — and the cleanup run
-takes all of them on a schedule, so an operator editing one is editing a
-response an agent may overwrite, on a row that disappears next month.
+are Autopilot's, which can read, replace and delete them, and the cleanup run
+takes all of them on a schedule. An operator editing one is editing a response
+an agent may overwrite, on a row that disappears next month.
 
-Each says so in its own header — `ARCHIVED ENDPOINT`, `AUTOPILOT ENDPOINT` —
+Each says so in its own header, `ARCHIVED ENDPOINT` or `AUTOPILOT ENDPOINT`,
 rather than the `EDIT ENDPOINT` that promises something the modal then refuses.
 The title names the mode where you can act and the state where you cannot,
 because the state is the reason you cannot.
@@ -273,19 +275,20 @@ second.
 *The footer holds no Close or Cancel*, in any of the modal's states but one.
 A ghost button that only shuts the modal says what the ✕ in the header already
 says one row above it, and spends the slot beside the primary action on a
-duplicate — which also reads as the cautious half of a decision nobody is being
+duplicate. It also reads as the cautious half of a decision nobody is being
 asked to make. The modal already closes on Escape, on the backdrop and on that
 ✕. The exception is **Cancel during a move**, which is not a synonym for
 closing: it returns to the locked view with the endpoint still open, because
 backing out of a path you were choosing should not throw away what you were
 choosing it for.
 
-A write that announces itself — a move, an archive, an unarchive — closes and
-refreshes the list without the generic *Endpoint saved* toast, which would
-otherwise stack under the specific one and contradict it.
-*Move to Endpoints* opens the URI field alone — the body stays locked, because
-a move is a rename and not an edit — prefilled with the path minus the prefix,
-so `/-/acme/oauth-callback` is proposed as `/acme/oauth-callback`. The operator
+A write that announces itself, such as a move, an archive or an unarchive,
+closes and refreshes the list without the generic *Endpoint saved* toast. That
+toast would otherwise stack under the specific one and contradict it.
+*Move to Endpoints* opens the URI field and nothing else. The body stays
+locked, because a move is a rename and not an edit. The field is prefilled with
+the path minus the prefix, so `/-/acme/oauth-callback` is proposed as
+`/acme/oauth-callback`. The operator
 edits it freely; the only thing refused is a target still under `/-/`, which
 would have moved nothing.
 
@@ -296,7 +299,7 @@ stale the moment it returns. The refusal lands back on the URI field rather than
 in a toast, so the path is still there to edit. `apiFetch` carries the HTTP
 status on the thrown error for exactly this: a caller distinguishing one refusal
 from another without matching on message text. A successful move closes and
-refreshes but does **not** follow the endpoint to the Endpoints scope — the row
+refreshes but does **not** follow the endpoint to the Endpoints scope. The row
 leaves the list you are standing in, and jumping scope after every move would
 make triaging a staged engagement a fight. The toast names where it went.
 
@@ -321,7 +324,7 @@ requests keep the URL they were actually made to. The rename is sent before the
 body write, so a name clash comes back as `409` with nothing changed and the
 modal still showing what was typed. Renaming *into* `/-/` is allowed and
 confirmed first, because it hands the endpoint to Autopilot, to the purge
-schedule, and to the read-only treatment above — after which changing it again
+schedule, and to the read-only treatment above. After that, changing it again
 means moving it back out.
 
 *Archiving* sits beside Delete, as the undo-able half of it. An archived endpoint
@@ -405,8 +408,8 @@ filter change cannot land late and clobber the filtered view.
   picker** for copied endpoint URLs, persisted to
   `localStorage['area51:activeDomain']`. Every black hole serves HTTP, so every
   chip is selectable; a chip is its address and nothing else. Only black holes
-  appear here — a mail subdomain an operator enabled by hand is captured just the
-  same, but it is not in the `domains` table and is not listed.
+  appear here. A subdomain an operator added by hand is captured just the same,
+  but it is not in the `domains` table and so is not listed.
 - **`Settings`** is blacklist management only. Purging is deliberately not in the
   UI ([decisions.md](../decisions.md#no-purge-in-the-dashboard)); use `./a51 purge`.
 

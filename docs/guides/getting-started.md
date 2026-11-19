@@ -197,9 +197,9 @@ confirmation guards its records.
 
 **Subdomains are not black holes.** A subdomain can still be put on the catcher,
 for HTTP or for mail, but it is a Cloudflare dashboard step rather than an AREA
-51 one — the catcher needs nothing from you to handle it, so the CLI does not
-own it. [operations](operations.md#putting-a-subdomain-on-the-catcher) has both
-recipes.
+51 one. The catcher needs nothing from you to handle it, so the CLI does not own
+it. [operations](operations.md#putting-a-subdomain-on-the-catcher) has the
+recipes, including a wildcard that catches every subdomain at once.
 
 ### The two private hostnames
 

@@ -188,7 +188,7 @@ const SCOPES = [
 ];
 
 // Rendered into ListView's `leftToolbar`, so it reads before the search box:
-// which list, then narrow it. It is a radio group, not three buttons — one is
+// which list, then narrow it. It is a radio group, not three buttons: one is
 // always on, and choosing one unchooses the others, which is exactly the
 // constraint the data already has.
 function ScopeSwitch({ scope, setScope }) {
@@ -236,7 +236,7 @@ const isAutopilotUri = (uri) => String(uri || "").startsWith(AUTOPILOT_PREFIX);
 
 // The path an agent-staged endpoint is offered when it is moved out: the same
 // path with the prefix taken off, so `/-/acme/oauth-callback` is proposed as
-// `/acme/oauth-callback`. A suggestion, not a rule — the operator edits it, and
+// `/acme/oauth-callback`. A suggestion, not a rule. The operator edits it, and
 // the only thing enforced is that the result is not back under the prefix.
 const withoutAutopilotPrefix = (uri) =>
   "/" + String(uri || "").slice(AUTOPILOT_PREFIX.length).replace(/^\/+/, "");
@@ -513,16 +513,16 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
 
   // An agent-staged endpoint is read-only here, for the same reason an archived
   // one is: it belongs to a lifecycle this modal is not part of. Agents own what
-  // is under `/-/` — Autopilot can read, replace and delete it — and the cleanup
-  // run deletes all of it on a schedule. An operator editing a response an agent
-  // is about to overwrite, on a row that disappears next month, is editing
-  // something that is not really theirs.
+  // is under `/-/`, which Autopilot can read, replace and delete, and the
+  // cleanup run deletes all of it on a schedule. An operator editing a response
+  // an agent is about to overwrite, on a row that disappears next month, is
+  // editing something that is not really theirs.
   //
   // The way out is the same one the fence already had: move it out of the
   // prefix. That is a single primary-key update, it takes the endpoint out of
-  // Autopilot's reach and off the purge schedule in one go, and the row — file
-  // and all — arrives in the ordinary Endpoints list where everything is
-  // editable again. So the modal offers that move rather than an edit.
+  // Autopilot's reach and off the purge schedule in one go, and the row arrives
+  // in the ordinary Endpoints list, file and all, where everything is editable
+  // again. So the modal offers that move rather than an edit.
   const agentOwned = mode === "edit" && isAutopilotUri(uri);
   const [moving, setMoving] = useState(false);
   const [moveTo, setMoveTo] = useState("");
@@ -551,8 +551,8 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
   };
 
   // The move is ONE write: the rename. Not `save`, which would also push the
-  // status, headers and body back — a pointless write on a row nobody edited,
-  // and one that would quietly make this modal an editor after all.
+  // status, headers and body back. That is a pointless write on a row nobody
+  // edited, and one that would quietly make this modal an editor after all.
   //
   // Whether the target is taken is decided by the server, not by a lookup from
   // here first. A check would be a second round trip that is out of date the
@@ -620,17 +620,17 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
 
     // `/-/` is Autopilot's namespace, and the dashboard does not CREATE in it.
     //
-    // The prefix is not a folder, it is a lifecycle. Everything under it is
-    // agent-owned (an agent can read, replace and delete it), it can never be
-    // archived, and the cleanup worker deletes every one of them on the
-    // CLEANUP_AUTOPILOT_PURGE schedule, uploaded files included. Typing a path
-    // into a text box is not a reasonable way to opt into that, and the
+    // The prefix looks like a folder but behaves like a lifecycle. Everything
+    // under it is agent-owned (an agent can read, replace and delete it), it
+    // can never be archived, and the cleanup worker deletes every one of them
+    // on the CLEANUP_AUTOPILOT_PURGE schedule, uploaded files included. Typing
+    // a path into a text box is not a reasonable way to opt into that, and the
     // operator who does it by accident loses the endpoint on a timer without
     // ever having been told.
     //
     // Only `new` is refused. Renaming an EXISTING endpoint into the prefix is
     // still allowed, and still asks first (below): that path is deliberate by
-    // construction — you already have the thing, and you are choosing to hand
+    // construction: you already have the thing, and you are choosing to hand
     // it over. It is also how a file-backed payload gets to a `/-/` path now,
     // since an upload is a human step: create it outside the prefix, then move
     // it in.
@@ -693,13 +693,13 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
   if (moving && moveError) {
     uriHelper = <>{moveError} Pick another path.</>;
   } else if (moving && moveIntoPrefix) {
-    uriHelper = <>Still under {AUTOPILOT_PREFIX}. Moving it there moves nothing — pick a path outside the prefix.</>;
+    uriHelper = <>Still under {AUTOPILOT_PREFIX}. Moving it there moves nothing. Pick a path outside the prefix.</>;
   } else if (moving) {
     uriHelper = <>Where it will be served once it leaves {AUTOPILOT_PREFIX}. <span style={{fontFamily:"var(--mono)"}}>{uri}</span> stops serving.</>;
   } else if (newIntoPrefix) {
     uriHelper = <>{AUTOPILOT_PREFIX} is Autopilot's namespace: agents own what lives there and the cleanup run deletes all of it on a schedule. Create this elsewhere, then rename it in if you really mean to hand it over.</>;
   } else if (agentOwned) {
-    uriHelper = <>Staged by an agent. Everything under {AUTOPILOT_PREFIX} is Autopilot's to read, replace and delete, and the cleanup run deletes all of it on a schedule — so it is not edited here. Move it out to make it yours.</>;
+    uriHelper = <>Staged by an agent. Everything under {AUTOPILOT_PREFIX} is Autopilot's to read, replace and delete, and the cleanup run deletes all of it on a schedule, so it is not edited here. Move it out to make it yours.</>;
   } else if (frozen) {
     uriHelper = "Archived. This path is not served. Unarchive it to make any change.";
   } else if (mode === "edit" && form.uri.trim() !== uri) {
@@ -737,7 +737,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
               <label>URI</label>
               {/* A rename is an ordinary primary-key update. Nothing else in
                   either store is keyed by the URI, so a file-backed endpoint
-                  keeps its object — which is also what makes the move out of
+                  keeps its object, which is also what makes the move out of
                   `/-/` carry an uploaded payload with it. The write is applied
                   by the button, not as you type.
 
@@ -888,7 +888,7 @@ function EndpointModal({ mode, uri, onClose, onSaved, onActed, onDelete }) {
 
             Every other Cancel / Close here did exactly what the ✕ in the
             header does, one pixel-row below it, spending the slot beside the
-            primary action on a duplicate — and reading as the cautious half of
+            primary action on a duplicate, and reading as the cautious half of
             a decision nobody was being asked to make. A modal that can be shut
             with Escape, the backdrop and a ✕ does not need a fourth way. */}
         {moving && (

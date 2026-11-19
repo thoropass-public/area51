@@ -62,9 +62,10 @@ steps re-report as `·` (already correct) rather than running again.
 
 Additional black holes are additional zones: `./a51 black-holes add <zone>`. It
 takes a zone apex and refuses anything else, and there is no roles argument.
-**Subdomains are outside this tool on purpose** — the catcher needs nothing from
-AREA 51 to serve or capture one — so putting a subdomain on the catcher, for HTTP
-or for mail, is a Cloudflare dashboard step documented in
+**Subdomains are outside this tool on purpose.** The catcher needs nothing from
+AREA 51 to serve or capture one, so putting a subdomain on the catcher is a
+Cloudflare dashboard step. The recipes for one subdomain, for every subdomain at
+once, and for mail on a subdomain are in
 [docs/guides/operations.md](docs/guides/operations.md#putting-a-subdomain-on-the-catcher).
 
 **The API token is where installs fail.** Create it at **My Profile → API
@@ -130,7 +131,7 @@ schema, domain bindings and the Access policy.
 
    Four rules follow from the fence. Three are enforced by the dashboard, not
    by Autopilot. An endpoint under `/-/` **cannot be archived**. The dashboard
-   **never creates one there** — *New endpoint* is offered on the Endpoints
+   **never creates one there**: *New endpoint* is offered on the Endpoints
    scope only and the modal refuses the prefix, because typing a path is not a
    reasonable way to opt into agent ownership plus scheduled deletion. And one
    that is there is **not editable**, exactly like an archived one: the modal
@@ -240,15 +241,15 @@ schema, domain bindings and the Access policy.
     before D1: a failure must leave a visible row, not an invisible binding. See
     [docs/decisions.md](docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles).
 
-    **One black hole is primary** — the zone `setup` deployed onto, where the
+    **One black hole is primary**: the zone `setup` deployed onto, where the
     dashboard and Autopilot live and where the zone catch-all hangs.
     `black-holes remove` refuses it outright, with no override flag, because the
     removal would not stick (`.env` still names it, so the next `setup` or
     `doctor --fix` restores it) and would leave every other part of the
     deployment in place. Keep that fact in `.env`'s `BLACK_HOLE_HOSTNAME` and
     **never as a column**: the table is one column by the rule above, and primary
-    is a property of this deployment, not of the zone. `destroy` is unaffected —
-    it tears down directly rather than through that command. See
+    is a property of this deployment, not of the zone. `destroy` is unaffected,
+    because it tears down directly rather than through that command. See
     [docs/decisions.md](docs/decisions.md#the-primary-black-hole-cannot-be-removed).
 
 ## Provisioning specifics (the CLI)

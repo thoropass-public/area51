@@ -62,8 +62,8 @@ export async function run(args) {
  * Read from .env rather than recorded per host, and deliberately so. The
  * `domains` table is one column (CLAUDE.md invariant 10) and the last thing it
  * needs is a second per-host flag a month after `roles` was removed from it.
- * .env already names this one — `setup` writes BLACK_HOLE_HOSTNAME there and
- * derives DASHBOARD_HOSTNAME and AUTOPILOT_HOSTNAME from the same answer — so
+ * .env already names this one. `setup` writes BLACK_HOLE_HOSTNAME there and
+ * derives DASHBOARD_HOSTNAME and AUTOPILOT_HOSTNAME from the same answer, so
  * the fact is already stored, once, in the place CLAUDE.md invariant 9 keeps
  * deployment state.
  *
@@ -157,7 +157,7 @@ async function list(cf, accountId, env) {
  * to the worker is zone-scoped: it exists once the apex is a black hole, and it
  * then covers the apex and every subdomain enabled for Email Routing. A
  * subdomain could therefore never be a black hole on its own, only an addition
- * to one — which is why the old command had an elaborate "is the apex already a
+ * to one. That is why the old command had an elaborate "is the apex already a
  * mail black hole?" gate in front of it. Taking the apex as given removes the
  * gate and the ordering problem it policed.
  *
@@ -270,8 +270,8 @@ async function add(cf, accountId, env, hostname) {
  * There is no endpoint that lists them, so they are read off the records Email
  * Routing manages: enabling a name is exactly what puts an MX set there, so a
  * non-apex name carrying one is a subdomain somebody enabled. Nobody here
- * creates them any more — they are added in the Cloudflare dashboard — which is
- * precisely why removal has to go looking rather than consult the table.
+ * creates them any more, since they are added in the Cloudflare dashboard, and
+ * that is why removal has to go looking rather than consult the table.
  */
 async function enabledMailSubdomains(cf, zone) {
   const records = (await cf.listEmailRoutingRecords(zone.id)) || [];
@@ -289,8 +289,8 @@ async function enabledMailSubdomains(cf, zone) {
  * They are not collateral: a subdomain enabled for Email Routing has MX records
  * of its own, and the only reason mail to it reaches the catcher is the zone
  * catch-all that this black hole put there. Leave them and every one of them
- * keeps accepting mail into a catch-all that no longer delivers anywhere — a
- * host that swallows messages silently, which is the worst of the three possible
+ * keeps accepting mail into a catch-all that no longer delivers anywhere. The
+ * host swallows messages silently, which is the worst of the three possible
  * states (capturing, bouncing, swallowing).
  *
  * Asked rather than assumed. Each is a name someone added by hand, outside this
@@ -344,8 +344,8 @@ async function stripMailSubdomains(cf, zone) {
  *
  * `add` refuses these now, so nothing creates one, but a deployment made before
  * that still has them and they have to come back out. The zone-wide teardown
- * above would be wrong here — it would strip sibling black holes on the same
- * zone — so this touches exactly the one name.
+ * above would be wrong here, because it would strip sibling black holes on the
+ * same zone, so this touches exactly the one name.
  */
 async function removeLegacySubdomain(cf, zone, hostname) {
   let names = [];
@@ -384,8 +384,9 @@ async function removeLegacySubdomain(cf, zone, hostname) {
  * would be unwise.
  *
  * It would not stick. BLACK_HOLE_HOSTNAME still names it afterwards, so the next
- * `./a51 setup` — the documented way to converge a deployment, run after almost
- * any change — binds it and re-inserts the row. `./a51 doctor --fix` does the
+ * `./a51 setup`, the documented way to converge a deployment and the thing you
+ * run after almost any change, binds it and re-inserts the row.
+ * `./a51 doctor --fix` does the
  * same. A command whose effect the next routine command silently undoes is worse
  * than one that refuses: the operator believes something happened.
  *

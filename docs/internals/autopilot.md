@@ -84,8 +84,8 @@ the prefix, and the two fences point in opposite directions on purpose. Autopilo
 may not leave `/-/`; the dashboard does not *work* in it. It will not create an
 endpoint there, and one that is there opens read-only with a single action,
 **Move to Endpoints**, that renames it out. The server still accepts those
-writes — the restraint is the interface's, not the API's — because the reason is
-about who owns a row rather than about what is permitted: an operator editing
+writes, so the restraint is the interface's and not the API's. The reason is
+about who owns a row rather than what is permitted: an operator editing
 inside `/-/` is editing something an agent may overwrite, on a row the purge
 deletes next month.
 
@@ -107,8 +107,9 @@ which is three lifecycles at once. An agent-staged stub is either
 deleted, or moved out of `/-/` from the dashboard, and that move is exactly
 what converts it into an ordinary endpoint: it leaves Autopilot's reach, leaves
 the purge, and becomes editable and archivable like any other. It is the same
-rename either way — *Move to Endpoints* is that rename with the prefix stripped
-off the proposed path and a check that the target is not back inside it. Nothing an agent can
+rename either way. *Move to Endpoints* is that rename with the prefix stripped
+off the proposed path, plus a check that the target is not back inside it.
+Nothing an agent can
 call reaches `archived`, and no archived row can exist under the prefix for one
 to find.
 
@@ -175,7 +176,7 @@ protocol: ask the operator for a specific `/-/` path, name the file, walk them
 through it, have them confirm the path, then hand out `https://<domain><path>`.
 
 The walkthrough is two steps rather than one, because **the dashboard does not
-create endpoints under `/-/`** — the prefix is deleted on a schedule, so nothing
+create endpoints under `/-/`**. The prefix is deleted on a schedule, so nothing
 lands in it by typing a path. The operator creates the endpoint with its file at
 any path outside the prefix, then renames it in, confirming the prompt that says
 what handing it to Autopilot means. The file moves with the rename. The preamble

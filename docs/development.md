@@ -116,7 +116,7 @@ worker's Logs in the Cloudflare dashboard.
 
 - No modules: shared symbols are assigned to `window` in `ui.jsx`.
 - New shared helper → `ui.jsx`. New list tab or modal → `tabs.jsx`. Shell, Home,
-  Settings → `app.jsx`.
+  Blacklists → `app.jsx`.
 - Untrusted HTML only ever renders inside `<iframe sandbox="">`.
 
 **CLI**

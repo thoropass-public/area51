@@ -478,7 +478,7 @@ function ConfirmProvider({ children }) {
 //
 // Backed by the D1-backed API rather than localStorage (the worker is the
 // source of truth, and the frontend just mirrors the lists for snappy
-// "is this blocked?" checks in modals and the Settings panel). On mount,
+// "is this blocked?" checks in modals and on the Blacklists tab). On mount,
 // fetches both lists. Mutations update local state optimistically after a
 // successful API call. Worker propagation lag is up to 60 MINUTES due to the
 // edge cache (BLACKLIST_CACHE_TTL_SECONDS in the black-holes worker); the

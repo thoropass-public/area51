@@ -1,4 +1,4 @@
-// AREA 51 dashboard main app: tab navigation, Home, Settings, and the shell.
+// AREA 51 dashboard main app: tab navigation, Home, Blacklists, and the shell.
 
 function App() {
   const [tab, setTab] = useState("home");
@@ -24,7 +24,7 @@ function App() {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && /^[1-4]$/.test(e.key)) {
         e.preventDefault();
-        const map = ["endpoints", "requests", "emails", "settings"];
+        const map = ["endpoints", "requests", "emails", "blacklists"];
         setTab(map[Number(e.key) - 1]);
       }
     };
@@ -43,7 +43,7 @@ function App() {
               {tab === "endpoints" && <EndpointsTab/>}
               {tab === "requests" && <RequestsTab/>}
               {tab === "emails" && <EmailsTab/>}
-              {tab === "settings" && <Settings/>}
+              {tab === "blacklists" && <Blacklists/>}
             </div>
           </div>
         </BlacklistProvider>
@@ -61,7 +61,7 @@ function TopBar({ tab, setTab, theme, toggleTheme }) {
     { id: "endpoints", label: "Endpoints" },
     { id: "requests", label: "Requests" },
     { id: "emails", label: "Emails" },
-    { id: "settings", label: "Settings" },
+    { id: "blacklists", label: "Blacklists" },
   ];
   return (
     <div className="topbar">
@@ -260,22 +260,37 @@ function Home({ setTab }) {
 }
 
 // ----------------------------------------------------------------
-// Settings
+// Blacklists
 // ----------------------------------------------------------------
+//
+// The tab is named for the only thing on it. Two lists is not a settings page,
+// and calling it one promises a cupboard of knobs that does not exist.
+//
+// It runs full width, with the two lists side by side as equal halves and their
+// entries flowing into as many columns as each card has room for. The
+// explanation stays at a readable measure: prose does not get wider just
+// because the window does.
 
-function Settings() {
+function Blacklists() {
   const toast = useToast();
   const bl = useBlacklist();
 
   return (
     <div className="content">
-      <div className="settings">
-        <div className="settings-section">
+      <div className="blacklists">
+        <div className="bl-intro">
           <h2>Blacklists</h2>
-          <p className="desc">
-            Incoming entries are checked against these lists before anything is stored. A match is <b>actively refused, not silently dropped</b>: a blacklisted IP gets <code>403</code>, and a blacklisted sender is rejected at SMTP so their server generates a bounce. Nothing is written to the database either way, though the worker does log the rejection (<code>http_rejected_blacklist</code> / <code>email_rejected_blacklist</code>). Existing captured rows are not affected. If you want them removed, purge them separately. <b>Changes can take up to 60 minutes to fully propagate</b> due to the edge cache TTL, and this applies to both additions and removals.
+          <p>
+            Incoming entries are checked against these lists before anything is stored. A match is <b>actively refused, not silently dropped</b>: a blacklisted IP gets <code>403</code>, and a blacklisted sender is rejected at SMTP, so their own server generates the bounce.
           </p>
-          <div className="blacklist-grid">
+          <p>
+            Nothing reaches the database either way, though the worker logs the rejection as <code>http_rejected_blacklist</code> or <code>email_rejected_blacklist</code>. Rows captured before you added an entry are untouched. Purge them separately if you want them gone.
+          </p>
+          <div className="bl-note">
+            Changes take up to <b>60 minutes</b> to propagate, additions and removals alike. That is the edge cache TTL, not a queue you can hurry.
+          </div>
+        </div>
+        <div className="blacklist-grid">
             <BlacklistManager
               title="Remote IPs"
               caption="Requests from these IPs get 403 before any D1 write."
@@ -329,7 +344,6 @@ function Settings() {
               }}
               mono
             />
-          </div>
         </div>
       </div>
     </div>
@@ -344,7 +358,7 @@ function BlacklistManager({ title, caption, placeholder, values, onAdd, onRemove
     setDraft("");
   };
   return (
-    <div className="settings-card blacklist-card">
+    <div className="blacklist-card">
       <div className="bl-head">
         <h3>{title}</h3>
         <span className="bl-count">{values.length}</span>

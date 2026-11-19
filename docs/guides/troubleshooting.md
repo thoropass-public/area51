@@ -44,7 +44,7 @@ it. What each check actually asserts is documented in
 | An endpoint exists but still returns 404 | URI mismatch; matching is exact on `url.pathname` (case, trailing slash, no globs) | Compare the stored `uri` against the path you requested |
 | A file endpoint returns 404 with `http_file_missing` in the logs | The row outlived its object (someone emptied the bucket) | Re-upload from the endpoint modal, or delete the endpoint. The modal flags this as *object missing from storage* |
 | A file endpoint returns 404 with `http_file_binding_missing` | The `FILES` binding is not on the **worker** | Confirm `R2_FILES_BUCKET_NAME` in `.env`, then `./a51 deploy black-holes` |
-| Requests return 403 | Your IP is on `ip_blacklist` | Remove it in Settings, then wait up to 60 minutes for the edge cache |
+| Requests return 403 | Your IP is on `ip_blacklist` | Remove it in Blacklists, then wait up to 60 minutes for the edge cache |
 | A blacklist change has no effect | Blacklists are cached per data center for 60 minutes, in both directions | Wait, or accept the delay, which is deliberate |
 | `http_log_insert_failed` in the logs | Transient D1 error, or a quota | Logs are best-effort by design. If it repeats, check D1 health and storage |
 | A request served fine but never appeared in Requests | Same as above: the log insert is fire-and-forget | Check the worker's Logs for `http_log_insert_failed` |
@@ -58,7 +58,7 @@ it. What each check actually asserts is documented in
 | A subdomain captures no mail, and `doctor` says it has no MX records of its own | Email Routing was never enabled for that name, or was removed from the zone's Subdomains list | Re-add it: zone → Email → Email Routing → Settings → Subdomains. The CLI no longer manages subdomains ([why](operations.md#putting-a-subdomain-on-the-catcher)) |
 | `<host> is not a zone apex, and a black hole is a whole zone` | You gave `black-holes add` a subdomain. A black hole is a whole zone, because the catch-all that delivers mail is zone-scoped | Add the zone: `./a51 black-holes add <zone>`. To put just that subdomain on the catcher, see [operations](operations.md#putting-a-subdomain-on-the-catcher) |
 | Mail to a subdomain bounces after `black-hole add … mail` reported success | DNS for the newly enabled name can take a minute to propagate | Wait, then retry. `./a51 doctor` confirms the zone catch-all still points at the catcher |
-| Sender gets a bounce saying *Address not accepted* | The `From:` address is on `email_blacklist` | Remove it in Settings; up to 60 minutes to propagate |
+| Sender gets a bounce saying *Address not accepted* | The `From:` address is on `email_blacklist` | Remove it in Blacklists; up to 60 minutes to propagate |
 | A row exists but the body will not load | The `EML` binding is missing on the dashboard worker, or the object is gone | `./a51 doctor`; check `npx wrangler r2 object get <bucket> emails/<id>.eml` |
 | Messages land in the fallback inbox instead of the dashboard | Capture failed; look for `email_capture_failed` | The tail line carries the real error. Usually a missing R2 binding or an R2 outage |
 | Nothing in the fallback inbox either, on a failed capture | `FALLBACK_ADDRESS` is empty or unverified | `./a51 doctor` reports verification state; click Cloudflare's verification link |

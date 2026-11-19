@@ -88,7 +88,7 @@ dashboard/
 │   └── js/
 │       ├── ui.jsx           API client, toasts, modals, confirm, pins, formatting, icons
 │       ├── tabs.jsx         Endpoints / Requests / Emails tabs and their modals
-│       └── app.jsx          shell: App, TopBar, Home, Settings; mounts to #root
+│       └── app.jsx          shell: App, TopBar, Home, Blacklists; mounts to #root
 └── src/                     server side; never served
     ├── index.js             the Worker: entry, guard, route table, one try/catch
     ├── router.js            the matcher (literal-beats-param, raw-pathname segments)
@@ -347,7 +347,7 @@ archived, not whatever was edited into it while nothing was serving it.
 The modal pretty-prints a JSON body when it parses and shows it raw otherwise,
 and its **Remote IP** row carries a *blacklist* button (and a *blacklisted* tag
 once the IP is on the list), so noise can be filtered from the row that produced
-it rather than by retyping the address in Settings. The Emails modal does the
+it rather than by retyping the address in Blacklists. The Emails modal does the
 same for the **From** address.
 
 **Emails.** Opening a message shows the envelope metadata from the database and
@@ -413,8 +413,13 @@ filter change cannot land late and clobber the filtered view.
   chip is selectable; a chip is its address and nothing else. Only black holes
   appear here. A subdomain an operator added by hand is captured just the same,
   but it is not in the `domains` table and so is not listed.
-- **`Settings`** is blacklist management only. Purging is deliberately not in the
-  UI ([decisions.md](../decisions.md#no-purge-in-the-dashboard)); use `./a51 purge`.
+- **`Blacklists`** is the two blacklists and nothing else, which is why it is
+  named for them. It runs full width: the two lists sit side by side as equal
+  halves and their entries flow into as many columns as the card has room for,
+  while the explanation above stays at a readable measure. Purging is
+  deliberately not in the UI
+  ([decisions.md](../decisions.md#no-purge-in-the-dashboard)); use
+  `./a51 purge`.
 
 ## Untrusted content
 

@@ -1689,15 +1689,25 @@ button.row-icon.copy-link.copied { color: var(--green); }
   border: 1px solid var(--red-edge);
 }
 
-/* ===== Blacklist (Settings) ===== */
+/* ===== Blacklist cards ===== */
 
+/* The Blacklists page. Full width, because the window is full width and there
+   is nothing else competing for it.
+
+   `auto-fit` with a 380px floor rather than a hard `1fr 1fr`: the two cards
+   share the row as equal halves at any usable width, and drop to stacked when
+   the window is too narrow for both to hold an address without wrapping. */
 .blacklist-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 16px;
+  align-items: start;
 }
 
 .blacklist-card {
+  background: var(--n1);
+  border: 1px solid var(--n2);
+  border-radius: 7px;
   padding: 16px 18px 18px;
   display: flex;
   flex-direction: column;
@@ -1758,13 +1768,19 @@ button.row-icon.copy-link.copied { color: var(--green); }
   border-top: 1px dashed var(--n2);
 }
 
+/* The entries flow into columns rather than one tall thin list. An IP is about
+   fifteen characters, so a half-width card given one column is mostly empty
+   space with a scrollbar down the middle. `columns` fills the card it is given
+   and needs no breakpoint to decide how many fit. */
 .blacklist-card .bl-list {
   list-style: none;
   margin: 0;
   padding: 0;
   border-top: 1px solid var(--n2);
-  max-height: 280px;
+  max-height: 420px;
   overflow-y: auto;
+  columns: 260px auto;
+  column-gap: 22px;
 }
 
 .blacklist-card .bl-list li {
@@ -1773,8 +1789,8 @@ button.row-icon.copy-link.copied { color: var(--green); }
   gap: 12px;
   padding: 10px 4px 10px 6px;
   border-bottom: 1px solid var(--n2);
+  break-inside: avoid;
 }
-.blacklist-card .bl-list li:last-child { border-bottom: none; }
 
 .blacklist-card .bl-val {
   flex: 1;
@@ -1994,48 +2010,46 @@ button.row-icon.copy-link.copied { color: var(--green); }
   margin-top: 8px;
 }
 
-/* ===== Settings tab ===== */
+/* ===== Blacklists tab ===== */
 
-.settings {
-  max-width: 880px;
-  margin: 0;
-  padding: 40px 36px 96px;
+.blacklists {
+  padding: 34px 28px 96px;
 }
 
-.settings-section {
-  margin-bottom: 36px;
+/* Prose stays at a readable measure. Only the lists take the width. */
+.bl-intro {
+  max-width: 760px;
+  margin-bottom: 26px;
 }
 
-.settings-section h2 {
+.bl-intro h2 {
   font-family: var(--mono);
   font-size: 13px;
   font-weight: 600;
   color: var(--s2);
-  margin: 0 0 6px;
+  margin: 0 0 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
-.settings-section .desc {
+.bl-intro p {
   font-size: 13.5px;
   color: var(--n4);
-  margin-bottom: 18px;
-  max-width: 620px;
   line-height: 1.65;
+  margin: 0 0 10px;
 }
 
-.settings-card {
-  background: var(--n1);
-  border: 1px solid var(--n2);
-  border-radius: 7px;
-  padding: 22px;
-}
-
-.settings-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 16px;
-  align-items: end;
+/* The one thing on this page that bites if you miss it, so it is not left in
+   the middle of a paragraph. */
+.bl-note {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--yellow);
+  background: var(--yellow-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--s0);
 }
 
 .empty-banner {

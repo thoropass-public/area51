@@ -286,7 +286,7 @@ Full surface: [internals/autopilot](../internals/autopilot.md).
 ## Keep the noise down
 
 A public hostname attracts scanners within hours of its certificate appearing in
-the transparency logs. Two filters handle it, managed under **Settings** or
+the transparency logs. Two filters handle it, managed under **Blacklists** or
 added in one click from the capture itself: a request's **Remote IP** row and an
 email's **From** row each carry a *blacklist* button, which is usually how you
 will reach for them.

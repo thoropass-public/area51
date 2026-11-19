@@ -128,11 +128,16 @@ schema, domain bindings and the Access policy.
    endpoint serves a file but can never read, replace, or delete that object.
    The 60-minute read window is enforced in D1, never trusted from the caller.
 
-   Two rules follow from the fence and are enforced by the dashboard, not by
-   Autopilot: an endpoint under `/-/` **cannot be archived**, and the cleanup
-   worker **deletes every one of them** on the `CLEANUP_AUTOPILOT_PURGE`
-   schedule, uploaded files included. Nothing under the prefix is long-lived
-   storage.
+   Three rules follow from the fence. Two are enforced by the dashboard, not by
+   Autopilot: an endpoint under `/-/` **cannot be archived**, and the dashboard
+   **never creates one there** — *New endpoint* is offered on the Endpoints
+   scope only and the modal refuses the prefix, because typing a path is not a
+   reasonable way to opt into agent ownership plus scheduled deletion.
+   Renaming an existing endpoint in is still allowed, and asks first; that is
+   also how a file-backed payload reaches a `/-/` path. The third is the
+   cleanup worker, which **deletes every one of them** on the
+   `CLEANUP_AUTOPILOT_PURGE` schedule, uploaded files included. Nothing under
+   the prefix is long-lived storage.
 
 4. **All-or-nothing email capture.** A captured email means both the R2 `.eml`
    object and the D1 row exist. On any failure, both are rolled back and the

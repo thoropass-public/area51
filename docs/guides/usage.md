@@ -229,6 +229,12 @@ For real binaries: an archive, a compiled artifact, a PDF, a font, a signed
 blob, an image with something appended. Open **Endpoints → + New endpoint**, set the path,
 drop the file on **Serve a file** (or click it to browse), and press **Create**.
 
+The path cannot be under `/-/`: that is Autopilot's namespace, the monthly
+cleanup empties it, and the dashboard will not create there. When an agent has
+asked you for a file at a specific `/-/` path, create it anywhere else first and
+then rename it in — the file moves with the rename, and the confirmation you get
+is the one explaining what the prefix means.
+
 - Served **inline** with the file's own detected content type and no
   `Content-Disposition`, because a hosted payload has to be fetched and executed
   by the target rather than downloaded.

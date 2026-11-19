@@ -1608,6 +1608,13 @@ button.row-icon.copy-link.copied { color: var(--green); }
   margin-top: 7px;
 }
 
+/* The helper line doubles as the field's error, rather than a second line
+   appearing under it and shifting everything below. The field is only ever
+   wrong for one reason, so there is nothing to disambiguate. */
+.helper-error { color: var(--red); }
+
+.field input[aria-invalid="true"] { border-color: var(--red-edge); }
+
 /* Detail panels in read-only modals */
 .detail-grid {
   display: grid;

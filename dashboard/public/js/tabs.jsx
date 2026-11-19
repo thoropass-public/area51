@@ -216,8 +216,20 @@ function ScopeSwitch({ scope, setScope }) {
 
 // Autopilot's fence, mirrored from the worker. Every endpoint an agent can
 // create, read or delete lives under this prefix, and the worker enforces it
-// server-side. This copy decides only what the modal offers: an endpoint under
-// the prefix cannot be archived, so the button is not rendered for one.
+// server-side. This copy decides three things on this side of the fence, all
+// of them about what the interface offers rather than what is permitted:
+//
+//   * an endpoint under the prefix cannot be archived, so that button is not
+//     rendered for one;
+//   * a NEW endpoint cannot be created under it at all, so the field refuses
+//     the path as it is typed and `+ New endpoint` is absent from the
+//     Autopilot scope entirely;
+//   * renaming an existing one INTO it is allowed, and confirmed first.
+//
+// The asymmetry between the last two is the whole point. Everything under the
+// prefix is agent-owned and is deleted wholesale on the cleanup schedule;
+// typing a path into a text box is not a way to agree to that, and choosing to
+// move an endpoint you already have is.
 const AUTOPILOT_PREFIX = "/-/";
 
 const isAutopilotUri = (uri) => String(uri || "").startsWith(AUTOPILOT_PREFIX);
@@ -241,6 +253,7 @@ function EndpointsTab() {
   // because of something you did last week is a dashboard that lies about what
   // is being served.
   const [scope, setScope] = useState("live");
+  const live = scope === "live";
   const archived = scope === "archived";
   const autopilot = scope === "autopilot";
 
@@ -335,18 +348,15 @@ function EndpointsTab() {
         }
         leftToolbar={<ScopeSwitch scope={scope} setScope={setScope}/>}
         rightToolbar={
-          /* Hidden in the Archive, because creating one there would put it
-             straight into the list you are not looking at. Shown in Autopilot,
-             because creating an endpoint under `/-/` by hand is a REAL
-             workflow, not an edge case: a file-backed payload can only be
-             uploaded by a person, so Autopilot's own instructions tell agents
-             to ask an operator to make one right here. The URI is prefilled
-             with the prefix when that is the list you are on. */
-          !archived && (
-            <button
-              className="btn primary"
-              onClick={() => setModal({ mode: "new", initialUri: autopilot ? AUTOPILOT_PREFIX : "" })}
-            >
+          /* Only on Endpoints, the one list a dashboard-made endpoint can join.
+             In the Archive it would file the row into a list you are not
+             looking at. In Autopilot it would offer to create something the
+             modal then refuses: `/-/` is the agents' namespace and the
+             dashboard does not create there (see `save` in EndpointModal). A
+             button that opens a form you cannot submit is worse than no
+             button. */
+          live && (
+            <button className="btn primary" onClick={() => setModal({ mode: "new" })}>
               <span className="plus">+</span> New endpoint
             </button>
           )
@@ -365,7 +375,6 @@ function EndpointsTab() {
         <EndpointModal
           mode={modal.mode}
           uri={modal.uri}
-          initialUri={modal.initialUri}
           onClose={() => { setModal(null); setActiveId(null); }}
           onSaved={handleSaved}
           onDelete={handleDelete}
@@ -430,7 +439,7 @@ function EndpointRow({ row, active, matches, onOpen }) {
 // browser. The upload handler re-checks it against Content-Length.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
-function EndpointModal({ mode, uri, initialUri, onClose, onSaved, onDelete }) {
+function EndpointModal({ mode, uri, onClose, onSaved, onDelete }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(mode === "edit");
@@ -438,10 +447,7 @@ function EndpointModal({ mode, uri, initialUri, onClose, onSaved, onDelete }) {
   // `form.uri` is editable in edit mode now, so the path the row is stored
   // under has to be held separately: every write targets `uri` (the prop, the
   // row as it exists) and may MOVE it to form.uri.
-  // `initialUri` only seeds a NEW endpoint, and only ever with the Autopilot
-  // prefix: it saves the operator retyping `/-/` when they are already looking
-  // at that list. Edit mode overwrites the whole form from the server below.
-  const [form, setForm] = useState({ uri: initialUri || "", status: 200, headers: "Content-Type: text/plain", body: "", archived: false });
+  const [form, setForm] = useState({ uri: "", status: 200, headers: "Content-Type: text/plain", body: "", archived: false });
   // An endpoint is EITHER text-backed or file-backed, never both: a hosted file
   // can't be mixed with a hand-written body or a chosen status. `file` is a
   // picked-but-not-yet-uploaded File; `savedFile` is what the row already serves
@@ -482,6 +488,10 @@ function EndpointModal({ mode, uri, initialUri, onClose, onSaved, onDelete }) {
   // the same treatment file mode gets. A grayed-out field still invites a
   // click, and the server refuses the write anyway.
   const frozen = mode === "edit" && form.archived;
+  // The one path a new endpoint may not take. Checked as you type AND again in
+  // `save`, from this same expression, so the field and the Save button can
+  // never disagree about what is allowed.
+  const newIntoPrefix = mode === "new" && isAutopilotUri(form.uri.trim());
 
   const pickFile = (f) => {
     if (!f) return;
@@ -521,6 +531,27 @@ function EndpointModal({ mode, uri, initialUri, onClose, onSaved, onDelete }) {
     const targetUri = form.uri.trim();
     if (!targetUri) { toast("URI is required", "error"); return; }
     if (!targetUri.startsWith("/")) { toast("URI must start with /", "error"); return; }
+
+    // `/-/` is Autopilot's namespace, and the dashboard does not CREATE in it.
+    //
+    // The prefix is not a folder, it is a lifecycle. Everything under it is
+    // agent-owned (an agent can read, replace and delete it), it can never be
+    // archived, and the cleanup worker deletes every one of them on the
+    // CLEANUP_AUTOPILOT_PURGE schedule, uploaded files included. Typing a path
+    // into a text box is not a reasonable way to opt into that, and the
+    // operator who does it by accident loses the endpoint on a timer without
+    // ever having been told.
+    //
+    // Only `new` is refused. Renaming an EXISTING endpoint into the prefix is
+    // still allowed, and still asks first (below): that path is deliberate by
+    // construction — you already have the thing, and you are choosing to hand
+    // it over. It is also how a file-backed payload gets to a `/-/` path now,
+    // since an upload is a human step: create it outside the prefix, then move
+    // it in.
+    if (newIntoPrefix) {
+      toast(`${AUTOPILOT_PREFIX} is Autopilot's namespace. Create it elsewhere, then rename it in.`, "error");
+      return;
+    }
 
     // A rename is its own write, and it goes FIRST: if the name is taken the
     // server answers 409 and nothing has been changed yet, so the modal is
@@ -595,14 +626,17 @@ function EndpointModal({ mode, uri, initialUri, onClose, onSaved, onDelete }) {
                   onChange={(e) => update("uri", e.target.value)}
                   autoFocus={mode === "new"}
                   spellCheck={false}
+                  aria-invalid={newIntoPrefix || undefined}
                 />
               )}
-              <div className="helper">
-                {frozen
-                  ? "Archived. This path is not served. Unarchive it to make any change."
-                  : mode === "edit" && form.uri.trim() !== uri
-                    ? <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>
-                    : "Path the black hole will serve. Must start with /"}
+              <div className={`helper${newIntoPrefix ? " helper-error" : ""}`}>
+                {newIntoPrefix
+                  ? <>{AUTOPILOT_PREFIX} is Autopilot's namespace: agents own what lives there and the cleanup run deletes all of it on a schedule. Create this elsewhere, then rename it in if you really mean to hand it over.</>
+                  : frozen
+                    ? "Archived. This path is not served. Unarchive it to make any change."
+                    : mode === "edit" && form.uri.trim() !== uri
+                      ? <>Renaming <span style={{fontFamily:"var(--mono)"}}>{uri}</span>. The old path stops serving.</>
+                      : "Path the black hole will serve. Must start with /"}
               </div>
             </div>
 
@@ -704,7 +738,7 @@ function EndpointModal({ mode, uri, initialUri, onClose, onSaved, onDelete }) {
         <div className="spacer"/>
         <button className="btn ghost" onClick={onClose}>{frozen ? "Close" : "Cancel"}</button>
         {!frozen && (
-          <button className="btn primary" onClick={save} disabled={saving || loading}>
+          <button className="btn primary" onClick={save} disabled={saving || loading || newIntoPrefix}>
             {saving
               ? <><span className="spinner"/> {file ? "uploading" : "saving"}</>
               : (mode === "new" ? "Create" : "Save changes")}

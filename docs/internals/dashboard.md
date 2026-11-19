@@ -198,8 +198,8 @@ box, so the row reads coarse to fine: which list, narrow it, act on it.
 
 | Scope | Rows | *New endpoint* |
 |---|---|---|
-| **Endpoints** | being served, `uri NOT LIKE '/-/%'` | creates an ordinary endpoint |
-| **Autopilot** | agent-staged, `uri LIKE '/-/%'` | shown, with the URI prefilled `/-/` |
+| **Endpoints** | being served, `uri NOT LIKE '/-/%'` | shown |
+| **Autopilot** | agent-staged, `uri LIKE '/-/%'` | hidden |
 | **Archive** | `archived = 1` | hidden |
 
 `{n} loaded` counts the rows on screen, so it is a count of the scope you are
@@ -214,11 +214,27 @@ combination; the only honest answer to it is an empty list with nothing on
 screen explaining why it must be empty. A three-position switch cannot be asked
 the question.
 
-*New endpoint* is hidden in the Archive, since creating one there would file it
-straight into the list you are not looking at. It stays in **Autopilot**,
-because making a `/-/` endpoint by hand is a real workflow rather than an edge
-case: a file-backed payload can only be uploaded by a person, and Autopilot's
-own instructions send agents here to ask for one.
+*New endpoint* appears on **Endpoints** only, because that is the only list a
+dashboard-made endpoint can join. In the Archive it would file the row into the
+list you are not looking at. In Autopilot it would open a form the modal then
+refuses, and a button that opens a form you cannot submit is worse than no
+button.
+
+**The dashboard does not create under `/-/`.** The modal refuses it as you
+type: the helper line under the URI turns into the reason, the field borders
+red and *Create* is disabled, with the same check repeated in `save()` so the
+field and the button cannot disagree. The prefix is not a folder, it is a
+lifecycle — everything under it is agent-owned, can never be archived, and is
+deleted wholesale on the `CLEANUP_AUTOPILOT_PURGE` schedule — and typing a path
+into a text box is not a reasonable way to opt into that.
+
+**Renaming into `/-/` is still allowed**, and still asks first. That path is
+deliberate by construction: you already have the endpoint and you are choosing
+to hand it over. It is also how a file-backed payload reaches a `/-/` path,
+since an upload is a human step and Autopilot has no `FILES` binding — create
+it outside the prefix with its file, then rename it in. The file moves with the
+rename, because nothing but the row is keyed by the URI. Autopilot's own
+instructions walk an operator through those two steps.
 
 The `/-/` exclusion happens in SQL rather than the browser, and the reason is
 paging. `/-/` sorts first under `ORDER BY uri ASC`, because `-` is 0x2D and sits

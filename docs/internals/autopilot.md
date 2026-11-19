@@ -160,10 +160,17 @@ Agents cannot upload files; that stays a human action in the dashboard. But an
 agent that only learns *"uploads are refused"* quietly routes around the feature
 or stalls. So the preamble leads with the **capability** (the platform can serve
 an arbitrary uploaded file from a black hole URL) and then gives the request
-protocol: ask the operator for a specific `/-/` path, name the file, point them at
-**Endpoints → + New endpoint → drop the file on "Serve a file" → Create**, have
-them confirm the path,
-then hand out `https://<domain><path>`.
+protocol: ask the operator for a specific `/-/` path, name the file, walk them
+through it, have them confirm the path, then hand out `https://<domain><path>`.
+
+The walkthrough is two steps rather than one, because **the dashboard does not
+create endpoints under `/-/`** — the prefix is deleted on a schedule, so nothing
+lands in it by typing a path. The operator creates the endpoint with its file at
+any path outside the prefix, then renames it in, confirming the prompt that says
+what handing it to Autopilot means. The file moves with the rename. The preamble
+spells both steps out, including that the confirmation is expected rather than an
+error, because an agent that reports a dialog as a failure stalls the engagement
+just as surely as one that never asks.
 
 Three facts are repeated across the preamble and the tool descriptions because
 each has its own silent failure mode:

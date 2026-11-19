@@ -17,6 +17,7 @@ column and the shape of one CLI command. Budget five minutes.
 | `.env` | `BLACK_HOLE_ROLES` | gone, and ignored if left in the file |
 | Home orbit chips | address + an `http · mail` label | address only |
 | Endpoints toolbar | an **Archive** toggle, plus a `:autopilot:` search term nothing advertised | one scope switch: **Endpoints · Autopilot · Archive** |
+| Creating under `/-/` | allowed from the dashboard | refused; create outside the prefix and rename in |
 
 A black hole is now a whole Cloudflare zone that always captures both HTTP and
 mail, so there is nothing left to record per host and nothing to choose when

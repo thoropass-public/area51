@@ -2016,10 +2016,23 @@ button.row-icon.copy-link.copied { color: var(--green); }
   padding: 34px 28px 96px;
 }
 
-/* Prose stays at a readable measure. Only the lists take the width. */
+/* The header sits on the same grid as the cards below it, so the explanation
+   lands over the IP list and the warning over the senders list. Two columns
+   that line up with the two beneath them read as a layout; one narrow block of
+   prose with the other half of the band empty reads as something unfinished.
+
+   Prose still does not take the full width, it just no longer leaves a hole
+   where the width used to be. */
 .bl-intro {
-  max-width: 760px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 16px;
+  align-items: start;
   margin-bottom: 26px;
+}
+
+.bl-intro-text {
+  max-width: 72ch;
 }
 
 .bl-intro h2 {
@@ -2038,18 +2051,30 @@ button.row-icon.copy-link.copied { color: var(--green); }
   line-height: 1.65;
   margin: 0 0 10px;
 }
+.bl-intro p:last-child { margin-bottom: 0; }
 
 /* The one thing on this page that bites if you miss it, so it is not left in
    the middle of a paragraph. */
 .bl-note {
-  margin-top: 14px;
-  padding: 10px 14px;
+  padding: 14px 16px;
   border-left: 2px solid var(--yellow);
   background: var(--yellow-soft);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   font-size: 13px;
   line-height: 1.6;
   color: var(--s0);
+  max-width: 72ch;
+}
+
+.bl-note-title {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--yellow);
+  margin-bottom: 6px;
 }
 
 .empty-banner {

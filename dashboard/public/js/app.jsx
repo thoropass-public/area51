@@ -279,15 +279,18 @@ function Blacklists() {
     <div className="content">
       <div className="blacklists">
         <div className="bl-intro">
-          <h2>Blacklists</h2>
-          <p>
-            Incoming entries are checked against these lists before anything is stored. A match is <b>actively refused, not silently dropped</b>: a blacklisted IP gets <code>403</code>, and a blacklisted sender is rejected at SMTP, so their own server generates the bounce.
-          </p>
-          <p>
-            Nothing reaches the database either way, though the worker logs the rejection as <code>http_rejected_blacklist</code> or <code>email_rejected_blacklist</code>. Rows captured before you added an entry are untouched. Purge them separately if you want them gone.
-          </p>
+          <div className="bl-intro-text">
+            <h2>Blacklists</h2>
+            <p>
+              Incoming entries are checked against these lists before anything is stored. A match is <b>actively refused, not silently dropped</b>: a blacklisted IP gets <code>403</code>, and a blacklisted sender is rejected at SMTP, so their own server generates the bounce.
+            </p>
+            <p>
+              Nothing reaches the database either way, though the worker logs the rejection as <code>http_rejected_blacklist</code> or <code>email_rejected_blacklist</code>. Rows captured before you added an entry are untouched. Purge them separately if you want them gone.
+            </p>
+          </div>
           <div className="bl-note">
-            Changes take up to <b>60 minutes</b> to propagate, additions and removals alike. That is the edge cache TTL, not a queue you can hurry.
+            <span className="bl-note-title">Give it an hour</span>
+            Changes take up to <b>60 minutes</b> to propagate, additions and removals alike. That is the edge cache TTL, not a queue you can hurry. It applies the same way when you remove an entry, so an IP you just unblocked can keep getting <code>403</code> for a while.
           </div>
         </div>
         <div className="blacklist-grid">

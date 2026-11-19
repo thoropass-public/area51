@@ -76,7 +76,12 @@ export async function run(args) {
 
   // ── configuration ─────────────────────────────────────────────────────────
   section('Configuration');
-  const required = ['CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'D1_DATABASE_NAME', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'WORKER_NAME', 'AGENT_WORKER_NAME', 'CLEANUP_WORKER_NAME', 'DASHBOARD_WORKER_NAME', 'DASHBOARD_HOSTNAME', 'AUTOPILOT_HOSTNAME'];
+  // BLACK_HOLE_HOSTNAME is required alongside the other two hostnames, and it
+  // earns its place twice: it is what `./a51 setup` converges the primary black
+  // hole onto, and it is the only record of WHICH black hole is primary, which
+  // is what `./a51 black-holes remove` refuses. Blank, and the guard has nothing
+  // to compare against and will take any host.
+  const required = ['CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'D1_DATABASE_NAME', 'R2_BUCKET_NAME', 'R2_FILES_BUCKET_NAME', 'WORKER_NAME', 'AGENT_WORKER_NAME', 'CLEANUP_WORKER_NAME', 'DASHBOARD_WORKER_NAME', 'BLACK_HOLE_HOSTNAME', 'DASHBOARD_HOSTNAME', 'AUTOPILOT_HOSTNAME'];
   const missing = required.filter((k) => !env[k]);
   if (missing.length) r.fail(`.env is missing ${missing.join(', ')}`, 'Run `./a51 setup`. It fills these in as it provisions.');
   else r.ok('.env has every value the deploy needs');
@@ -220,6 +225,37 @@ export async function run(args) {
       r.fail(`could not read the domains table: ${err.message}`, 'Check the D1 binding and the token\'s D1:Edit permission.');
     }
     if (!blackHoles.length) r.warn('the domains table is empty, so the dashboard shows no hosts and agents cannot build callback URLs', 'Run `./a51 black-holes add <zone>`.');
+  }
+
+  // The primary black hole is the zone this deployment runs on: .env names it,
+  // the dashboard and Autopilot are subdomains of it, and `black-holes remove`
+  // refuses it. None of that puts a row in the table, so a table that has rows
+  // but not THAT one is worth a failure rather than silence — it means the
+  // dashboard lists black holes while omitting the one every operator reaches
+  // AREA 51 through.
+  //
+  // Only checked once the table has rows. An empty table is already reported
+  // above, and saying it twice helps nobody.
+  const primaryHost = String(env.BLACK_HOLE_HOSTNAME || '').trim().toLowerCase();
+  const hasPrimary = blackHoles.some((row) => String(row.domain).trim().toLowerCase() === primaryHost);
+  if (primaryHost && blackHoles.length && !hasPrimary) {
+    if (fix) {
+      // Added to the list on success, so the checks below — binding, Email
+      // Routing, the live probe — cover it in this same run rather than only in
+      // the next one. `ensureBlackHole` has just written the row it reads.
+      const repaired = await repair(r, `could not add the primary black hole ${env.BLACK_HOLE_HOSTNAME}`,
+        () => ensureBlackHole(cf, accountId, { hostname: env.BLACK_HOLE_HOSTNAME, workerName: env.WORKER_NAME, databaseId: env.D1_DATABASE_ID, followUps }),
+        `${env.BLACK_HOLE_HOSTNAME}: re-added as the primary black hole`);
+      if (repaired) {
+        blackHoles = [...blackHoles, { domain: env.BLACK_HOLE_HOSTNAME }]
+          .sort((a, b) => String(a.domain).localeCompare(String(b.domain)));
+      }
+    } else {
+      r.fail(
+        `${env.BLACK_HOLE_HOSTNAME} is the primary black hole but has no row in the domains table`,
+        `It is the zone AREA 51 runs on, so the dashboard and Autopilot do not list the host they are reached through. Run \`./a51 doctor --fix\`, or \`./a51 black-holes add ${env.BLACK_HOLE_HOSTNAME}\`.`,
+      );
+    }
   }
 
   let workerDomains = [];

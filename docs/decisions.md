@@ -428,6 +428,59 @@ each as a leftover and `black-holes remove` still takes them out, offering that
 one name's Email Routing entry with it. See
 [upgrading](guides/upgrading.md).
 
+## The primary black hole cannot be removed
+
+Every black hole is the same kind of thing, but one of them is where AREA 51
+itself lives: the zone `./a51 setup` deployed onto. `area51.<zone>` serves the
+dashboard, `autopilot.<zone>` serves Autopilot, and the zone-scoped Email Routing
+catch-all that makes this deployment capture mail anywhere is attached to that
+apex. `./a51 black-holes remove` refuses it, with no override flag.
+
+The usual argument for a guard is that the operation is dangerous. This one is
+stronger: the operation does not work. `BLACK_HOLE_HOSTNAME` in `.env` still
+names the host afterwards, and `./a51 setup` is the documented way to converge a
+deployment after almost any change — so the next routine run binds the apex and
+re-inserts the row. `./a51 doctor --fix` does the same. A command whose effect
+the next ordinary command silently undoes is worse than one that refuses,
+because the operator believes something happened.
+
+The second half is that it would not even be a teardown. Removing the apex row
+and its Custom Domain stops HTTP capture on one hostname and leaves the
+dashboard, Autopilot and the zone catch-all exactly where they were. That is not
+"this zone is no longer a black hole", it is an inconsistency between `.env` and
+Cloudflare that `doctor` then reports.
+
+So the refusal names the two things an operator might actually have meant, since
+both are supported and neither is this command. **Moving** AREA 51 to another
+zone is a `.env` edit (`CLOUDFLARE_ZONE`, `BLACK_HOLE_HOSTNAME`,
+`DASHBOARD_HOSTNAME`, `AUTOPILOT_HOSTNAME`) plus `./a51 setup`, which already
+warns when the black hole moves and names the command that clears the old one;
+afterwards the old apex is an ordinary black hole and `remove` takes it.
+**Tearing down** is `./a51 destroy`, which asks about Email Routing, the workers
+and the data properly. `destroy` is unaffected by the guard because it tears
+down directly rather than calling this command.
+
+**Where "primary" is stored: `.env`, and nowhere else.** The obvious
+alternative — an `is_primary` column on `domains` — is wrong twice over. The
+table was *just* reduced to one column, and a second per-host flag would
+reintroduce exactly the thing that removal was about. More fundamentally,
+primary is a property of **this deployment**, not of the zone: the same apex
+would be an ordinary black hole in somebody else's. `.env` already records it,
+because `setup` writes `BLACK_HOLE_HOSTNAME` there and derives both other
+hostnames from the same answer, which keeps it consistent with
+[`.env` is the only state](#env-is-the-only-state-and-the-cli-writes-to-it).
+
+What this costs: the comparison is a string match against `.env`, so a
+deployment whose `.env` is missing or whose `BLACK_HOLE_HOSTNAME` is blank has no
+primary to protect and `remove` will take any host. That is the right failure
+direction — a tool that cannot tell which host is load-bearing should not invent
+one — and `doctor` reports a missing `BLACK_HOLE_HOSTNAME` separately.
+
+`doctor` carries the other half of the rule: a `domains` table that has rows but
+not the primary's is a failure, not silence, because it means the dashboard lists
+black holes while omitting the one every operator reaches AREA 51 through.
+`--fix` re-adds it.
+
 ## Taking a zone over is confirmed, and typed when the zone is in use
 
 Because mail is no longer opt-in, `setup` states what taking a zone over means

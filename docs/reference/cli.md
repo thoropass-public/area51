@@ -155,7 +155,8 @@ The acceptance test. It works through six sections in this order, then probes:
    Cleanup must *not*. A `FILES` binding on either is a failure, because it would
    let them reach the uploads bucket ([invariant 3](../../CLAUDE.md)).
 4. **Black holes**: every one's Custom Domain and mail catch-all, **plus MX
-   records of its own for any subdomain that captures mail**.
+   records of its own for any subdomain that captures mail**, and that the
+   primary (`BLACK_HOLE_HOSTNAME`) is actually in the table.
 5. **Dashboard**: that `DASHBOARD_HOSTNAME` is a Custom Domain on the dashboard
    worker. Its bindings were covered in step 3, with the other three.
 6. **Access control**: the operator list and whether Cloudflare Access enforces
@@ -198,6 +199,14 @@ at every address
 
 The D1 table is still called `domains`. Only the command was renamed.
 
+**One of them is primary**: the zone `./a51 setup` deployed onto, named by
+`BLACK_HOLE_HOSTNAME` in `.env`. `area51.<zone>` and `autopilot.<zone>` are
+subdomains of it and the zone-wide catch-all that makes this deployment capture
+mail is attached to it, so `remove` refuses it
+([why](../decisions.md#the-primary-black-hole-cannot-be-removed)). Every other
+black hole is secondary: catcher only, and removable. The distinction lives in
+`.env` and nowhere else — the `domains` table stays one column.
+
 ### add
 
 **Takes a zone apex and nothing else.** A subdomain is refused, with a pointer to
@@ -223,9 +232,17 @@ DNS and the certificate take a minute.
 
 ### remove and list
 
-`remove` works in this order — Cloudflare state first, the D1 row last — so a run
-that dies halfway leaves a black hole that still reports itself rather than
-bindings with nothing naming them:
+**`remove` refuses the primary black hole**, before it touches anything. There is
+no flag to override it. Removing it would leave the dashboard, Autopilot and the
+zone catch-all exactly where they were, and would not even stick: `.env` still
+names the host, so the next `./a51 setup` or `./a51 doctor --fix` puts it back.
+The refusal names the two things an operator might have meant instead — moving
+AREA 51 to another zone (edit `.env`, re-run `setup`, after which the old apex is
+an ordinary black hole this command will take) or `./a51 destroy`.
+
+For any other host, `remove` works in this order — Cloudflare state first, the D1
+row last — so a run that dies halfway leaves a black hole that still reports
+itself rather than bindings with nothing naming them:
 
 1. **Mail subdomains on the zone are found and offered up.** Any subdomain
    enabled for Email Routing has its own locked MX records, and the only reason
@@ -246,8 +263,8 @@ Removing a **subdomain** row left over from an older deployment works too, and
 offers to take that one name's Email Routing entry and MX records with it.
 Nothing creates such rows any more; `./a51 doctor` reports one if it finds it.
 
-`list` shows each black hole and flags any that is in the table but not actually
-bound.
+`list` shows each black hole, marks the primary, and flags any that is in the
+table but not actually bound. `./a51 status` marks it too.
 
 ## users
 

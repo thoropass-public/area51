@@ -60,11 +60,38 @@ record is deleted, and the catcher is bound in its place.
 The zone must be on the Cloudflare account the API token can see. DNS and the
 certificate take a minute or two.
 
+### Primary and secondary
+
+The zone you ran `./a51 setup` on is the **primary** black hole. It is a black
+hole like any other — apex bound to the catcher, zone catch-all, a row in the
+table — but AREA 51 itself lives on it: `area51.<zone>` is the dashboard,
+`autopilot.<zone>` is Autopilot, and the zone-wide catch-all attached to it is
+what makes this deployment capture mail at all.
+
+Every zone you add afterwards is **secondary**: a catcher and nothing else.
+
+`./a51 black-holes list` and `./a51 status` mark which is which, and the
+difference shows up in exactly one place beyond that — **the primary cannot be
+removed**:
+
+```
+$ ./a51 black-holes remove my-zone.tld
+my-zone.tld is the primary black hole and cannot be removed.
+```
+
+It is read from `BLACK_HOLE_HOSTNAME` in `.env`, not from a column in the table.
+To move AREA 51 onto a different zone, point `.env` at it
+(`CLOUDFLARE_ZONE`, `BLACK_HOLE_HOSTNAME`, `DASHBOARD_HOSTNAME`,
+`AUTOPILOT_HOSTNAME`) and re-run `./a51 setup`; the old apex becomes an ordinary
+black hole and `remove` will take it. To tear everything down, use
+`./a51 destroy`.
+
 ### Removing
 
-`remove` works in this order, Cloudflare state first and the D1 row last, so a
-run that dies halfway leaves a black hole that still reports itself rather than
-bindings with nothing naming them:
+`remove` refuses the primary. For any other host it works in this order,
+Cloudflare state first and the D1 row last, so a run that dies halfway leaves a
+black hole that still reports itself rather than bindings with nothing naming
+them:
 
 1. **Mail subdomains on the zone are found and offered up.** Any subdomain
    enabled for Email Routing has locked MX records of its own, and the only

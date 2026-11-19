@@ -24,6 +24,12 @@
 //
 // See docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles.
 //
+// One black hole is not like the others: the zone `./a51 setup` deployed onto.
+// The dashboard and Autopilot answer on subdomains of it, and its zone-wide
+// catch-all is what makes this deployment capture mail at all, so `remove`
+// refuses it outright. Which one that is comes from .env, not from the table;
+// see `primaryHost` below.
+//
 // The D1 table is still called `domains`; only the command was renamed. Renaming
 // the table would mean a migration plus edits in all four workers and the
 // dashboard frontend, for nothing an operator can see.
@@ -33,7 +39,7 @@ import { step, ok, warn, skip, plain, heading, color, resetSteps, die, info, tab
 import { confirm, typeToConfirm, closePrompts } from '../lib/prompt.mjs';
 import { ensureBlackHole, inspectZoneTakeover, describeTakeover } from '../lib/provision.mjs';
 
-const USAGE = './a51 black-holes [list | add <host> | remove <host>]';
+const USAGE = './a51 black-holes [list | add <zone> | remove <host>]';
 
 export async function run(args) {
   const positional = args.filter((a) => !a.startsWith('--'));
@@ -48,6 +54,36 @@ export async function run(args) {
 
   die(`unknown action "${action}".\n  Usage: ${USAGE}`);
   return 1;
+}
+
+/**
+ * The primary black hole: the zone this deployment was set up on.
+ *
+ * Read from .env rather than recorded per host, and deliberately so. The
+ * `domains` table is one column (CLAUDE.md invariant 10) and the last thing it
+ * needs is a second per-host flag a month after `roles` was removed from it.
+ * .env already names this one — `setup` writes BLACK_HOLE_HOSTNAME there and
+ * derives DASHBOARD_HOSTNAME and AUTOPILOT_HOSTNAME from the same answer — so
+ * the fact is already stored, once, in the place CLAUDE.md invariant 9 keeps
+ * deployment state.
+ *
+ * It is also the honest shape. Primary is a property of THIS deployment, not of
+ * the zone: the same apex would be an ordinary black hole in somebody else's.
+ * A column would claim otherwise, and would have to be kept in step with .env
+ * by hand.
+ *
+ * Lowercased because hostnames are case-insensitive and this is compared
+ * against whatever an operator typed on the command line. Empty when .env has
+ * no BLACK_HOLE_HOSTNAME, which means there is nothing to protect yet.
+ */
+function primaryHost(env) {
+  return String(env.BLACK_HOLE_HOSTNAME || '').trim().toLowerCase();
+}
+
+/** Whether `hostname` as typed is that primary. */
+function isPrimary(hostname, env) {
+  const primary = primaryHost(env);
+  return Boolean(primary) && String(hostname).trim().toLowerCase() === primary;
 }
 
 async function list(cf, accountId, env) {
@@ -77,20 +113,30 @@ async function list(cf, accountId, env) {
   // offered, which was worth the width only while hosts differed. Every row now
   // captures the same two things, so it is said once, below the table, instead
   // of once per row.
-  const out = [[color.dim('HOST'), color.dim('BOUND')]];
+  //
+  // The primary is marked rather than sorted to the top. The ordering is the
+  // table's, which is alphabetical and stable; a row that jumped the queue would
+  // make the list harder to scan to say something the mark already says.
+  const out = [[color.dim('HOST'), color.dim(''), color.dim('BOUND')]];
   let unbound = 0;
+  let primarySeen = false;
   for (const row of rows) {
     let state;
     if (!boundKnown) state = color.dim('?');
     else if (boundHosts.has(row.domain)) state = sym.ok;
     else { state = sym.fail; unbound += 1; }
-    out.push([color.cyan(row.domain), state]);
+    const primary = isPrimary(row.domain, env);
+    if (primary) primarySeen = true;
+    out.push([color.cyan(row.domain), primary ? color.dim('primary') : '', state]);
   }
 
   plain('');
   table(out);
   plain('');
   plain(color.dim('  Each one serves https://<host>/<any path> and captures <anything>@<host>.'));
+  if (primarySeen) {
+    plain(color.dim('  The primary is the zone AREA 51 is deployed on, and cannot be removed.'));
+  }
   plain('');
 
   if (unbound) {
@@ -333,8 +379,57 @@ async function removeLegacySubdomain(cf, zone, hostname) {
   }
 }
 
+/**
+ * The primary black hole cannot be removed, and the reason is not only that it
+ * would be unwise.
+ *
+ * It would not stick. BLACK_HOLE_HOSTNAME still names it afterwards, so the next
+ * `./a51 setup` — the documented way to converge a deployment, run after almost
+ * any change — binds it and re-inserts the row. `./a51 doctor --fix` does the
+ * same. A command whose effect the next routine command silently undoes is worse
+ * than one that refuses: the operator believes something happened.
+ *
+ * And the zone stays load-bearing regardless. The dashboard and Autopilot answer
+ * on subdomains of it, and the zone-scoped catch-all that makes mail capture work
+ * anywhere in this deployment is attached to it. Dropping the apex row and its
+ * Custom Domain would stop HTTP capture on one hostname while leaving every one
+ * of those in place: not a teardown, just an inconsistency.
+ *
+ * So the two things an operator might actually mean are named instead, because
+ * both are supported and neither is this command. Moving the deployment is a
+ * .env edit plus a converge, after which this host is an ordinary black hole and
+ * `remove` takes it. Tearing it down is `./a51 destroy`, which asks about Email
+ * Routing, the workers and the data properly.
+ */
+function assertNotPrimary(hostname, env) {
+  if (!isPrimary(hostname, env)) return;
+  die([
+    `${hostname} is the primary black hole and cannot be removed.`,
+    '',
+    '  It is the zone AREA 51 itself runs on:',
+    '',
+    `      ${env.DASHBOARD_HOSTNAME || `area51.${hostname}`} is the dashboard`,
+    `      ${env.AUTOPILOT_HOSTNAME || `autopilot.${hostname}`} is Autopilot`,
+    '',
+    '  Both are subdomains of it, and the zone-wide catch-all attached to it is',
+    '  what makes mail capture work here at all.',
+    '',
+    '  Removing it would also not stick: BLACK_HOLE_HOSTNAME in .env still names',
+    '  it, so the next `./a51 setup` or `./a51 doctor --fix` puts it straight back.',
+    '',
+    '  To move AREA 51 onto a different zone, point .env at it and converge:',
+    '    CLOUDFLARE_ZONE, BLACK_HOLE_HOSTNAME, DASHBOARD_HOSTNAME, AUTOPILOT_HOSTNAME',
+    '    ./a51 setup',
+    `  ${hostname} becomes an ordinary black hole then, and this command will take it.`,
+    '',
+    '  To tear the whole deployment down instead:',
+    '    ./a51 destroy',
+  ].join('\n'));
+}
+
 async function remove(cf, accountId, env, hostname) {
   if (!hostname) die('usage: ./a51 black-holes remove <host>');
+  assertNotPrimary(hostname, env);
 
   step(`Remove black hole ${hostname}`);
 

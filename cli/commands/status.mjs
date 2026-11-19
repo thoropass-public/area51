@@ -68,6 +68,10 @@ export async function run() {
  * One column, because the table has one column. Every black hole serves HTTP on
  * every path and captures mail at every address, so the surfaces are spelled out
  * once underneath rather than repeated, identically, on every row.
+ *
+ * The primary is marked. It is not a column in the table and must not become
+ * one: .env's BLACK_HOLE_HOSTNAME names the zone this deployment runs on, which
+ * is why `./a51 black-holes remove` refuses it.
  */
 async function printBlackHoles(cf, accountId, env) {
   if (!env.D1_DATABASE_ID) {
@@ -87,7 +91,11 @@ async function printBlackHoles(cf, accountId, env) {
     return;
   }
 
-  for (const row of rows) plain(`  ${color.cyan(row.domain)}`);
+  const primary = String(env.BLACK_HOLE_HOSTNAME || '').trim().toLowerCase();
+  for (const row of rows) {
+    const mark = primary && row.domain.trim().toLowerCase() === primary ? color.dim('  primary') : '';
+    plain(`  ${color.cyan(row.domain)}${mark}`);
+  }
   plain(`  ${color.dim('each serves https://<host>/<any path> and captures <anything>@<host>')}`);
 }
 

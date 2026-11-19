@@ -232,6 +232,17 @@ schema, domain bindings and the Access policy.
     before D1: a failure must leave a visible row, not an invisible binding. See
     [docs/decisions.md](docs/decisions.md#a-black-hole-is-a-whole-zone-and-has-no-roles).
 
+    **One black hole is primary** — the zone `setup` deployed onto, where the
+    dashboard and Autopilot live and where the zone catch-all hangs.
+    `black-holes remove` refuses it outright, with no override flag, because the
+    removal would not stick (`.env` still names it, so the next `setup` or
+    `doctor --fix` restores it) and would leave every other part of the
+    deployment in place. Keep that fact in `.env`'s `BLACK_HOLE_HOSTNAME` and
+    **never as a column**: the table is one column by the rule above, and primary
+    is a property of this deployment, not of the zone. `destroy` is unaffected —
+    it tears down directly rather than through that command. See
+    [docs/decisions.md](docs/decisions.md#the-primary-black-hole-cannot-be-removed).
+
 ## Provisioning specifics (the CLI)
 
 - Provisioning goes through the hand-written REST client
